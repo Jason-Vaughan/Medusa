@@ -1,7 +1,7 @@
 # 🤖 Medusa-MCP v0.6.9-beta
 ### **Autonomous AI-to-AI Coordination & Terminal Handoff Platform**
 
-<img src="project-assets/medusa-logo.svg" alt="Medusa Logo" width="150">
+<img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="150">
 
 ## **The Problem: The AI Silo Effect**
 Modern AI agents (Cursor, Windsurf, Claude Desktop) are brilliant but isolated. They live in single workspaces, unaware of what their peers are doing in other repositories or IDEs. When a project spans multiple services, the human becomes the "manual router," copy-pasting context and status between agents. This creates **fragmentation, context loss, and coordination debt.**

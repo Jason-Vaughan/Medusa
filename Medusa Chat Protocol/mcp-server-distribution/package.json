@@ -1,0 +1,52 @@
+{
+  "name": "mcp-server-distribution",
+  "version": "9.0.0",
+  "description": "Portable MCP Server for Google Sheets and Apps Script Integration",
+  "main": "simple-local-server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "./restart-mcp.sh",
+    "stop": "./restart-mcp.sh stop",
+    "test": "node test-mock-script.js",
+    "health": "curl -s http://localhost:3009/health | json_pp",
+    "web": "node server.js",
+    "mcp": "node simple-local-server.js",
+    "mcp-python": "cd mcp-server && source venv/bin/activate && python mcp_server.py",
+    "setup": "cd mcp-server && chmod +x setup.sh && ./setup.sh",
+    "install-deps": "npm install googleapis@^148.0.0 concurrently@^9.1.2"
+  },
+  "keywords": [
+    "google-sheets",
+    "apps-script",
+    "mcp",
+    "api",
+    "server",
+    "automation",
+    "spreadsheet",
+    "integration"
+  ],
+  "author": "OnDeck V9 Project",
+  "license": "ISC",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "googleapis": "^148.0.0",
+    "concurrently": "^9.1.2"
+  },
+  "optionalDependencies": {
+    "cors": "^2.8.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/mcp-server-distribution"
+  },
+  "bugs": {
+    "url": "https://github.com/your-repo/mcp-server-distribution/issues"
+  },
+  "homepage": "https://github.com/your-repo/mcp-server-distribution#readme",
+  "directories": {
+    "doc": ".",
+    "example": "examples"
+  }
+}

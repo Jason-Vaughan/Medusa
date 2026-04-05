@@ -1,0 +1,12 @@
+work_in_progress:
+  description: 'Phase 14: Swarm Performance Metrics'
+  size: Medium
+  type: Feature
+  status: Discovery
+  chunk: 18
+discovery_complete: false
+planning_complete: false
+current_phase: Discovery
+next_step: Research methods for tracking and sharing node performance metrics (latency, error rate).
+last_completed_chunk: 17
+last_chunk_status: Complete

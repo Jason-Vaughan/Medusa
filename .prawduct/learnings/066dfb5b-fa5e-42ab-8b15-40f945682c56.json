@@ -1,0 +1,11 @@
+{
+    "id": "066dfb5b-fa5e-42ab-8b15-40f945682c56",
+    "title": "HITL Governance & Task Retries",
+    "content": "Implemented a governance layer that flags risky tasks (shell, destructive keywords) for human approval. Added a robust retry mechanism with exponential backoff and metadata tracking for failed A2A tasks.",
+    "tags": [
+        "governance",
+        "hitl",
+        "a2a"
+    ],
+    "timestamp": "2026-04-01T05:38:16.469Z"
+}

@@ -1,0 +1,35 @@
+# Refuctor Debt Ignore - Debt Holiday & Jubilee Management
+# Files and patterns to exclude from technical debt tracking
+# 🏖️ Welcome to the Debt Bahamas - no extradition treaties here!
+
+# WIP and brainstorming files (debt moratorium granted)
+*-draft.md     # 🎭 Diplomatic immunity - still drafting excuses
+*-notes.md     # 🦆 Conscientious objector status  
+brainstorm/    # 😎 Creative sanctuary - goons can't touch inspiration
+
+# Generated documentation (debt amnesty declared)
+docs/generated/  # 🤖 Robots don't pay debt - they just generate more
+api-docs/       # 📖 Documentation debt is an oxymoron anyway
+
+# Legacy code in migration (debt holiday extended indefinitely)
+legacy/         # 🏛️ Historical preservation society protection
+deprecated/     # ⚰️ Already dead - can't collect from corpses
+
+# Third-party or vendor files (not our debt to begin with)
+vendor/         # 💸 Someone else's problem - we just borrowed it
+third-party/    # 🤝 Joint liability - let them handle their own mess
+
+# Experimental features (debt jubilee for innovation)
+experiments/    # 🧪 Mad scientist exemption
+prototypes/     # 🛠️ Proof of concept immunity
+
+# Temporary files (too short-lived for debt collection)
+*.tmp          # ⏰ Gone before the goons arrive
+*.temp         # 🏃‍♂️ Faster than debt collectors
+temp-*         # 🫥 What debt? I don't see any debt...
+
+# Example specific files (customize your debt sanctuary):
+# SPECIFIC_FILE.md    # 🛡️ Personal protection program
+# another-file.js     # 🏖️ Permanent vacation status
+
+# Project-specific patterns

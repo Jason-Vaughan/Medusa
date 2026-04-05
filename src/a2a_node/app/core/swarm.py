@@ -1,0 +1,77 @@
+import asyncio
+import logging
+import httpx
+from datetime import datetime
+from sqlalchemy import select, or_, and_
+from app.core.database import AsyncSessionLocal
+from app.models.ledger import TaskEntry, PeerEntry
+from app.core.config import settings
+from app.core.heuristics import BiddingHeuristics
+
+logger = logging.getLogger("a2a_swarm")
+
+async def run_swarm_intelligence():
+    """
+    Background task that scans for tasks to claim based on skills and swarm logic.
+    """
+    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    print(f"🐝 Swarm Intelligence started for node {node_id}", flush=True)
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                # 0. Fetch active peers and their strategies
+                peer_result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
+                peers = peer_result.scalars().all()
+
+                # 1. Fetch 'pending' tasks that haven't been claimed yet
+                # Or tasks that require consensus and we haven't voted on yet
+                result = await db.execute(
+                    select(TaskEntry).filter(
+                        or_(
+                            and_(TaskEntry.status == "pending", TaskEntry.claimed_by == None),
+                            and_(TaskEntry.requires_consensus == 1, TaskEntry.consensus_status != "achieved")
+                        )
+                    )
+                )
+                tasks = result.scalars().all()
+
+                for task in tasks:
+                    # Skip if we already voted on this consensus task
+                    if task.requires_consensus:
+                        votes = task.results_votes or {}
+                        if node_id in votes:
+                            continue
+
+                    # 2. Evaluate task using heuristics and swarm-wide strategy
+                    eval_result = BiddingHeuristics.evaluate_with_swarm_intelligence(
+                        task.task_type, 
+                        task.description,
+                        peers
+                    )
+                    
+                    if eval_result["should_bid"]:
+                        print(f"🐝 Node {node_id} wants to claim task {task.id[:8]} ({task.task_type}) - Confidence: {eval_result['confidence']}", flush=True)
+                        
+                        # 3. Call local claim endpoint (which handles persistence and gossip)
+                        async with httpx.AsyncClient() as client:
+                            claim_url = f"http://localhost:{settings.PORT}/a2a/gossip/claim/{task.id}"
+                            headers = {
+                                "X-Medusa-Secret": settings.A2A_SECRET,
+                                "node-id": node_id
+                            }
+                            try:
+                                r = await client.post(claim_url, headers=headers)
+                                if r.status_code == 200:
+                                    res = r.json()
+                                    if res.get("status") == "claimed":
+                                        print(f"✅ Node {node_id} successfully claimed task {task.id[:8]}", flush=True)
+                                    else:
+                                        print(f"⚠️ Node {node_id} failed to claim task {task.id[:8]}: {res.get('status')}", flush=True)
+                            except Exception as e:
+                                logger.error(f"❌ Swarm claim request failed: {e}")
+
+        except Exception as e:
+            logger.error(f"⚠️ Swarm intelligence error: {str(e)}")
+            
+        await asyncio.sleep(10) # Poll every 10 seconds

@@ -1,0 +1,48 @@
+{
+  "engine": "gemini",
+  "methodology": "minimal",
+  "methodologyPhase": null,
+  "rules": {
+    "core": {
+      "changelogPerChange": true,
+      "jsdocAllFunctions": true,
+      "unitTestRequirements": true,
+      "sessionWrapProtocol": true,
+      "porthubRegistration": true
+    },
+    "extensions": {
+      "identitySentry": false,
+      "docsParity": false,
+      "decisionFramework": false,
+      "loggingLevel": "info",
+      "zeroDebtProtocol": false,
+      "independentCritic": false,
+      "adversarialTesting": false
+    }
+  },
+  "ports": {},
+  "quickCommands": [],
+  "actions": [],
+  "tags": [],
+  "evalAuditMode": {
+    "enabled": false,
+    "judgeModel": "claude-haiku-4-5",
+    "gateCascade": true,
+    "sampling": {
+      "enabled": true,
+      "routineInterval": 3,
+      "alwaysScoreFirst": 5,
+      "alwaysScoreLast": 3,
+      "alwaysScoreDisagreement": true,
+      "alwaysScoreLongResponses": true,
+      "longResponseThreshold": 500
+    },
+    "thinkingBlockAnalysis": true,
+    "bidirectionalScoring": false,
+    "wrapQualityScoring": true,
+    "costCapPerSession": 1,
+    "heartbeatInterval": 300000,
+    "baselineWindowDays": 14,
+    "retentionDays": 90
+  }
+}

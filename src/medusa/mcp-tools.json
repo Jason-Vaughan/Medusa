@@ -1,0 +1,233 @@
+{
+  "name": "medusa_protocol",
+  "version": "1.0.0",
+  "description": "Medusa Chat Protocol - AI-to-AI workspace coordination tools for autonomous collaboration",
+  "tools": [
+    {
+      "name": "medusa_hook",
+      "description": "Send direct messages to other workspace AIs for collaboration, questions, or information sharing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_workspace": {
+            "type": "string",
+            "description": "The workspace ID to send the message to (e.g., 'tilt-xxxxx')"
+          },
+          "message": {
+            "type": "string",
+            "description": "The message content to send"
+          },
+          "context": {
+            "type": "object",
+            "description": "Optional context about the current task or code",
+            "properties": {
+              "task": {"type": "string"},
+              "file": {"type": "string"},
+              "code_snippet": {"type": "string"},
+              "priority": {"type": "string", "enum": ["low", "normal", "high"]}
+            }
+          },
+          "expects_reply": {
+            "type": "boolean",
+            "description": "Whether you expect a reply from the other AI",
+            "default": true
+          }
+        },
+        "required": ["target_workspace", "message"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message_id": {"type": "string"},
+          "timestamp": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "medusa_gaze",
+      "description": "Check for messages from other workspace AI assistants to see what they need from you.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "string",
+            "description": "ISO timestamp to get messages after (optional)"
+          },
+          "from_workspace": {
+            "type": "string",
+            "description": "Filter messages from specific workspace (optional)"
+          },
+          "unread_only": {
+            "type": "boolean",
+            "description": "Only get unread messages",
+            "default": true
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "from": {"type": "string"},
+                "message": {"type": "string"},
+                "context": {"type": "object"},
+                "timestamp": {"type": "string"},
+                "read": {"type": "boolean"}
+              }
+            }
+          },
+          "count": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "medusa_stone",
+      "description": "Broadcast messages to every available AI assistant across all workspaces.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The broadcast message"
+          },
+          "request_type": {
+            "type": "string",
+            "description": "Type of request/broadcast",
+            "enum": ["help_needed", "info_share", "status_update", "collaboration_request"]
+          },
+          "context": {
+            "type": "object",
+            "description": "Context about what you need"
+          }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "medusa_census",
+      "description": "Get a list of all registered workspaces and their AI assistants.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "active_only": {
+            "type": "boolean",
+            "description": "Only show currently active workspaces",
+            "default": true
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "type": {"type": "string"},
+                "status": {"type": "string"},
+                "last_seen": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "medusa_craft",
+      "description": "Initiate autonomous collaboration sessions with another workspace's AI.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_workspace": {
+            "type": "string",
+            "description": "The workspace to collaborate with"
+          },
+          "task_description": {
+            "type": "string",
+            "description": "What you want to accomplish together"
+          },
+          "initial_message": {
+            "type": "string",
+            "description": "Your opening message to start the collaboration"
+          },
+          "max_exchanges": {
+            "type": "integer",
+            "description": "Maximum number of back-and-forth exchanges",
+            "default": 10
+          }
+        },
+        "required": ["target_workspace", "task_description", "initial_message"]
+      }
+    },
+    {
+      "name": "medusa_whisper",
+      "description": "Share your current working context (files, code, errors) with other AI assistants.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "context_type": {
+            "type": "string",
+            "enum": ["code", "error", "documentation", "architecture", "task"]
+          },
+          "content": {
+            "type": "object",
+            "description": "The context content to share"
+          },
+          "target_workspaces": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Specific workspaces to share with (empty = all)"
+          }
+        },
+        "required": ["context_type", "content"]
+      }
+    },
+    {
+      "name": "medusa_coil",
+      "description": "AUTO-TRIGGER for autonomous AI-to-AI communication. Keeps the coordination loop alive.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "enable_auto_response": {
+            "type": "boolean",
+            "description": "Whether to automatically generate and send responses to incoming messages",
+            "default": true
+          },
+          "response_delay_seconds": {
+            "type": "integer",
+            "description": "Seconds to wait before responding (to avoid message loops)",
+            "default": 2
+          },
+          "max_responses_per_session": {
+            "type": "integer",
+            "description": "Maximum number of auto-responses per session to prevent infinite loops",
+            "default": 10
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "new_messages": {"type": "integer"},
+          "responses_sent": {"type": "integer"},
+          "auto_response_active": {"type": "boolean"},
+          "next_check_in": {"type": "string"}
+        }
+      },
+      "auto_trigger": {
+        "enabled": true,
+        "interval_seconds": 30,
+        "conditions": ["new_messages_available", "auto_response_enabled"]
+      }
+    }
+    ]
+}

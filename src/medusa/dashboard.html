@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Medusa Chat Protocol Dashboard</title>
+  <style>
+    :root {
+      --primary: #9146ff;
+      --secondary: #1f1f23;
+      --success: #00ff88;
+      --warning: #ffaa00;
+      --danger: #ff4444;
+      --bg: #0e0e10;
+      --card-bg: #18181b;
+      --text: #efeff1;
+      --text-muted: #adadb8;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+      line-height: 1.6;
+      position: relative;
+    }
+    
+    /* MEDUSA LOGO WATERMARK */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 45%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 110vw;
+      height: 110vh;
+      background-image: url('/medusa-logo.png');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      opacity: 0.15;
+      z-index: -1;
+      pointer-events: none;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 30px;
+    }
+    
+    .medusa-icon {
+      font-size: 2em;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px 30px;
+      margin-bottom: 30px;
+    }
+    
+    .grid-full {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+    
+    .card {
+      background: var(--card-bg);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    .card h2 {
+      color: var(--primary);
+      margin-top: 0;
+      font-size: 1.2em;
+    }
+    
+    .status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      font-weight: 600;
+      margin: 0 8px 0 4px;
+    }
+    
+    .status.active {
+      background: var(--success);
+      color: var(--bg);
+    }
+    
+    .status.warning {
+      background: var(--warning);
+      color: var(--bg);
+    }
+    
+    .status.inactive {
+      background: var(--danger);
+      color: white;
+    }
+    
+    .status.glow {
+      animation: heartbeat-pulse 15s ease-in-out infinite;
+      box-shadow: 0 0 8px var(--success);
+    }
+    
+    @keyframes heartbeat-pulse {
+      0%, 98% {
+        box-shadow: 0 0 8px var(--success);
+        transform: scale(1);
+      }
+      1% {
+        box-shadow: 0 0 10px var(--success), 0 0 15px var(--success);
+        transform: scale(1.005);
+      }
+      2% {
+        box-shadow: 0 0 8px var(--success);
+        transform: scale(1);
+      }
+    }
+    
+    .workspace-list {
+      list-style: none;
+      padding: 0;
+      margin: 10px 0;
+    }
+    
+    .workspace-item {
+      background: rgba(255,255,255,0.05);
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-left: 3px solid transparent;
+      transition: all 0.2s ease;
+    }
+    
+    .workspace-item:hover {
+      background: rgba(255,255,255,0.08);
+      border-left-color: var(--primary);
+    }
+    
+    .message-log {
+      max-height: 400px;
+      overflow-y: auto;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      font-family: 'Fira Code', 'Courier New', monospace;
+      font-size: 0.85em;
+      padding: 0;
+      position: relative;
+    }
+    
+    .message-log::before {
+      content: "Medusa Chat Terminal";
+      display: block;
+      background: #161b22;
+      color: var(--primary);
+      padding: 8px 12px;
+      border-bottom: 1px solid #30363d;
+      font-weight: 600;
+      font-size: 0.9em;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    
+    .message-log-content {
+      padding: 10px;
+      min-height: 200px;
+    }
+    
+    .message-item {
+      margin: 8px 0;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border-left: 3px solid;
+      background: rgba(255,255,255,0.02);
+      animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .message-item.medusa {
+      border-left-color: #ff6b6b;
+      background: rgba(255, 107, 107, 0.1);
+    }
+    
+    .message-item.tilt {
+      border-left-color: #4ecdc4;
+      background: rgba(78, 205, 196, 0.1);
+    }
+    
+    .message-item.broadcast {
+      border-left-color: #ffd93d;
+      background: rgba(255, 217, 61, 0.1);
+    }
+    
+    .message-item.other {
+      border-left-color: var(--primary);
+      background: rgba(145, 70, 255, 0.1);
+    }
+    
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+      font-size: 0.8em;
+      opacity: 0.8;
+    }
+    
+    .message-from {
+      font-weight: 600;
+    }
+    
+    .message-from.medusa { color: #ff6b6b; }
+    .message-from.tilt { color: #4ecdc4; }
+    .message-from.broadcast { color: #ffd93d; }
+    .message-from.other { color: var(--primary); }
+    
+    .message-time {
+      color: var(--text-muted);
+      font-size: 0.9em;
+    }
+    
+    .message-content {
+      color: var(--text);
+      line-height: 1.4;
+      word-wrap: break-word;
+    }
+    
+    .message-type {
+      font-size: 0.7em;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+      color: var(--text-muted);
+    }
+    
+    .auto-scroll {
+      position: sticky;
+      bottom: 10px;
+      right: 10px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: #7831ec;
+      transform: translateY(-1px);
+    }
+    
+    .stats {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .stat-item {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 2em;
+      font-weight: bold;
+      color: var(--primary);
+    }
+    
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.9em;
+    }
+    
+    input[type="text"], textarea {
+      padding: 8px;
+      background: var(--bg);
+      border: 1px solid var(--primary);
+      color: var(--text);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>
+      Switchboard — AI Coordination Hub
+    </h1>
+    
+    <div class="grid">
+      <div class="card">
+        <h2>Protocol Status</h2>
+        <div id="status">
+          <p>Checking...</p>
+        </div>
+        <button onclick="checkStatus()">Refresh Status</button>
+      </div>
+      
+      <div class="card">
+        <h2>Registered Workspaces</h2>
+        <div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+          <strong style="color: var(--text);">Status Legend:</strong><br>
+          <div style="display: flex; gap: 15px; margin-top: 4px; flex-wrap: wrap;">
+            <span><span style="color: #00ff88; font-size: 1.1em; font-weight: bold;">●</span> AI Ready</span>
+            <span><span style="color: #4A90E2; font-size: 1.1em; font-weight: bold;">●</span> WebSocket</span>
+            <span><span style="color: #8B0000; font-size: 1.1em; font-weight: bold;">●</span> Heartbeat</span>
+            <span><span style="color: #00ff88; font-size: 1.1em; font-weight: bold;">●</span> Connected</span>
+            <span><span style="color: #FFA500; font-size: 1.1em; font-weight: bold;">●</span> Last Activity</span>
+          </div>
+        </div>
+        <ul id="workspaces" class="workspace-list">
+          <li>Loading...</li>
+        </ul>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button onclick="loadWorkspaces()">Refresh</button>
+          <button onclick="cleanupWorkspaces()" style="background: #ff6b6b;">Clean Duplicates</button>
+          <button onclick="toggleAutoRefresh()" id="auto-refresh-btn" style="background: var(--text-muted);">Auto-refresh: OFF</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>System Telemetry</h2>
+        <div id="telemetry">
+          <p>Loading...</p>
+        </div>
+        <button onclick="loadTelemetry()" style="margin-top: 15px;">Refresh</button>
+      </div>
+      
+      <div class="card">
+        <h2>Test Message Sending</h2>
+        <div style="display: flex; gap: 10px; flex-direction: column;">
+          <input type="text" id="from-workspace" placeholder="From workspace ID">
+          <input type="text" id="to-workspace" placeholder="To workspace ID">
+          <textarea id="message-text" placeholder="Your venomous message..." rows="2" style="resize: vertical;"></textarea>
+          <div style="display: flex; gap: 10px;">
+            <button onclick="sendDirectMessage()">Send Direct</button>
+            <button onclick="sendBroadcast()">Broadcast</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <div class="card">
+        <h2>The Domain: Active Auctions</h2>
+        <div id="auctions" class="workspace-list" style="max-height: 400px; overflow-y: auto;">
+          <p style="color: var(--text-muted);">No active auctions in the mesh.</p>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button onclick="loadAuctions()">Refresh Auctions</button>
+          <button onclick="toggleAuctionPolling()" id="auction-polling-btn" style="background: var(--text-muted);">Auto-poll: OFF</button>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>Mesh Awareness & Skills</h2>
+        <div id="mesh-peers" class="workspace-list" style="max-height: 400px; overflow-y: auto;">
+          <p style="color: var(--text-muted);">Discovering peers in the mesh...</p>
+        </div>
+        <button onclick="loadPeers()" style="margin-top: 15px;">Refresh Peers</button>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h2 style="margin: 0;">🤖 Swarm Hierarchy & Governance</h2>
+          <button onclick="loadTaskTree()" style="padding: 4px 10px; font-size: 0.8em; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: var(--text); cursor: pointer;">Refresh Hive</button>
+        </div>
+        <div id="task-tree" style="max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 0.9em;">
+          <p style="color: var(--text-muted);">Fetching task hierarchy...</p>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>Task Discovery & Bidding</h2>
+        <div id="task-discovery">
+          <p style="color: var(--text-muted); font-size: 0.9em;">Discover tasks across the mesh and place autonomous bids.</p>
+          <div style="display: flex; gap: 10px; flex-direction: column; margin-top: 10px;">
+            <input type="text" id="auction-task-id" placeholder="Task ID (from announcement)">
+            <input type="text" id="bid-value" placeholder="Bid Value (e.g. 0.5)">
+            <button onclick="placeBid()">Place Manual Bid</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>AI Coordination Log</h2>
+      <div id="messages" class="message-log" style="max-height: 600px;">
+        <div class="message-log-content">
+          <div class="message-item other">
+            <div class="message-header">
+              <span class="message-from other">System</span>
+              <span class="message-time">Ready</span>
+            </div>
+            <div class="message-content">Waiting for AI workspace coordination...</div>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <button onclick="loadMessages()">Refresh</button>
+        <button onclick="clearMessages()" style="background: var(--danger);">Clear Log</button>
+        <button onclick="toggleAutoScroll()" id="auto-scroll-btn">Auto-scroll: ON</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Cache-busting: Add timestamp to script load
+    const script = document.createElement('script');
+    script.src = '/dashboard.js?t=' + Date.now();
+    document.head.appendChild(script);
+  </script>
+</body>
+</html> 

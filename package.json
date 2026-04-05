@@ -1,0 +1,77 @@
+{
+  "name": "medusa-mcp",
+  "version": "0.6.7-beta",
+  "description": "Medusa: Autonomous AI Coordination Platform - Bidirectional Interface for Chat Handoffs. ZombieDust Protocol operational! Revolutionary AI-to-AI coordination with pure MCP integration.",
+  "main": "src/index.js",
+  "bin": {
+    "medusa": "./bin/medusa.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest --passWithNoTests",
+    "medusa-test": "npm test -- --verbose",
+    "verify-version": "node bin/verify-version.js",
+    "prebuild": "echo 'Preparing Medusa...'",
+    "build": "echo 'Medusa built and ready to coordinate!'",
+    "postinstall": "echo 'Medusa v0.6.0-beta installed! ZombieDust Protocol operational! Revolutionary AI-to-AI coordination with pure MCP integration.'"
+  },
+  "keywords": [
+    "medusa",
+    "medusa-chat-protocol",
+    "autonomous-ai-coordination",
+    "mcp",
+    "model-context-protocol",
+    "ai-to-ai-communication",
+    "multi-workspace-development",
+    "cursor-integration",
+    "dashboard-controls",
+    "development-ecosystem",
+    "ai-pair-programming",
+    "workspace-coordination",
+    "autonomous-ai",
+    "cli",
+    "developer-tools",
+    "real-time-messaging",
+    "ai-assistant",
+    "inter-workspace"
+  ],
+  "author": "Jason Vaughan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jason-Vaughan/Medusa"
+  },
+  "bugs": {
+    "url": "https://github.com/Jason-Vaughan/Medusa/issues"
+  },
+  "homepage": "https://github.com/Jason-Vaughan/Medusa#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.55.0",
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "chalk": "^4.1.2",
+    "chokidar": "^3.6.0",
+    "commander": "^11.1.0",
+    "figlet": "^1.7.0",
+    "fs-extra": "^11.1.1",
+    "inquirer": "^8.2.6",
+    "js-yaml": "^4.1.1",
+    "moment": "^2.29.4",
+    "node-notifier": "^10.0.1",
+    "openai": "^5.8.2",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0"
+  },
+  "preferGlobal": false,
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

@@ -1,0 +1,98 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+```mdc
+# Medusa Project Development Rules
+
+## Project Context
+This is **Medusa** (Bidirectional Interface for Chat Handoffs) - an autonomous AI coordination platform for developers to communicate between multiple Cursor workspaces. The project uses mythology-themed naming with developer-friendly personality while maintaining professional code quality.
+
+## Architecture Overview
+**Medusa-MCP** = **Medusa Chat Protocol** (our system) built on **Model Context Protocol** (server tech)
+
+**Core Components:**
+- **Medusa Protocol Server** (`medusa-server.js`) - Workspace coordination (ports 3009/3010/8181)
+- **Medusa MCP Server** (`medusa-mcp-server.js`) - Cursor tool integration (MCP protocol)
+- **Medusa CLI** (`bin/medusa.js`) - Command interface with global `npm link` setup
+
+### Working Features:
+- **Global MCP Server**: Single server serves all workspaces via `medusa` config
+- **Cursor Integration**: Tools available through MCP (list_workspaces, send_message, etc.)
+- **Automated MCP Restart**: `medusa restart` fixes connection issues
+- **Cross-Workspace Communication**: Multi-workspace coordination working
+- **Development Workflow**: `npm link` for instant global testing (no publishing required)
+- **Server Management**: `medusa start/stop` with conflict detection
+
+### Development Setup:
+- **Local Development**: Use `npm link` in Medusa project directory
+- **Global Testing**: `medusa` commands use local development code instantly
+- **MCP Configuration**: Cursor uses `"medusa"` server pointing to global installation
+
+## Session Management
+
+### Session Wrap Protocol
+When user says "lets do a session wrap", provide comprehensive automated session wrap-up including:
+1. **Session Summary** - Accomplishments, breakthroughs, bug fixes
+2. **Next Session Priorities** - Roadmap updates, critical path items
+3. **Documentation Maintenance** - Update PROJECT_FILE_REFERENCE.md, sync README
+4. **Technical Debt Cleanup** - Scan for deletion candidates, stale docs
+5. **Configuration Validation** - .gitignore, Cursor configs, package.json consistency, medusa.config.js
+6. **Comprehensive Git Commit** - Detailed descriptions, session wrap file included
+7. **Handoff Notes** - Clear start points, environment status, known issues
+8. **Project Health Report** - Repository cleanliness, documentation currency
+
+## Code Style & Architecture
+
+### JavaScript/Node.js
+- ES6+ features, destructuring, arrow functions, template literals
+- async/await over Promises
+- Proper error handling with custom error classes (MedusaError)
+- Commander.js for CLI, chalk for terminal output
+
+### Project Structure
+- Modular architecture with clear separation of concerns
+- Configuration-driven behavior with sensible defaults
+- Common stack: commander, chalk, figlet, inquirer, fs-extra, node-notifier
+
+### Personality Guidelines
+- Maintain developer-friendly humor in user-facing messages
+- Use mythology-themed naming (see MEDUSA_NAMING_CONVENTION.md)
+- Include snarky CLI responses and error messages
+- Balance professionalism in code with irreverent personality
+- Add easter eggs and hidden functionality
+
+## Technical Standards
+
+### MCP Server Architecture (Critical):
+- **Single Global Server**: One Medusa MCP server serves all workspaces
+- **Cursor Configuration**: Use `"medusa"` in .cursor/mcp.json
+- **Development Setup**: `npm link` in Medusa project for instant global testing
+- **Debugging**: `medusa restart` for MCP connection issues
+
+### ZombieDust Protocol Guidelines
+- **Exit-After-Detection Pattern**: Always exit cleanly after message detection
+- **3-Step Protocol**: Show clear step-by-step process for user visibility
+- **Foreground Execution**: Use `stdio: 'inherit'` for Step 3 monitoring restart
+- **Non-Blocking Design**: Never interfere with AI response cycles
+
+### Medusa Chat Protocol Standards
+- **Message Format**: Structured JSON with workspace ID, timestamp, type, content
+- **Registry Management**: Workspace registry with heartbeat tracking
+- **WebSocket Handling**: Multiple connections per workspace
+- **Port Allocation**: Follow PORT_REGISTRY.md for service coordination (3008, 3009, 8181)
+
+### AI Provider Integration
+- **Multi-Provider Fallback**: Cursor RCP → Anthropic Claude → OpenAI GPT
+- **Configuration Management**: ai-config.js for provider settings
+- **Cost Optimization**: Lighter models for routine tasks, full models for complex work
+- **Graceful Degradation**: Handle unavailable providers
+
+### File Organization
+- Reference PROJECT_FILE_REFERENCE.md for comprehensive file purposes
+- Follow naming conventions: MEDUSA_*, SESSION_WRAP_*, *_GUIDE.md, *_PLAN.md
+- Directory structure: /src/ (core), /bin/ (executables), /scripts/ (utilities), /pillow-talk/ (messaging)
+
+Remember: Technical excellence under the hood, personality on the surface.
+```

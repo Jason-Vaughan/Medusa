@@ -1,0 +1,8 @@
+{
+  "title": "LLM-Driven Task Decomposition with Snarky Persona",
+  "context": "Chunk 15 of Medusa A2A Node development focused on moving from mock task splitting to actual LLM-driven decomposition.",
+  "learning": "Implementing an LLM-driven decomposition engine requires a careful balance between flexibility and structure. By using a system prompt that enforces JSON and a specific 'depends_on_idx' format, we can reliably map complex tasks into a dependency-aware subtask tree. The inclusion of a personality directive ('savage sass') in the system prompt successfully bridges the gap between raw utility and the project's established character (Medusa). A robust fallback to hardcoded rules ensures the system remains operational even without API keys.",
+  "impact": "The A2A swarm is now significantly more intelligent, able to break down vague user requests into actionable technical steps across multiple nodes with proper sequencing.",
+  "date": "2026-03-31",
+  "chunk": 15
+}

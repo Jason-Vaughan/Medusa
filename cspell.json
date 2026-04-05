@@ -1,0 +1,70 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "medusa",
+    "Medusa",
+    "UATION",
+    "Zombification",
+    "refuctor",
+    "refuctoring",
+    "techdebt",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation",
+    "uation"
+  ],
+  "ignoreWords": [],
+  "ignorePaths": [
+    "node_modules/**",
+    ".git/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.svg",
+    "*.ico"
+  ],
+  "caseSensitive": false,
+  "allowCompoundWords": true,
+  "languageSettings": [
+    {
+      "languageId": "markdown",
+      "allowCompoundWords": true,
+      "caseSensitive": false
+    },
+    {
+      "languageId": "javascript",
+      "allowCompoundWords": true,
+      "caseSensitive": true
+    },
+    {
+      "languageId": "typescript",
+      "allowCompoundWords": true,
+      "caseSensitive": true
+    }
+  ],
+  "_snarkyLanguageSupport": {
+    "description": "This project uses intentional snarky language and technical slang",
+    "addedBy": "Refuctor Debt Collection Agency",
+    "timestamp": "2025-07-24T02:35:30.317Z"
+  }
+}

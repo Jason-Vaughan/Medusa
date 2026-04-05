@@ -1,0 +1,42 @@
+# Development documentation
+SESSION_WRAP_*.md
+MEDUSA_LEGACY_*.md
+MEDUSA_*.md
+SIMPLE_MCP_*.md
+OPTIMIZED_AI_SYSTEM_GUIDE.md
+MCP_RESTART_WORKFLOW.md
+CURSOR_MCP_GUIDE.md
+PROJECT_FILE_REFERENCE.md
+
+# Development directories
+.cursor/
+Medusa Chat Protocol/
+pillow-talk/
+
+# Runtime/temporary files
+processed-messages.json
+processed-message-utils.js
+medusa.config.js
+
+# Large media files (users can get from GitHub)
+medusa-dashboard-screenshot.png
+*.png
+*.jpg
+*.gif
+
+# Development workspace files
+Medusa.code-workspace
+.vscode/
+
+# Git files
+.gitignore
+
+# Home directory accidentally included
+~/
+
+# Development tools
+PORT_REGISTRY.md
+RELEASE_TRACKER.md
+RELEASE_NOTES.md
+
+# Keep only essential files for package users 

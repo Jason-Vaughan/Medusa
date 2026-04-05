@@ -1,0 +1,18 @@
+{
+  "name": "Medusa A2A Node",
+  "version": "0.1.0",
+  "description": "Autonomous Agent-to-Agent Coordination Node",
+  "capabilities": [
+    "can_review_code",
+    "can_talk_shit",
+    "can_delegate_tasks",
+    "can_gossip"
+  ],
+  "endpoints": {
+    "discovery": "/.well-known/agent-card.json",
+    "tasks": "/a2a/tasks",
+    "messages": "/a2a/messages",
+    "gossip": "/a2a/gossip/ping"
+  },
+  "sass_level": "savage"
+}

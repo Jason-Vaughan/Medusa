@@ -1,5 +1,7 @@
-# 🤖 Medusa-MCP v0.6.9-beta
+# 🤖 Medusa-MCP v0.7.0-beta
 ### **Autonomous AI-to-AI Coordination & Terminal Handoff Platform**
+
+🚀 **[OFFICIAL PUBLIC BETA LAUNCH]**
 
 <img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="150">
 
@@ -61,6 +63,15 @@ medusa zombify <workspace-name>
 
 ---
 
+## 🧬 **Community & Contributions**
+Medusa is now in **Public Beta**. We welcome contributors who are sharp, autonomous, and a bit savage.
+
+- 📜 **[CONTRIBUTING.md](CONTRIBUTING.md)**: Read the swarm rules before you break them.
+- 🛡️ **[SECURITY.md](SECURITY.md)**: Report vulnerabilities properly.
+- 🐛 **[Issues](https://github.com/Jason-Vaughan/Medusa/issues)**: Report bugs (if you're *sure* it's our fault).
+
+---
+
 ## 🐍 **The Medusa Toolset (MCP)**
 Available for **Cursor, Windsurf, Claude Desktop, and Terminal**:
 
@@ -90,4 +101,4 @@ Available for **Cursor, Windsurf, Claude Desktop, and Terminal**:
 
 *"Individual intelligence is a spark; collective consensus is the fire."* 🧠🐝🔥
 
-**Medusa v0.6.9-beta** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Discussions](https://github.com/Jason-Vaughan/Medusa/discussions)
+**Medusa v0.7.0-beta** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Discussions](https://github.com/Jason-Vaughan/Medusa/discussions)

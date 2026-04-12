@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.0-beta] - 2026-04-12
+### Changed
+- **OFFICIAL PUBLIC BETA LAUNCH** 🚀
+- Transitioned repository to Public Beta status.
+- Added comprehensive `CONTRIBUTING.md` and `SECURITY.md`.
+- Updated documentation for public community involvement.
+- Refined `README.md` with public beta roadmap and status.
+
 ## [0.6.9-beta] - 2026-04-04
 ### Added
 - **Chunk 17: COLLECTIVE STRATEGY SHARING** completed.

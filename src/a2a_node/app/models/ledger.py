@@ -58,6 +58,7 @@ class PeerEntry(Base):
     status = Column(String, default="active")
     last_seen = Column(DateTime, default=datetime.utcnow)
     capabilities = Column(JSON, nullable=True)
+    strategies = Column(JSON, nullable=True)
 
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):
@@ -79,16 +80,16 @@ class LedgerTask(BaseModel):
     bid_metadata: Optional[Dict[str, Any]] = None
     
     # Governance & HITL
-    requires_approval: bool = False
+    requires_approval: Optional[bool] = False
     approval_status: str = "none"
     retry_count: int = 0
     max_retries: int = 3
     
     # Distributed Gossip Consensus
-    requires_consensus: bool = False
-    min_votes: int = 1
+    requires_consensus: Optional[bool] = False
+    min_votes: Optional[int] = 1
     results_votes: Optional[Dict[str, Any]] = None
-    consensus_status: str = "none"
+    consensus_status: Optional[str] = "none"
     
     created_at: datetime
     updated_at: datetime

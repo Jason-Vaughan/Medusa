@@ -1,5 +1,5 @@
 // Medusa Dashboard JavaScript - Clean and working!
-const PROTOCOL_URL = 'http://localhost:3009';
+const PROTOCOL_URL = `http://${window.location.hostname}:3009`;
 
 // Check protocol status
 async function checkStatus() {

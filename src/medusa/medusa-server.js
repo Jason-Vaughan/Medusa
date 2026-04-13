@@ -219,6 +219,10 @@ const protocolServer = http.createServer(async (req, res) => {
           peers_count: Array.isArray(peers) ? peers.length : 0,
           peers: peers
         },
+        connections: {
+          totalConnections: Array.from(wsClients.values()).reduce((acc, conns) => acc + conns.size, 0),
+          workspaces: wsClients.size
+        },
         services: {
           medusaProtocol: 'running',
           a2aNode: 'bridge-active',

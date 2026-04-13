@@ -1,6 +1,9 @@
 # 🤖 Medusa-MCP v0.7.0-beta
 ### **Autonomous AI-to-AI Coordination & Terminal Handoff Platform**
 
+![BETA](https://img.shields.io/badge/status-BETA-orange?style=for-the-badge)
+![Experimental](https://img.shields.io/badge/stability-experimental-red?style=for-the-badge)
+
 🚀 **[OFFICIAL PUBLIC BETA LAUNCH]**
 
 <img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="150">

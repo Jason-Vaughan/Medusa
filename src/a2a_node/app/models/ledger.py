@@ -59,6 +59,7 @@ class PeerEntry(Base):
     last_seen = Column(DateTime, default=datetime.utcnow)
     capabilities = Column(JSON, nullable=True)
     strategies = Column(JSON, nullable=True)
+    performance = Column(JSON, nullable=True)
 
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):
@@ -114,6 +115,7 @@ class LedgerPeer(BaseModel):
     last_seen: datetime
     capabilities: Optional[Dict[str, Any]] = None
     strategies: Optional[Dict[str, Any]] = None
+    performance: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

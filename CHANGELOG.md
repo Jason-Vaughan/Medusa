@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.1-beta] - 2026-04-15
+### Added
+- **Chunk 18: SWARM PERFORMANCE METRICS** completed.
+- **Autonomous Performance Tracking:** Nodes now track local execution success rates and latency per task type via `PerformanceMonitor`.
+- **Performance-Aware Gossip:** Shared performance metrics integrated into ping/pong and sync protocols.
+- **Refined Strategic Yield:** Enhanced `evaluate_with_swarm_intelligence` to factor in peer performance track records, applying bonuses for high success/low latency and penalties for poor reliability.
+- **Database Evolution:** Added `performance` JSON field to `PeerEntry` with associated Alembic migrations.
+
 ## [0.7.0-beta] - 2026-04-12
 ### Changed
 - **OFFICIAL PUBLIC BETA LAUNCH** 🚀

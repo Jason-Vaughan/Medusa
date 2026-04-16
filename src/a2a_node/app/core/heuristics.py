@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from app.core.config import settings
+from app.core.performance import PerformanceMonitor
 
 class BiddingHeuristics:
     """
@@ -105,43 +106,74 @@ class BiddingHeuristics:
     @classmethod
     def evaluate_with_swarm_intelligence(cls, task_type: str, description: str, peers: List[Any]) -> Dict[str, Any]:
         """
-        Evaluates a task while considering the strategies of other nodes in the swarm.
-        Implements 'Strategic Yield' - yielding to nodes with better specialized strategies.
+        Evaluates a task while considering the strategies and performance of other nodes.
+        Implements 'Strategic Yield' - yielding to nodes with better specialized strategies
+        or proven superior performance.
         """
         # 1. Local Evaluation
         local_eval = cls.evaluate_task(task_type, description)
 
-        # 2. Peer Strategy Analysis
+        # 2. Peer Analysis
         better_peers = []
         for peer in peers:
             strategies = peer.strategies or {}
             peer_skills = strategies.get("skills", [])
+            peer_perf = peer.performance or {}
 
-            # Check if peer has a better skill match for this task
+            # A. Skill Match Check
             peer_matches = 0
             for skill in peer_skills:
                 skill_lower = skill.lower()
                 if skill_lower in task_type.lower() or skill_lower in description.lower():
                     peer_matches += 1
 
-            peer_confidence = strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)
+            # B. Performance Multiplier
+            # Factor in success rate and average latency if available
+            perf_multiplier = 1.0
+            
+            # Check for task-specific performance first, then global
+            task_perf = peer_perf.get("task_types", {}).get(task_type)
+            if task_perf:
+                success_rate = task_perf["success"] / task_perf["count"] if task_perf["count"] > 0 else 1.0
+                avg_latency = task_perf["latency"] / task_perf["count"] if task_perf["count"] > 0 else 1.0
+                
+                # Penalty for low success rate
+                if success_rate < 0.8: perf_multiplier *= 0.7
+                if success_rate > 0.95: perf_multiplier *= 1.2
+                
+                # Bonus/Penalty for latency (fast is better)
+                if avg_latency < 1.0: perf_multiplier *= 1.1
+                if avg_latency > 5.0: perf_multiplier *= 0.9
+            else:
+                # Use global performance if task-specific is missing
+                total = peer_perf.get("total_tasks", 0)
+                if total > 5: # Need a minimum sample size
+                    success_rate = peer_perf.get("success_count", 0) / total
+                    if success_rate < 0.8: perf_multiplier *= 0.8
+                    if success_rate > 0.95: perf_multiplier *= 1.1
+
+            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier
 
             if peer_confidence > local_eval["confidence"]:
                 better_peers.append({
                     "id": peer.id,
                     "confidence": peer_confidence,
-                    "skills": peer_skills
+                    "skills": peer_skills,
+                    "perf_multiplier": perf_multiplier
                 })
 
         # 3. Strategic Yield Decision
         if better_peers and local_eval["should_bid"]:
-            # We have a match, but someone else is better suited
-            # If our confidence is high but someone else's is HIGHER, we yield
-            # Unless it's a critical priority or we are already under-loaded (TODO)
+            # Sort by confidence descending
+            better_peers.sort(key=lambda x: x["confidence"], reverse=True)
+            best_peer = better_peers[0]
+            
             local_eval["should_bid"] = False
-            local_eval["yielded_to"] = better_peers[0]["id"]
-            local_eval["sass"] = f"Node {better_peers[0]['id']} seems more qualified for this. I'll allow them to fail first."
-            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {better_peers[0]['id']} (Confidence: {better_peers[0]['confidence']:.2f} > {local_eval['confidence']:.2f})", flush=True)
+            local_eval["yielded_to"] = best_peer["id"]
+            
+            perf_note = "superior performance track record" if best_peer["perf_multiplier"] > 1.0 else "better specialization"
+            local_eval["sass"] = f"Node {best_peer['id']} has {perf_note}. I'll let them handle the heavy lifting."
+            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f})", flush=True)
 
         return local_eval
 

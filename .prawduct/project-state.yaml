@@ -1,12 +1,12 @@
 work_in_progress:
-  description: 'Phase 14: Swarm Performance Metrics'
+  description: 'Phase 15: Global Strategy Dashboard'
   size: Medium
   type: Feature
   status: Discovery
-  chunk: 18
+  chunk: 19
 discovery_complete: false
 planning_complete: false
 current_phase: Discovery
-next_step: Research methods for tracking and sharing node performance metrics (latency, error rate).
-last_completed_chunk: 17
+next_step: Research methods for aggregating and visualizing swarm strategies and performance metrics on the Medusa dashboard.
+last_completed_chunk: 18
 last_chunk_status: Complete

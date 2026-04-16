@@ -231,11 +231,20 @@ async def run_execution_engine():
                     task.status = "running"
                     await db.commit()
                     
-                    # 2. Real Execution
+                    # 2. Real Execution with latency tracking
+                    start_time = time.time()
                     result = await TaskExecutor.execute(task)
+                    latency = time.time() - start_time
                     
                     # 3. Update Status and Result with Retry Logic
                     outcome = result.get("outcome")
+                    
+                    # Record performance metrics
+                    await PerformanceMonitor.record_execution(
+                        task.task_type, 
+                        outcome != "failed", 
+                        latency
+                    )
                     
                     if outcome == "failed" and task.retry_count < task.max_retries:
                         task.retry_count += 1

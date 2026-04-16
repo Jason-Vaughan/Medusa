@@ -340,6 +340,7 @@ async def merge_sync_data(data: dict):
                         address=p_data['address'],
                         capabilities=p_data.get('capabilities'),
                         strategies=p_data.get('strategies'),
+                        performance=p_data.get('performance'),
                         status=p_data.get('status', 'active'),
                         last_seen=datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00'))
                     )
@@ -352,7 +353,13 @@ async def merge_sync_data(data: dict):
                         existing.capabilities = p_data['capabilities']
                     if p_data.get('strategies'):
                         existing.strategies = p_data['strategies']
+                    if p_data.get('performance'):
+                        existing.performance = p_data['performance']
 
+            await db.commit()
+        except Exception as e:
+            print(f"❌ Error merging sync data: {e}", flush=True)
+            await db.rollback()
             await db.commit()
         except Exception as e:
             print(f"❌ Error merging sync data: {e}", flush=True)

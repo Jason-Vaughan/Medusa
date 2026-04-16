@@ -35,11 +35,27 @@ def test_heuristics_skill_matching():
     finally:
         settings.MEDUSA_SKILLS = original_skills
 
-def test_heuristics_sharing():
+@pytest.mark.asyncio
+async def test_heuristics_sharing():
     """
     Verifies that the share_heuristic function returns the correct structure.
     """
-    result = BiddingHeuristics.share_heuristic()
+    result = await BiddingHeuristics.share_heuristic()
     assert "strategy" in result
     assert "skills" in result
+    assert "current_load" in result
     assert isinstance(result["skills"], list)
+
+def test_load_balancing_heuristics():
+    """
+    Verifies that load affects bidding decisions.
+    """
+    # Low load
+    low_load_result = BiddingHeuristics.evaluate_task("generic", "This is a long enough description to bid on, it has more than ten words now.", current_load=0)
+    assert low_load_result["should_bid"] is True
+    
+    # High load
+    high_load_result = BiddingHeuristics.evaluate_task("generic", "This is a long enough description to bid on, it has more than ten words now.", current_load=6)
+    assert high_load_result["should_bid"] is False
+    assert high_load_result["confidence"] < low_load_result["confidence"]
+    assert high_load_result["bid_value"] > low_load_result["bid_value"]

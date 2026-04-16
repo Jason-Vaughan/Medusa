@@ -3,19 +3,18 @@
 ## Project: Medusa (A2A Swarm)
 
 ### Current State (2026-04-16)
-- **OFFICIAL PUBLIC BETA LAUNCH (v0.7.2-beta).**
-- **Chunk 19 Complete:** Global Strategy Dashboard implemented.
-- Dashboard now visualizes aggregate mesh performance (success rate, latency) and active strategies.
-- Peer list enhanced with detailed analytics cards for every node in the swarm.
+- **OFFICIAL PUBLIC BETA LAUNCH (v0.7.3-beta).**
+- **Chunk 20 Complete:** Dynamic Load Balancing implemented.
+- Nodes now track active load (running/pending) and factor it into bidding, yielding, and decomposition.
+- Gossip protocol synchronizes real-time load metrics across the mesh.
 
 ### Key Decisions
-- **Hybrid Visualization:** Decided on an integrated peer analytics view combined with a high-level swarm summary for optimal transparency without UI clutter.
-- **Performance Color Coding:** Success rates and latencies are color-coded (green/warning/danger) to highlight node reliability at a glance.
+- **Load-Based Decomposition:** Decided to force decomposition on even simple tasks when load > 3 to encourage parallel execution across peers.
+- **Cost-Weighted Bidding:** Load is now a primary factor in `bid_value`, making busy nodes naturally more "expensive" for the swarm to select.
 
 ### Open Questions / Future Work
-- **Community Feedback Loop:** Establish a process for handling PRs and issues from the public.
-- **Chunk 20: Dynamic Load Balancing:** Refine yield logic to account for node load (number of active tasks) and queue depth.
-- **Historical Analytics:** Add time-series graphs for swarm performance over long periods.
+- **Chunk 21: Historical Analytics:** Add time-series graphs for swarm performance over long periods.
+- **Load Calibration:** Monitor if the 0.05 confidence penalty per task is too aggressive or too lenient.
 
 ### Resilience
 - TangleClaw PortHub integration is working but sometimes times out; gossip protocol handles this by muting errors after the first failure.

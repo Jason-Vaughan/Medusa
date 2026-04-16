@@ -24,7 +24,12 @@ async def run_swarm_intelligence():
                 peer_result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
                 peers = peer_result.scalars().all()
 
-                # 1. Fetch 'pending' tasks that haven't been claimed yet
+                # 1. Fetch current load (Chunk 20)
+                from app.core.performance import PerformanceMonitor
+                load_info = await PerformanceMonitor.get_current_load()
+                current_load = load_info.get("total_load", 0)
+
+                # 2. Fetch 'pending' tasks that haven't been claimed yet
                 # Or tasks that require consensus and we haven't voted on yet
                 result = await db.execute(
                     select(TaskEntry).filter(
@@ -43,11 +48,12 @@ async def run_swarm_intelligence():
                         if node_id in votes:
                             continue
 
-                    # 2. Evaluate task using heuristics and swarm-wide strategy
+                    # 3. Evaluate task using heuristics and swarm-wide strategy
                     eval_result = BiddingHeuristics.evaluate_with_swarm_intelligence(
                         task.task_type, 
                         task.description,
-                        peers
+                        peers,
+                        current_load=current_load
                     )
                     
                     if eval_result["should_bid"]:

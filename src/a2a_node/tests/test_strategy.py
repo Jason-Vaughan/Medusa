@@ -4,22 +4,48 @@ from app.models.ledger import PeerEntry
 from datetime import datetime
 
 class MockPeer:
-    def __init__(self, node_id, skills, confidence=0.6):
+    def __init__(self, node_id, skills, confidence=0.6, load=0):
         self.id = node_id
         self.strategies = {
             "skills": skills,
-            "min_confidence": confidence
+            "min_confidence": confidence,
+            "current_load": load
         }
         self.status = "active"
+        self.performance = {}
 
-def test_strategy_sharing():
+@pytest.mark.asyncio
+async def test_strategy_sharing():
     """Verify that share_heuristic returns correct structure."""
-    strategy = BiddingHeuristics.share_heuristic()
+    strategy = await BiddingHeuristics.share_heuristic()
     assert "strategy" in strategy
     assert "skills" in strategy
     assert "min_confidence" in strategy
     assert "timestamp" in strategy
+    assert "current_load" in strategy
     assert isinstance(strategy["skills"], list)
+
+def test_load_based_yield():
+    """Verify that node yields to a peer when swamped."""
+    task_type = "python_fix_debug_senior"
+    description = "Fix a bug in the python script with senior oversight"
+    
+    # Local node has skills and moderate load
+    # Confidence: 0.5 (base) + 0.3 (3 matches) - 0.2 (load 4 * 0.05) = 0.6
+    BiddingHeuristics.get_local_skills = lambda: ["python_expert", "python_debugger", "python_senior"]
+    current_load = 4
+    
+    # Peer is ALSO a python expert but IDLE
+    # Peer confidence: (0.6 (min) + 0.1 (match)) * 1.4 (load bonus 1.0 + 0.1*4) = 0.98
+    peer = MockPeer("idle-peer", ["python_expert"], confidence=0.6, load=0)
+    peers = [peer]
+    
+    result = BiddingHeuristics.evaluate_with_swarm_intelligence(task_type, description, peers, current_load=current_load)
+    
+    # Should yield because of load imbalance
+    assert result["should_bid"] is False
+    assert result["yielded_to"] == "idle-peer"
+    assert "lower load" in result["sass"]
 
 def test_local_evaluation_no_yield():
     """Verify local evaluation when no superior peers exist."""

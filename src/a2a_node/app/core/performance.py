@@ -1,8 +1,8 @@
 from typing import Dict, Any, Optional
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_
 from app.core.database import AsyncSessionLocal
-from app.models.ledger import PeerEntry
+from app.models.ledger import PeerEntry, TaskEntry
 from app.core.config import settings
 
 class PerformanceMonitor:
@@ -13,6 +13,36 @@ class PerformanceMonitor:
     @staticmethod
     def get_local_node_id() -> str:
         return f"{settings.PROJECT_NAME}-{settings.PORT}"
+
+    @classmethod
+    async def get_current_load(cls) -> Dict[str, Any]:
+        """
+        Calculates the current load of the local node based on active tasks.
+        """
+        node_id = cls.get_local_node_id()
+        async with AsyncSessionLocal() as db:
+            # Count running tasks
+            running_result = await db.execute(
+                select(TaskEntry).filter(TaskEntry.status == "running")
+            )
+            running_count = len(running_result.scalars().all())
+            
+            # Count pending tasks assigned to this node
+            pending_result = await db.execute(
+                select(TaskEntry).filter(
+                    and_(
+                        TaskEntry.status == "pending",
+                        or_(TaskEntry.assigned_to == "local", TaskEntry.assigned_to == node_id)
+                    )
+                )
+            )
+            pending_count = len(pending_result.scalars().all())
+            
+            return {
+                "running_tasks": running_count,
+                "pending_tasks": pending_count,
+                "total_load": running_count + pending_count
+            }
 
     @classmethod
     async def get_local_performance(cls) -> Dict[str, Any]:

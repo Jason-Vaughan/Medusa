@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.7.3-beta] - 2026-04-16
+### Added
+- **Chunk 20: DYNAMIC LOAD BALANCING** completed.
+- **Load-Aware Bidding:** Nodes now factor in current "active load" (running + pending tasks) when evaluating tasks. Confidence is penalized and bid value increased as load grows to prevent over-commitment.
+- **Dynamic Strategic Yield:** Refined yield logic to prioritize peers with lower current load, ensuring even work distribution across the mesh.
+- **Swamped Decomposition:** Nodes automatically trigger task decomposition more aggressively when swamped (load > 3) to facilitate sub-task delegation and parallel processing.
+- **Enhanced Gossip Protocol:** Strategy sharing now includes real-time load metrics, enabling swarm-wide load balancing awareness.
+- **Performance Monitor Enhancement:** Added high-performance load tracking to calculate active task counts across running and pending states.
+- **Bug Fix:** Resolved missing `time` import in A2A node execution engine.
+
 ## [0.7.2-beta] - 2026-04-16
 ### Added
 - **Chunk 19: GLOBAL STRATEGY DASHBOARD** completed.

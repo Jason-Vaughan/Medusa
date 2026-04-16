@@ -29,12 +29,9 @@ This backlog tracks out-of-scope items, future enhancements, and deferred tasks 
 | **Multi-Node Task Decomposition** | Chunk 8 Plan | High | ✅ Done | Complex tasks can be split into sub-tasks via DecompositionEngine. |
 | **Swarm Coordination** | Chunk 8 Plan | High | ✅ Done | Sub-tasks support dependencies and are executed sequentially by the engine. |
 | **Global Strategy Dashboard** | Chunk 19 Plan | High | ✅ Done | Visualized shared strategies and performance metrics for the entire swarm. |
+| **Dynamic Load Balancing** | Chunk 20 Plan | Medium | ✅ Done | Account for node load (active tasks) in yielding, bidding, and decomposition logic. |
 
 ## 📥 Pending Items
-
-| Item | Origin | Priority | Status | Description |
-|------|--------|----------|--------|-------------|
-| **Dynamic Load Balancing** | Chunk 20 Plan | Medium | 📥 Pending | Account for node load (active tasks) in yielding and bidding logic. |
 | **Advanced LLM Decomposition** | Chunk 14 Critic | High | 📥 Pending | Replace mock decomposition rules with actual LLM calls. |
 | **Exponential Backoff** | Chunk 14 Critic | Low | 📥 Pending | Improve retry logic with smarter wait times between attempts. |
 | **Gossip Consensus** | Chunk 12 Critic | Medium | 📥 Pending | Implement multi-node consensus for conflicting execution results. |

@@ -3,9 +3,9 @@ from app.core.heuristics import BiddingHeuristics
 from app.models.ledger import PeerEntry
 
 class MockPeer:
-    def __init__(self, id, skills, performance=None):
+    def __init__(self, id, skills, performance=None, load=0):
         self.id = id
-        self.strategies = {"skills": skills, "min_confidence": 0.6}
+        self.strategies = {"skills": skills, "min_confidence": 0.6, "current_load": load}
         self.performance = performance
 
 @pytest.mark.asyncio
@@ -39,7 +39,7 @@ async def test_yield_to_better_performance():
     
     assert result["should_bid"] is False
     assert result["yielded_to"] == "top-node"
-    assert "superior performance track record" in result["sass"]
+    assert "superior performance" in result["sass"]
 
 @pytest.mark.asyncio
 async def test_no_yield_to_poor_performance():

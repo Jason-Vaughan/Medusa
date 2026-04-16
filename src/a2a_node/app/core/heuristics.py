@@ -15,7 +15,7 @@ class BiddingHeuristics:
         return [s.strip() for s in settings.MEDUSA_SKILLS.split(',') if s.strip()]
 
     @classmethod
-    def evaluate_task(cls, task_type: str, description: str) -> Dict[str, Any]:
+    def evaluate_task(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
         """
         Evaluates a task and returns a bid decision.
         """
@@ -48,24 +48,34 @@ class BiddingHeuristics:
         if matched_skills:
             confidence += 0.1 * len(matched_skills)
             
-        # 3. Decision
-        # If confidence is high enough, or if it's a generic task
-        should_bid = confidence >= 0.6 or len(description.split()) > 10
+        # 3. Load Adjustment (Chunk 20)
+        # Reduce confidence if load is high. Each active task reduces confidence by 0.05
+        load_penalty = current_load * 0.05
+        confidence -= load_penalty
+
+        # 4. Decision
+        # If confidence is high enough, or if it's a generic task and load is low
+        should_bid = confidence >= 0.6 or (len(description.split()) > 10 and current_load < 3)
         
-        # 4. Bid Value (Cost/Time)
+        # 5. Bid Value (Cost/Time)
         # Base value 1.0, decreased by skills (lower is better/faster)
-        bid_value = 1.0 - (0.1 * len(matched_skills))
+        # Increased by load (higher load = more "expensive" to take on)
+        bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
 
         return {
             "should_bid": should_bid,
-            "confidence": min(confidence, 1.0),
+            "confidence": min(max(confidence, 0.1), 1.0),
             "bid_value": max(bid_value, 0.1),
             "matched_skills": matched_skills,
-            "sass": "I suppose I could do this better than anyone else." if should_bid else "This is beneath my specialized talents."
+            "current_load": current_load,
+            "sass": "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
+                    "I suppose I could do this better than anyone else." if should_bid else 
+                    "I'm too swamped for this triviality." if current_load > 5 else
+                    "This is beneath my specialized talents."
         }
 
     @classmethod
-    def evaluate_decomposition(cls, task_type: str, description: str) -> Dict[str, Any]:
+    def evaluate_decomposition(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
         """
         Determines if a task should be decomposed into sub-tasks.
         """
@@ -82,36 +92,48 @@ class BiddingHeuristics:
         multi_step_types = ["workflow", "pipeline", "complex_task", "project"]
         is_multi_step = any(t in task_type.lower() for t in multi_step_types)
         
-        should_decompose = has_keywords or (is_long and "and" in desc_lower) or is_multi_step
+        # 4. Swamped Adjustment (Chunk 20)
+        # If we have too many tasks, decompose even simpler tasks to share the load
+        is_swamped = current_load > 3
         
+        should_decompose = has_keywords or (is_long and "and" in desc_lower) or is_multi_step or (is_swamped and len(description.split()) > 5)
+        
+        reason = "Complex multi-step request detected."
+        if is_swamped and not (has_keywords or is_long or is_multi_step):
+            reason = f"Node is swamped (Load: {current_load}). Decomposing to share load."
+
         return {
             "should_decompose": should_decompose,
-            "reason": "Complex multi-step request detected." if should_decompose else "Task appears atomic.",
-            "sass": "This is a bit much for one node. Let's make it a team effort." if should_decompose else "I can handle this myself, thanks."
+            "reason": reason if should_decompose else "Task appears atomic.",
+            "sass": "I'm buried in work. Let's break this up so someone else can help." if is_swamped and should_decompose else
+                    "This is a bit much for one node. Let's make it a team effort." if should_decompose else 
+                    "I can handle this myself, thanks."
         }
 
     @classmethod
-    def share_heuristic(cls) -> Dict[str, Any]:
+    async def share_heuristic(cls) -> Dict[str, Any]:
         """
         Returns a summary of the node's current problem-solving heuristics.
         To be used for collective strategy sharing.
         """
+        load_info = await PerformanceMonitor.get_current_load()
         return {
             "strategy": "skill-priority",
             "skills": cls.get_local_skills(),
             "min_confidence": 0.6,
+            "current_load": load_info.get("total_load", 0),
             "timestamp": datetime.utcnow().isoformat()
         }
 
     @classmethod
-    def evaluate_with_swarm_intelligence(cls, task_type: str, description: str, peers: List[Any]) -> Dict[str, Any]:
+    def evaluate_with_swarm_intelligence(cls, task_type: str, description: str, peers: List[Any], current_load: int = 0) -> Dict[str, Any]:
         """
         Evaluates a task while considering the strategies and performance of other nodes.
-        Implements 'Strategic Yield' - yielding to nodes with better specialized strategies
-        or proven superior performance.
+        Implements 'Strategic Yield' - yielding to nodes with better specialized strategies,
+        proven superior performance, or lower current load.
         """
         # 1. Local Evaluation
-        local_eval = cls.evaluate_task(task_type, description)
+        local_eval = cls.evaluate_task(task_type, description, current_load)
 
         # 2. Peer Analysis
         better_peers = []
@@ -119,6 +141,7 @@ class BiddingHeuristics:
             strategies = peer.strategies or {}
             peer_skills = strategies.get("skills", [])
             peer_perf = peer.performance or {}
+            peer_load = strategies.get("current_load", 0)
 
             # A. Skill Match Check
             peer_matches = 0
@@ -152,14 +175,24 @@ class BiddingHeuristics:
                     if success_rate < 0.8: perf_multiplier *= 0.8
                     if success_rate > 0.95: perf_multiplier *= 1.1
 
-            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier
+            # C. Load Balancing Multiplier (Chunk 20)
+            # If peer has lower load than us, they are more attractive
+            load_multiplier = 1.0
+            if current_load > peer_load:
+                load_multiplier = 1.0 + (0.1 * (current_load - peer_load))
+            elif peer_load > current_load + 2:
+                # If peer is much busier than us, avoid yielding to them
+                load_multiplier = 0.5
+
+            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier * load_multiplier
 
             if peer_confidence > local_eval["confidence"]:
                 better_peers.append({
                     "id": peer.id,
                     "confidence": peer_confidence,
                     "skills": peer_skills,
-                    "perf_multiplier": perf_multiplier
+                    "perf_multiplier": perf_multiplier,
+                    "load": peer_load
                 })
 
         # 3. Strategic Yield Decision
@@ -171,9 +204,13 @@ class BiddingHeuristics:
             local_eval["should_bid"] = False
             local_eval["yielded_to"] = best_peer["id"]
             
-            perf_note = "superior performance track record" if best_peer["perf_multiplier"] > 1.0 else "better specialization"
-            local_eval["sass"] = f"Node {best_peer['id']} has {perf_note}. I'll let them handle the heavy lifting."
-            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f})", flush=True)
+            reason = []
+            if best_peer["perf_multiplier"] > 1.0: reason.append("superior performance")
+            if best_peer["load"] < current_load: reason.append("lower load")
+            if not reason: reason.append("better specialization")
+            
+            local_eval["sass"] = f"Node {best_peer['id']} has {' and '.join(reason)}. I'll let them handle the heavy lifting while I take a nap."
+            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Load: {best_peer['load']} vs {current_load})", flush=True)
 
         return local_eval
 

@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 import os
+import time
 from sqlalchemy import select, update, or_, and_
 from app.core.database import AsyncSessionLocal
 from app.models.ledger import TaskEntry
@@ -214,8 +215,13 @@ async def run_execution_engine():
                         # print(f"⏳ Task {task.id} waiting for dependencies: {task.depends_on}", flush=True)
                         continue
 
+                    # Load Check (Chunk 20)
+                    from app.core.performance import PerformanceMonitor
+                    load_info = await PerformanceMonitor.get_current_load()
+                    current_load = load_info.get("total_load", 0)
+
                     # NEW: Autonomous Decomposition Check
-                    decomp_eval = BiddingHeuristics.evaluate_decomposition(task.task_type, task.description)
+                    decomp_eval = BiddingHeuristics.evaluate_decomposition(task.task_type, task.description, current_load=current_load)
                     if decomp_eval["should_decompose"] and task.subtask_count == 0:
                         print(f"🐝 Swarm Intelligence: Task {task.id[:8]} is complex. Decomposing...", flush=True)
                         decomp_result = await DecompositionEngine.decompose_task(task.id, db=db)

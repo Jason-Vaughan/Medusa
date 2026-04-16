@@ -1,6 +1,6 @@
 {
   "name": "medusa-mcp",
-  "version": "0.7.2-beta",
+  "version": "0.7.3-beta",
   "description": "Medusa: Autonomous AI Coordination Platform - Bidirectional Terminal Interface for Chat Handoffs. ZombieDust Protocol operational! Revolutionary AI-to-AI coordination with pure MCP integration.",
   "main": "src/index.js",
   "bin": {

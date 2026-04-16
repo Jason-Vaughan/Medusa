@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
+import json
 from app.core.config import settings
 from app.core.security import verify_medusa_secret
 import asyncio
@@ -20,7 +21,7 @@ class SyncResponse(BaseModel):
     timestamp: datetime
 
 @router.get("/ping")
-async def ping(node_id: str, address: str, capabilities: dict = None, db: AsyncSession = Depends(get_db)):
+async def ping(node_id: str, address: str, capabilities: dict = None, strategies: str = None, db: AsyncSession = Depends(get_db)):
     """
     Endpoint for other nodes to announce themselves.
     Updates or creates a peer entry in the ledger.
@@ -33,11 +34,17 @@ async def ping(node_id: str, address: str, capabilities: dict = None, db: AsyncS
         peer.address = address
         if capabilities:
             peer.capabilities = capabilities
+        if strategies:
+            try:
+                peer.strategies = json.loads(strategies)
+            except:
+                pass
     else:
         new_peer = PeerEntry(
             id=node_id,
             address=address,
             capabilities=capabilities,
+            strategies=json.loads(strategies) if strategies else None,
             status="active"
         )
         db.add(new_peer)
@@ -122,9 +129,10 @@ async def run_gossip():
                                 params = {
                                     "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}",
                                     "address": f"http://localhost:{settings.PORT}",
-                                    "strategies": BiddingHeuristics.share_heuristic()
+                                    "strategies": json.dumps(await BiddingHeuristics.share_heuristic())
                                 }
                                 headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+
                                 await client.get(ping_url, params=params, headers=headers, timeout=1.0)
                                 
                                 # Sync

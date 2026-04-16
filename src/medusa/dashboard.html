@@ -396,12 +396,31 @@
       </div>
       
       <div class="card">
-        <h2>Mesh Awareness & Skills</h2>
-        <div id="mesh-peers" class="workspace-list" style="max-height: 400px; overflow-y: auto;">
-          <p style="color: var(--text-muted);">Discovering peers in the mesh...</p>
+        <h2>Swarm Intelligence Overview</h2>
+        <div id="swarm-summary">
+          <div class="stats" style="justify-content: space-around; margin-bottom: 15px;">
+            <div class="stat-item">
+              <div class="stat-value" id="global-success-rate">--%</div>
+              <div class="stat-label">Mesh Success Rate</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="global-avg-latency">--s</div>
+              <div class="stat-label">Mesh Avg Latency</div>
+            </div>
+          </div>
+          <div style="font-size: 0.85em; color: var(--text-muted); padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+            <strong>Active Strategies:</strong> <span id="active-strategies">Analyzing...</span>
+          </div>
         </div>
-        <button onclick="loadPeers()" style="margin-top: 15px;">Refresh Peers</button>
       </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 30px;">
+      <h2>Mesh Awareness & Global Strategies</h2>
+      <div id="mesh-peers" class="grid" style="grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px;">
+        <p style="color: var(--text-muted);">Discovering peers in the mesh...</p>
+      </div>
+      <button onclick="loadPeers()" style="margin-top: 20px;">Refresh Peers & Strategies</button>
     </div>
     
     <div class="grid">

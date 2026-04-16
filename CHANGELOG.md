@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.2-beta] - 2026-04-16
+### Added
+- **Chunk 19: GLOBAL STRATEGY DASHBOARD** completed.
+- **Swarm Intelligence Overview:** New dashboard component visualizing aggregate mesh success rates, average latency, and active strategies.
+- **Integrated Peer Analytics:** Enhanced "Mesh Awareness" with detailed node cards showing success rates (%), avg latency (s), strategy types, and specialized skills.
+- **Performance Visualization:** Color-coded status indicators for peer reliability and speed.
+- **Hybrid UI Layout:** Combined granular node-specific data with high-level swarm health summaries for optimal transparency.
+
 ## [0.7.1-beta] - 2026-04-15
 ### Added
 - **Chunk 18: SWARM PERFORMANCE METRICS** completed.

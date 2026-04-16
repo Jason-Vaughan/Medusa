@@ -861,33 +861,117 @@ function renderTaskTree(tasks, level = 0) {
   }).join('');
 }
 
+/**
+ * Loads peer data from the protocol mesh and updates the dashboard.
+ * Calculates global swarm metrics and individual peer performance analytics.
+ * Visualizes shared strategies, skills, and success/latency metrics.
+ */
 async function loadPeers() {
-  const list = document.getElementById('mesh-peers');
+  const container = document.getElementById('mesh-peers');
+  const globalSuccessEl = document.getElementById('global-success-rate');
+  const globalLatencyEl = document.getElementById('global-avg-latency');
+  const activeStrategiesEl = document.getElementById('active-strategies');
+
   try {
     const response = await fetch(PROTOCOL_URL + '/mesh/peers');
     const data = await response.json();
 
     if (!data.peers || data.peers.length === 0) {
-      list.innerHTML = '<p style="color: var(--text-muted);">No peers discovered yet.</p>';
+      container.innerHTML = '<p style="color: var(--text-muted);">No peers discovered yet.</p>';
       return;
     }
 
-    list.innerHTML = data.peers.map(peer => {
-      const skills = peer.metadata?.skills || 'generic';
+    let totalTasks = 0;
+    let totalSuccess = 0;
+    let totalLatency = 0.0;
+    let peerCountWithPerf = 0;
+    const strategies = new Set();
+
+    container.innerHTML = data.peers.map(peer => {
+      const perf = peer.performance || {};
+      const stats = peer.strategies || {};
+      const skills = stats.skills || (peer.metadata?.skills ? peer.metadata.skills.split(',') : ['generic']);
+      
+      // Calculate individual metrics
+      const pTasks = perf.total_tasks || 0;
+      const pSuccess = perf.success_count || 0;
+      const pLatency = perf.total_latency || 0;
+      
+      const successRate = pTasks > 0 ? (pSuccess / pTasks * 100).toFixed(1) : '100';
+      const avgLatency = pTasks > 0 ? (pLatency / pTasks).toFixed(2) : '0.00';
+      
+      // Aggregate for global summary
+      if (pTasks > 0) {
+        totalTasks += pTasks;
+        totalSuccess += pSuccess;
+        totalLatency += (pLatency / pTasks);
+        peerCountWithPerf++;
+      }
+      if (stats.strategy) strategies.add(stats.strategy);
+
+      // Performance color coding
+      const rateColor = parseFloat(successRate) >= 95 ? 'var(--success)' : (parseFloat(successRate) >= 80 ? 'var(--warning)' : 'var(--danger)');
+      const latencyColor = parseFloat(avgLatency) <= 1.0 ? 'var(--success)' : (parseFloat(avgLatency) <= 3.0 ? 'var(--warning)' : 'var(--danger)');
+
       return `
-        <li class="workspace-item">
-          <div>
-            <strong>${peer.id.split('-')[0]}</strong> <span class="status active">${peer.status}</span>
-            <div style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">
-              Skills: ${skills}<br>
-              Address: ${peer.address}
+        <div class="card" style="margin: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div>
+              <strong style="color: var(--primary); font-size: 1.1em;">${peer.id.split('-')[0]}</strong>
+              <div style="font-size: 0.7em; color: var(--text-muted); font-family: monospace;">${peer.id}</div>
+            </div>
+            <span class="status active" style="margin: 0;">${peer.status}</span>
+          </div>
+
+          <div class="stats" style="margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
+            <div class="stat-item" style="flex: 1;">
+              <div class="stat-value" style="font-size: 1.2em; color: ${rateColor}">${successRate}%</div>
+              <div class="stat-label" style="font-size: 0.7em;">Success Rate</div>
+            </div>
+            <div class="stat-item" style="flex: 1;">
+              <div class="stat-value" style="font-size: 1.2em; color: ${latencyColor}">${avgLatency}s</div>
+              <div class="stat-label" style="font-size: 0.7em;">Avg Latency</div>
+            </div>
+            <div class="stat-item" style="flex: 1;">
+              <div class="stat-value" style="font-size: 1.2em;">${pTasks}</div>
+              <div class="stat-label" style="font-size: 0.7em;">Tasks</div>
             </div>
           </div>
-        </li>
+
+          <div style="font-size: 0.85em; margin-bottom: 8px;">
+            <strong style="color: var(--text-muted);">Strategy:</strong> 
+            <span style="color: var(--primary);">${stats.strategy || 'default'}</span>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            ${skills.map(skill => `
+              <span style="background: rgba(145, 70, 255, 0.15); color: var(--primary); padding: 2px 8px; border-radius: 12px; font-size: 0.75em; border: 1px solid rgba(145, 70, 255, 0.3);">
+                ${skill.trim()}
+              </span>
+            `).join('')}
+          </div>
+          
+          <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 12px;">
+            Last Seen: ${formatTimeAgo(peer.last_seen)}
+          </div>
+        </div>
       `;
     }).join('');
+
+    // Update Global Summary
+    const globalSuccessRate = totalTasks > 0 ? (totalSuccess / totalTasks * 100).toFixed(1) : '100';
+    const globalAvgLatency = peerCountWithPerf > 0 ? (totalLatency / peerCountWithPerf).toFixed(2) : '0.00';
+    
+    globalSuccessEl.textContent = `${globalSuccessRate}%`;
+    globalSuccessEl.style.color = parseFloat(globalSuccessRate) >= 95 ? 'var(--success)' : 'var(--warning)';
+    
+    globalLatencyEl.textContent = `${globalAvgLatency}s`;
+    globalLatencyEl.style.color = parseFloat(globalAvgLatency) <= 1.0 ? 'var(--success)' : 'var(--warning)';
+    
+    activeStrategiesEl.textContent = Array.from(strategies).join(', ') || 'Standard Collective Intelligence';
+
   } catch (error) {
-    list.innerHTML = `<p style="color: var(--danger);">Error: ${error.message}</p>`;
+    container.innerHTML = `<p style="color: var(--danger);">Error: ${error.message}</p>`;
   }
 }
 

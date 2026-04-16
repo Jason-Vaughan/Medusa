@@ -2,22 +2,20 @@
 
 ## Project: Medusa (A2A Swarm)
 
-### Current State (2026-04-15)
-- **OFFICIAL PUBLIC BETA LAUNCH (v0.7.1-beta).**
-- **Chunk 18 Complete:** Swarm Performance Metrics implemented.
-- Nodes track success rates and latencies, sharing them via gossip.
-- Strategic Yield refined to prioritize reliable, fast peers.
+### Current State (2026-04-16)
+- **OFFICIAL PUBLIC BETA LAUNCH (v0.7.2-beta).**
+- **Chunk 19 Complete:** Global Strategy Dashboard implemented.
+- Dashboard now visualizes aggregate mesh performance (success rate, latency) and active strategies.
+- Peer list enhanced with detailed analytics cards for every node in the swarm.
 
 ### Key Decisions
-- **Deterministic Yielding:** To prevent race conditions, the yielding logic is deterministic: if multiple nodes have similar confidence, they use ID-based prioritization as a tie-breaker.
-- **Strategy Sync:** Strategies are included in `ping` requests for immediate propagation and merged during periodic `sync` calls.
-- **Performance Multipliers:** Peer confidence is adjusted by success rate (0.7x to 1.2x) and latency (0.9x to 1.1x) to favor reliable nodes.
-- **Public Beta Transition:** Decided to move to `0.7.0-beta`+ to signal readiness for external users while maintaining "beta" tag for feedback.
+- **Hybrid Visualization:** Decided on an integrated peer analytics view combined with a high-level swarm summary for optimal transparency without UI clutter.
+- **Performance Color Coding:** Success rates and latencies are color-coded (green/warning/danger) to highlight node reliability at a glance.
 
 ### Open Questions / Future Work
 - **Community Feedback Loop:** Establish a process for handling PRs and issues from the public.
-- **Chunk 19: Global Strategy Dashboard:** The dashboard should be updated to visualize the shared strategies and performance metrics of all nodes in the mesh.
-- **Dynamic Load Balancing:** Further refine yield logic to account for node load (number of active tasks).
+- **Chunk 20: Dynamic Load Balancing:** Refine yield logic to account for node load (number of active tasks) and queue depth.
+- **Historical Analytics:** Add time-series graphs for swarm performance over long periods.
 
 ### Resilience
 - TangleClaw PortHub integration is working but sometimes times out; gossip protocol handles this by muting errors after the first failure.

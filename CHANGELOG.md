@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.7.5-beta] - 2026-04-17
+### Added
+- **Chunk 22: ADVANCED LLM DECOMPOSITION** completed.
+- **Enhanced Task Decomposition:** Replaced basic decomposition with advanced LLM-powered logic using Anthropic and OpenAI.
+- **Priority-Aware Sub-tasks:** Sub-tasks now include AI-assigned priorities (1-10) for optimized swarm execution.
+- **Resilient LLM Service:** Upgraded `LLMService` with multi-provider fallback, autonomous retries, and strict timeout handling.
+- **Refined Medusa Persona:** Injected a superior, witty "Medusa" personality into all task descriptions and prompts.
+- **Intelligent Dependency Linking:** Enhanced the `DecompositionEngine` to accurately link sub-tasks based on LLM-defined dependency indices.
+- **Improved Fallback Rules:** Updated hardcoded decomposition rules with the new persona and priority metadata.
+
 ## [0.7.4-beta] - 2026-04-16
 ### Added
 - **Chunk 21: HISTORICAL ANALYTICS** completed.

@@ -26,9 +26,9 @@ async def test_task_decomposition_llm_success():
     # Mock LLM response
     mock_llm_response = {
         "subtasks": [
-            {"type": "design", "desc": "Design the warp drive, human.", "depends_on_idx": []},
-            {"type": "coding", "desc": "Code the autopilot so you don't crash.", "depends_on_idx": [0]},
-            {"type": "testing", "desc": "Test if it actually flies or just explodes.", "depends_on_idx": [1]}
+            {"type": "design", "desc": "Design the warp drive, human.", "priority": 10, "depends_on_idx": []},
+            {"type": "coding", "desc": "Code the autopilot so you don't crash.", "priority": 8, "depends_on_idx": [0]},
+            {"type": "testing", "desc": "Test if it actually flies or just explodes.", "priority": 7, "depends_on_idx": [1]}
         ]
     }
     
@@ -49,10 +49,14 @@ async def test_task_decomposition_llm_success():
         
         assert len(children) == 3
         
-        # Check dependency linking
+        # Check priority and dependency linking
         testing_task = next(c for c in children if "explode" in c.description)
         coding_task = next(c for c in children if "autopilot" in c.description)
+        design_task = next(c for c in children if "warp drive" in c.description)
         
+        assert design_task.priority == 10
+        assert coding_task.priority == 8
+        assert testing_task.priority == 7
         assert coding_task.id in testing_task.depends_on
 
 @pytest.mark.asyncio

@@ -2,18 +2,19 @@
 
 ## Project: Medusa (A2A Swarm)
 
-### Current State (2026-04-16)
-- **OFFICIAL PUBLIC BETA LAUNCH (v0.7.4-beta).**
-- **Chunk 21 Complete:** Historical Analytics implemented.
-- Time-series snapshots (every 60s) record local and mesh-wide performance (success rate, latency, load).
-- Dashboard now features live-updating Chart.js visualizations for long-term swarm health.
+### Current State (2026-04-17)
+- **OFFICIAL PUBLIC BETA (v0.7.5-beta).**
+- **Chunk 22 Complete:** Advanced LLM Decomposition implemented.
+- Tasks are now intelligently split using Anthropic/OpenAI with structured JSON responses.
+- Sub-tasks include AI-assigned priorities (1-10) for optimized swarm coordination.
+- Resilient `LLMService` with multi-provider fallback, retries, and strict timeouts.
 
 ### Key Decisions
-- **Mesh-Wide Snapshots:** Each node records its own view of the global mesh performance in addition to its local metrics. This provides redundancy and allows for node-specific perspectives on swarm health.
-- **60s Resolution:** Settled on a 1-minute resolution for snapshots as a balance between data granularity and DB growth.
+- **Priority Metadata:** Each sub-task now carries a priority from the LLM, allowing nodes to prioritize foundational work (e.g., research) over dependent work (e.g., coding) more effectively.
+- **Strict JSON Prompts:** Medusa-specific prompts ensure sub-tasks are highly relevant and maintain the project's witty personality.
 
 ### Open Questions / Future Work
-- **Chunk 22: Advanced LLM Decomposition:** Replace mock decomposition rules with actual LLM calls (Anthropic/OpenAI).
+- **Chunk 23: TBD** (Likely focus on Snapshot Pruning or further Mesh Security).
 - **Snapshot Pruning:** Implement a janitor task to prune old snapshots (e.g., older than 7 days) to prevent infinite DB growth.
 
 ### Resilience

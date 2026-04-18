@@ -71,20 +71,20 @@ class DecompositionEngine:
             
             if "research" in desc_lower and "report" in desc_lower:
                 subtask_plans = [
-                    {"type": "research", "desc": f"Gather data: {clean_desc}"},
-                    {"type": "analysis", "desc": f"Analyze gathered data: {clean_desc}", "depends_on_idx": [0]},
-                    {"type": "report", "desc": f"Draft the final report: {clean_desc}", "depends_on_idx": [1]}
+                    {"type": "research", "desc": f"Gather data: {clean_desc}", "priority": 8},
+                    {"type": "analysis", "desc": f"Analyze gathered data: {clean_desc}", "priority": 7, "depends_on_idx": [0]},
+                    {"type": "report", "desc": f"Draft the final report: {clean_desc}", "priority": 6, "depends_on_idx": [1]}
                 ]
             elif "implement" in desc_lower or "fix" in desc_lower:
                 subtask_plans = [
-                    {"type": "analysis", "desc": f"Analyze requirements: {clean_desc}"},
-                    {"type": "coding", "desc": f"Perform implementation: {clean_desc}", "depends_on_idx": [0]},
-                    {"type": "testing", "desc": f"Verify implementation: {clean_desc}", "depends_on_idx": [1]}
+                    {"type": "analysis", "desc": f"Analyze requirements: {clean_desc}", "priority": 9},
+                    {"type": "coding", "desc": f"Perform implementation: {clean_desc}", "priority": 8, "depends_on_idx": [0]},
+                    {"type": "testing", "desc": f"Verify implementation: {clean_desc}", "priority": 7, "depends_on_idx": [1]}
                 ]
             elif len(parent_task.description.split()) > 10:
                 subtask_plans = [
-                    {"type": "subtask_1", "desc": f"Partial execution: {parent_task.description[:30]}..."},
-                    {"type": "subtask_2", "desc": f"Remaining execution: {parent_task.description[30:]}..."}
+                    {"type": "subtask_1", "desc": f"Partial execution: {parent_task.description[:30]}...", "priority": 5},
+                    {"type": "subtask_2", "desc": f"Remaining execution: {parent_task.description[30:]}...", "priority": 5}
                 ]
         
         if not subtask_plans:
@@ -113,7 +113,7 @@ class DecompositionEngine:
                 description=plan.get("desc", "No description"),
                 context=parent_task.context,
                 status="pending",
-                priority=parent_task.priority,
+                priority=plan.get("priority", parent_task.priority),
                 assigned_to=parent_task.assigned_to, 
                 assigned_by=parent_task.assigned_by,
                 parent_id=parent_task.id,

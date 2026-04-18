@@ -13,37 +13,43 @@ class LLMService:
     """
     
     @staticmethod
-    async def get_completion(system_prompt: str, user_prompt: str) -> Optional[str]:
+    async def get_completion(system_prompt: str, user_prompt: str, max_retries: int = 2) -> Optional[str]:
         """
-        Main entry point for LLM completions.
-        Uses preferred provider and falls back to other if one fails.
+        Main entry point for LLM completions with retries and multi-provider fallback.
         """
         provider = settings.LLM_PROVIDER.lower()
         
-        if provider == "anthropic":
-            result = await LLMService._call_anthropic(system_prompt, user_prompt)
-            if not result:
-                logger.warning("⚠️ Anthropic failed. Falling back to OpenAI.")
-                result = await LLMService._call_openai(system_prompt, user_prompt)
-            return result
-        else:
-            result = await LLMService._call_openai(system_prompt, user_prompt)
-            if not result:
-                logger.warning("⚠️ OpenAI failed. Falling back to Anthropic.")
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                print(f"🔄 Retrying LLM completion (attempt {attempt}/{max_retries})...", flush=True)
+                await asyncio.sleep(1)
+
+            if provider == "anthropic":
                 result = await LLMService._call_anthropic(system_prompt, user_prompt)
-            return result
+                if not result:
+                    print("⚠️ Anthropic failed. Falling back to OpenAI.", flush=True)
+                    result = await LLMService._call_openai(system_prompt, user_prompt)
+                if result: return result
+            else:
+                result = await LLMService._call_openai(system_prompt, user_prompt)
+                if not result:
+                    print("⚠️ OpenAI failed. Falling back to Anthropic.", flush=True)
+                    result = await LLMService._call_anthropic(system_prompt, user_prompt)
+                if result: return result
+        
+        return None
 
     @staticmethod
     async def _call_anthropic(system_prompt: str, user_prompt: str) -> Optional[str]:
         """
-        Calls Anthropic Claude API.
+        Calls Anthropic Claude API with strict timeout.
         """
         if not settings.ANTHROPIC_API_KEY:
             logger.error("❌ ANTHROPIC_API_KEY is not set.")
             return None
             
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers={
@@ -57,8 +63,7 @@ class LLMService:
                         "messages": [{"role": "user", "content": user_prompt}],
                         "max_tokens": 1024,
                         "temperature": 0.7
-                    },
-                    timeout=30.0
+                    }
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -70,14 +75,14 @@ class LLMService:
     @staticmethod
     async def _call_openai(system_prompt: str, user_prompt: str) -> Optional[str]:
         """
-        Calls OpenAI GPT API.
+        Calls OpenAI GPT API with strict timeout.
         """
         if not settings.OPENAI_API_KEY:
             logger.error("❌ OPENAI_API_KEY is not set.")
             return None
             
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers={
@@ -85,7 +90,7 @@ class LLMService:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "gpt-4o-mini", # Standard mini model for speed
+                        "model": "gpt-4o-mini",
                         "messages": [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
@@ -93,8 +98,7 @@ class LLMService:
                         "max_tokens": 1024,
                         "temperature": 0.7,
                         "response_format": {"type": "json_object"} if "json" in system_prompt.lower() else {"type": "text"}
-                    },
-                    timeout=30.0
+                    }
                 )
                 response.raise_for_status()
                 data = response.json()

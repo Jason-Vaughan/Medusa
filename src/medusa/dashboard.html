@@ -320,7 +320,14 @@
       color: var(--text);
       border-radius: 4px;
     }
+
+    .chart-container {
+      position: relative;
+      height: 250px;
+      width: 100%;
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <div class="container">
@@ -396,7 +403,7 @@
       </div>
       
       <div class="card">
-        <h2>Swarm Intelligence Overview</h2>
+        <h2>Performance Analytics (Real-time)</h2>
         <div id="swarm-summary">
           <div class="stats" style="justify-content: space-around; margin-bottom: 15px;">
             <div class="stat-item">
@@ -412,6 +419,22 @@
             <strong>Active Strategies:</strong> <span id="active-strategies">Analyzing...</span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 30px;">
+      <h2>Historical Mesh Performance (Last 50 mins)</h2>
+      <div class="grid">
+        <div class="chart-container">
+          <canvas id="successRateChart"></canvas>
+        </div>
+        <div class="chart-container">
+          <canvas id="latencyChart"></canvas>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <button onclick="loadPerformanceHistory()">Update Charts</button>
+        <button onclick="togglePerformancePolling()" id="perf-polling-btn" style="background: var(--text-muted);">Auto-poll Charts: OFF</button>
       </div>
     </div>
     

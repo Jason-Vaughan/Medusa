@@ -474,3 +474,11 @@ async def list_messages(limit: int = 20, db: AsyncSession = Depends(get_db)):
     """
     result = await db.execute(select(MessageEntry).order_by(MessageEntry.received_at.desc()).limit(limit))
     return result.scalars().all()
+
+@router.get("/performance/history")
+async def get_performance_history(node_id: str = "global", limit: int = 50):
+    """
+    Retrieves historical performance snapshots for the specified node or 'global' for the mesh.
+    """
+    from app.core.performance import PerformanceMonitor
+    return await PerformanceMonitor.get_history(node_id=node_id, limit=limit)

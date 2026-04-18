@@ -6,6 +6,7 @@ from app.core.tangleclaw import register_port
 from app.core.database import init_db
 from app.core.execution import run_execution_engine
 from app.core.swarm import run_swarm_intelligence
+from app.core.performance import run_performance_monitor
 from app.core.supervisor import supervisor
 import uvicorn
 import os
@@ -29,6 +30,7 @@ async def startup_event():
     supervisor.register_task("Gossip-Sync", gossip.run_gossip)
     supervisor.register_task("Execution-Engine", run_execution_engine)
     supervisor.register_task("Swarm-Intelligence", run_swarm_intelligence)
+    supervisor.register_task("Performance-Monitor", run_performance_monitor)
     
     # Start all supervised tasks
     await supervisor.start_all()

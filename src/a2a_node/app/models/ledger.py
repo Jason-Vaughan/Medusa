@@ -61,6 +61,14 @@ class PeerEntry(Base):
     strategies = Column(JSON, nullable=True)
     performance = Column(JSON, nullable=True)
 
+class PerformanceSnapshot(Base):
+    __tablename__ = "performance_snapshots"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    node_id = Column(String, index=True) # "global" for mesh-wide, or specific node_id
+    metrics = Column(JSON, nullable=False) # {success_rate, avg_latency, total_tasks, active_nodes, etc.}
+
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):
     id: str
@@ -116,6 +124,15 @@ class LedgerPeer(BaseModel):
     capabilities: Optional[Dict[str, Any]] = None
     strategies: Optional[Dict[str, Any]] = None
     performance: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+class PerformanceSnapshotSchema(BaseModel):
+    id: Optional[int] = None
+    timestamp: datetime
+    node_id: str
+    metrics: Dict[str, Any]
 
     class Config:
         from_attributes = True

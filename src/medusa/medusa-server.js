@@ -417,21 +417,40 @@ const protocolServer = http.createServer(async (req, res) => {
     }
     return;
   }
-
-  // Resolve auction (Bridged)
-  if (path.startsWith('/auctions/') && path.endsWith('/resolve') && req.method === 'POST') {
-    try {
-      const taskId = path.split('/')[2];
-      const result = await callA2A('POST', `/a2a/tasks/${taskId}/resolve_auction`);
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(result));
-    } catch (error) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ error: error.message }));
-    }
-    return;
+// Resolve auction (Bridged)
+if (path.startsWith('/auctions/') && path.endsWith('/resolve') && req.method === 'POST') {
+  try {
+    const taskId = path.split('/')[2];
+    const result = await callA2A('POST', `/a2a/tasks/${taskId}/resolve_auction`);
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(result));
+  } catch (error) {
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: error.message }));
   }
+  return;
+}
+
+// Get performance history (Bridged)
+if (path === '/a2a/performance/history' && req.method === 'GET') {
+  try {
+    const nodeId = url.searchParams.get('node_id') || 'global';
+    const limit = url.searchParams.get('limit') || '50';
+    const result = await callA2A('GET', `/a2a/performance/history?node_id=${nodeId}&limit=${limit}`);
+
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(result));
+  } catch (error) {
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: error.message }));
+  }
+  return;
+}
+
 
   // Approve task (Bridged)
   if (path.startsWith('/tasks/') && path.endsWith('/approve') && req.method === 'POST') {

@@ -993,6 +993,120 @@ function toggleAuctionPolling() {
   }
 }
 
+// Chart instances
+let successRateChart = null;
+let latencyChart = null;
+let isPerfPolling = false;
+let perfInterval = null;
+
+/**
+ * Initializes and updates historical performance charts.
+ */
+async function loadPerformanceHistory() {
+  try {
+    const response = await fetch(PROTOCOL_URL + '/a2a/performance/history?limit=50');
+    const history = await response.json();
+
+    if (!history || history.length === 0) return;
+
+    const labels = history.map(h => {
+      const date = new Date(h.timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+
+    const successRates = history.map(h => h.metrics.success_rate);
+    const latencies = history.map(h => h.metrics.avg_latency);
+
+    // Update Success Rate Chart
+    if (!successRateChart) {
+      const ctx = document.getElementById('successRateChart').getContext('2d');
+      successRateChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Mesh Success Rate (%)',
+            data: successRates,
+            borderColor: '#00ff88',
+            backgroundColor: 'rgba(0, 255, 136, 0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#adadb8' } },
+            x: { grid: { display: false }, ticks: { color: '#adadb8' } }
+          },
+          plugins: {
+            legend: { labels: { color: '#efeff1' } }
+          }
+        }
+      });
+    } else {
+      successRateChart.data.labels = labels;
+      successRateChart.data.datasets[0].data = successRates;
+      successRateChart.update('none');
+    }
+
+    // Update Latency Chart
+    if (!latencyChart) {
+      const ctx = document.getElementById('latencyChart').getContext('2d');
+      latencyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Mesh Avg Latency (s)',
+            data: latencies,
+            borderColor: '#9146ff',
+            backgroundColor: 'rgba(145, 70, 255, 0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#adadb8' } },
+            x: { grid: { display: false }, ticks: { color: '#adadb8' } }
+          },
+          plugins: {
+            legend: { labels: { color: '#efeff1' } }
+          }
+        }
+      });
+    } else {
+      latencyChart.data.labels = labels;
+      latencyChart.data.datasets[0].data = latencies;
+      latencyChart.update('none');
+    }
+  } catch (error) {
+    console.error('Failed to load performance history:', error);
+  }
+}
+
+function togglePerformancePolling() {
+  const btn = document.getElementById('perf-polling-btn');
+  isPerfPolling = !isPerfPolling;
+
+  if (isPerfPolling) {
+    btn.textContent = 'Auto-poll Charts: ON';
+    btn.style.background = 'var(--success)';
+    loadPerformanceHistory();
+    perfInterval = setInterval(loadPerformanceHistory, 30000); // Poll every 30s
+  } else {
+    btn.textContent = 'Auto-poll Charts: OFF';
+    btn.style.background = 'var(--text-muted)';
+    if (perfInterval) clearInterval(perfInterval);
+  }
+}
+
 // Initial load
 document.addEventListener('DOMContentLoaded', () => {
   console.log('Medusa Dashboard JavaScript loaded and executing!');
@@ -1003,6 +1117,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAuctions();
   loadTaskTree();
   loadPeers();
+  loadPerformanceHistory();
 });
 
 // Set up auto-refresh
@@ -1014,4 +1129,5 @@ setInterval(() => {
   loadAuctions();
   loadTaskTree();
   loadPeers();
+  if (isPerfPolling) loadPerformanceHistory();
 }, 5000);

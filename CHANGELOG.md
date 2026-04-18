@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.7.4-beta] - 2026-04-16
+### Added
+- **Chunk 21: HISTORICAL ANALYTICS** completed.
+- **Performance Snapshots:** Implemented periodic snapshotting (every 60s) of local and global (mesh-wide) performance metrics.
+- **Time-Series Database:** Added `performance_snapshots` table via Alembic to store historical success rates, latency, and load.
+- **Historical API:** New `/a2a/performance/history` endpoint with support for node-specific or mesh-wide data retrieval.
+- **Chart.js Integration:** Integrated Chart.js into the Switchboard dashboard for professional time-series visualization.
+- **Mesh Performance Graphs:** Added real-time updating charts for Swarm Success Rate (%) and Mesh Average Latency (s) over the last 50 minutes.
+- **Background Monitoring:** Dedicated `Performance-Monitor` supervised task for persistent metrics collection.
+
 ## [0.7.3-beta] - 2026-04-16
 ### Added
 - **Chunk 20: DYNAMIC LOAD BALANCING** completed.

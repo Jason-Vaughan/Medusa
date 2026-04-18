@@ -1,8 +1,8 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from app.core.database import AsyncSessionLocal
-from app.models.ledger import PeerEntry, TaskEntry
+from app.models.ledger import PeerEntry, TaskEntry, PerformanceSnapshot
 from app.core.config import settings
 
 class PerformanceMonitor:
@@ -124,3 +124,101 @@ class PerformanceMonitor:
             
             await db.commit()
             # print(f"📊 Performance recorded for {task_type}: {'Success' if success else 'Failure'} in {latency:.2f}s", flush=True)
+
+    @classmethod
+    async def record_snapshot(cls):
+        """
+        Creates a point-in-time snapshot of performance for the node and mesh.
+        """
+        node_id = cls.get_local_node_id()
+        async with AsyncSessionLocal() as db:
+            # 1. Local metrics
+            result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+            peer = result.scalars().first()
+            
+            if peer and peer.performance:
+                perf = peer.performance
+                success_rate = (perf.get("success_count", 0) / max(perf.get("total_tasks", 1), 1)) * 100
+                avg_latency = perf.get("total_latency", 0) / max(perf.get("total_tasks", 1), 1)
+                
+                snapshot = PerformanceSnapshot(
+                    node_id=node_id,
+                    metrics={
+                        "total_tasks": perf.get("total_tasks", 0),
+                        "success_rate": success_rate,
+                        "avg_latency": avg_latency,
+                        "load": (await cls.get_current_load()).get("total_load", 0)
+                    }
+                )
+                db.add(snapshot)
+            
+            # 2. Global (Mesh) metrics
+            peers_result = await db.execute(select(PeerEntry))
+            all_peers = peers_result.scalars().all()
+            
+            total_tasks = 0
+            total_success = 0
+            total_latency = 0
+            active_nodes = 0
+            
+            for p in all_peers:
+                if p.status == "active":
+                    active_nodes += 1
+                if p.performance:
+                    total_tasks += p.performance.get("total_tasks", 0)
+                    total_success += p.performance.get("success_count", 0)
+                    total_latency += p.performance.get("total_latency", 0)
+            
+            global_success_rate = (total_success / max(total_tasks, 1)) * 100
+            global_avg_latency = total_latency / max(total_tasks, 1)
+            
+            global_snapshot = PerformanceSnapshot(
+                node_id="global",
+                metrics={
+                    "active_nodes": active_nodes,
+                    "total_tasks": total_tasks,
+                    "success_rate": global_success_rate,
+                    "avg_latency": global_avg_latency
+                }
+            )
+            db.add(global_snapshot)
+            
+            await db.commit()
+
+    @classmethod
+    async def get_history(cls, node_id: str = "global", limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves historical performance snapshots.
+        """
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(PerformanceSnapshot)
+                .filter(PerformanceSnapshot.node_id == node_id)
+                .order_by(PerformanceSnapshot.timestamp.desc())
+                .limit(limit)
+            )
+            snapshots = result.scalars().all()
+            return [
+                {
+                    "timestamp": s.timestamp.isoformat(),
+                    "metrics": s.metrics
+                }
+                for s in reversed(snapshots) # Return in chronological order
+            ]
+
+async def run_performance_monitor():
+    """
+    Background loop to periodically record performance snapshots.
+    """
+    print("📊 Performance Monitoring loop started.", flush=True)
+    while True:
+        try:
+            await PerformanceMonitor.record_snapshot()
+            # print("📊 Performance snapshot recorded.", flush=True)
+        except Exception as e:
+            print(f"❌ Error recording performance snapshot: {e}", flush=True)
+        
+        # Record every 60 seconds
+        await asyncio.sleep(60)
+
+import asyncio

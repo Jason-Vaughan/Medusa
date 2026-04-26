@@ -1,12 +1,12 @@
 work_in_progress:
-  description: 'Phase 15: Global Strategy Dashboard'
-  size: Medium
+  description: 'Phase 16: Snapshot Pruning & Mesh Security'
+  size: Small
   type: Feature
   status: Discovery
-  chunk: 19
+  chunk: 23
 discovery_complete: false
 planning_complete: false
 current_phase: Discovery
-next_step: Research methods for aggregating and visualizing swarm strategies and performance metrics on the Medusa dashboard.
-last_completed_chunk: 18
+next_step: Research efficient snapshot pruning strategies for the SQLite ledger to prevent database bloat.
+last_completed_chunk: 22
 last_chunk_status: Complete

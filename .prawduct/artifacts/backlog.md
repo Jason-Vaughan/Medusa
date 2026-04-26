@@ -30,9 +30,12 @@ This backlog tracks out-of-scope items, future enhancements, and deferred tasks 
 | **Swarm Coordination** | Chunk 8 Plan | High | ✅ Done | Sub-tasks support dependencies and are executed sequentially by the engine. |
 | **Global Strategy Dashboard** | Chunk 19 Plan | High | ✅ Done | Visualized shared strategies and performance metrics for the entire swarm. |
 | **Dynamic Load Balancing** | Chunk 20 Plan | Medium | ✅ Done | Account for node load (active tasks) in yielding, bidding, and decomposition logic. |
+| **Historical Analytics** | Chunk 21 Plan | High | ✅ Done | Implemented periodic snapshotting and time-series visualization of mesh performance. |
+| **Advanced LLM Decomposition** | Chunk 22 Plan | High | ✅ Done | Replaced mock decomposition rules with actual LLM calls (Anthropic/OpenAI) and priority support. |
 
 ## 📥 Pending Items
-| **Advanced LLM Decomposition** | Chunk 14 Critic | High | 📥 Pending | Replace mock decomposition rules with actual LLM calls. |
+| Item | Origin | Priority | Status | Description |
+|------|--------|----------|--------|-------------|
 | **Exponential Backoff** | Chunk 14 Critic | Low | 📥 Pending | Improve retry logic with smarter wait times between attempts. |
 | **Gossip Consensus** | Chunk 12 Critic | Medium | 📥 Pending | Implement multi-node consensus for conflicting execution results. |
 | **Dashboard Telemetry UI** | Chunk 11 Critic | Low | 📥 Pending | Add more detailed telemetry graphs to the switchboard. |

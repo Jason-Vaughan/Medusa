@@ -4,14 +4,13 @@
 
 ### Current State (2026-04-17)
 - **OFFICIAL PUBLIC BETA (v0.7.5-beta).**
-- **Chunk 22 Complete:** Advanced LLM Decomposition implemented.
-- Tasks are now intelligently split using Anthropic/OpenAI with structured JSON responses.
-- Sub-tasks include AI-assigned priorities (1-10) for optimized swarm coordination.
-- Resilient `LLMService` with multi-provider fallback, retries, and strict timeouts.
+- **Chunk 22 Complete:** Advanced LLM Decomposition verified and operational.
+- **Project Tracking Synced:** `project-state.yaml` and `backlog.md` now reflect reality.
+- **Next: Chunk 23:** Snapshot Pruning (Janitor task) & Mesh Security.
 
 ### Key Decisions
-- **Priority Metadata:** Each sub-task now carries a priority from the LLM, allowing nodes to prioritize foundational work (e.g., research) over dependent work (e.g., coding) more effectively.
-- **Strict JSON Prompts:** Medusa-specific prompts ensure sub-tasks are highly relevant and maintain the project's witty personality.
+- **Context Management:** Decided to wrap after syncing tracking files to ensure a full context window for Chunk 23 implementation.
+- **Priority Metadata:** Each sub-task now carries a priority (1-10) for optimized swarm coordination.
 
 ### Open Questions / Future Work
 - **Chunk 23: TBD** (Likely focus on Snapshot Pruning or further Mesh Security).

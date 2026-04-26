@@ -60,6 +60,7 @@ class PeerEntry(Base):
     capabilities = Column(JSON, nullable=True)
     strategies = Column(JSON, nullable=True)
     performance = Column(JSON, nullable=True)
+    health_metadata = Column(JSON, nullable=True)
 
 class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
@@ -124,6 +125,7 @@ class LedgerPeer(BaseModel):
     capabilities: Optional[Dict[str, Any]] = None
     strategies: Optional[Dict[str, Any]] = None
     performance: Optional[Dict[str, Any]] = None
+    health_metadata: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

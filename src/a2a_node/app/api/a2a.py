@@ -9,11 +9,12 @@ from app.models.ledger import TaskEntry, MessageEntry, PeerEntry, LedgerTask, Le
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
 from datetime import datetime
-from app.core.security import verify_medusa_secret
+from app.core.security import verify_medusa_handshake, verify_medusa_secret
+from app.core.auth_utils import get_auth_headers
 from app.core.config import settings
 import httpx
 
-router = APIRouter(dependencies=[Depends(verify_medusa_secret)])
+router = APIRouter(dependencies=[Depends(verify_medusa_handshake)])
 
 class TaskRequest(BaseModel):
     task_type: str
@@ -126,7 +127,7 @@ async def delegate_task(req: DelegateRequest, db: AsyncSession = Depends(get_db)
             "priority": task.priority,
             "assigned_by": node_id
         }
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+        headers = get_auth_headers("/a2a/tasks")
         
         async with httpx.AsyncClient() as client:
             r = await client.post(f"{peer.address}/a2a/tasks", json=payload, headers=headers, timeout=5)
@@ -344,7 +345,7 @@ async def resolve_auction(task_id: str, db: AsyncSession = Depends(get_db)):
             "priority": task.priority,
             "assigned_by": node_id
         }
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+        headers = get_auth_headers("/a2a/tasks")
         
         async with httpx.AsyncClient() as client:
             r = await client.post(f"{peer.address}/a2a/tasks", json=payload, headers=headers, timeout=5)
@@ -403,7 +404,7 @@ async def send_message(message: MessageRequest, db: AsyncSession = Depends(get_d
             "content": message.content,
             "message_type": message.message_type
         }
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+        headers = get_auth_headers("/a2a/messages")
         
         async with httpx.AsyncClient() as client:
             r = await client.post(f"{peer.address}/a2a/messages", json=payload, headers=headers, timeout=5)

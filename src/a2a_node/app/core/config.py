@@ -10,6 +10,7 @@ class Settings:
     A2A_SECRET: str = os.getenv("A2A_SECRET", "medusa-please")
     MEDUSA_SKILLS: str = os.getenv("MEDUSA_SKILLS", "python_expert,security_auditor,sass_master")
     GOSSIP_INTERVAL: int = int(os.getenv("GOSSIP_INTERVAL", 10))
+    RETENTION_DAYS: int = int(os.getenv("RETENTION_DAYS", 7))
     
     # LLM Configuration (Mirroring Medusa's multi-provider setup)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

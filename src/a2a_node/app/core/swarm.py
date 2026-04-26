@@ -61,11 +61,11 @@ async def run_swarm_intelligence():
                         
                         # 3. Call local claim endpoint (which handles persistence and gossip)
                         async with httpx.AsyncClient() as client:
-                            claim_url = f"http://localhost:{settings.PORT}/a2a/gossip/claim/{task.id}"
-                            headers = {
-                                "X-Medusa-Secret": settings.A2A_SECRET,
-                                "node-id": node_id
-                            }
+                            claim_path = f"/a2a/gossip/claim/{task.id}"
+                            claim_url = f"http://localhost:{settings.PORT}{claim_path}"
+                            from app.core.auth_utils import get_auth_headers
+                            headers = get_auth_headers(claim_path)
+                            headers["node-id"] = node_id
                             try:
                                 r = await client.post(claim_url, headers=headers)
                                 if r.status_code == 200:

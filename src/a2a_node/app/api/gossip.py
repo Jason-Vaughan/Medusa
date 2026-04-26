@@ -9,10 +9,11 @@ from typing import List, Optional, Dict, Any
 import httpx
 import json
 from app.core.config import settings
-from app.core.security import verify_medusa_secret
+from app.core.security import verify_medusa_handshake, verify_medusa_secret
+from app.core.auth_utils import get_auth_headers
 import asyncio
 
-router = APIRouter(dependencies=[Depends(verify_medusa_secret)])
+router = APIRouter(dependencies=[Depends(verify_medusa_handshake)])
 
 class SyncResponse(BaseModel):
     tasks: List[LedgerTask]
@@ -21,7 +22,7 @@ class SyncResponse(BaseModel):
     timestamp: datetime
 
 @router.get("/ping")
-async def ping(node_id: str, address: str, capabilities: dict = None, strategies: str = None, db: AsyncSession = Depends(get_db)):
+async def ping(node_id: str, address: str, capabilities: dict = None, strategies: str = None, health: str = None, db: AsyncSession = Depends(get_db)):
     """
     Endpoint for other nodes to announce themselves.
     Updates or creates a peer entry in the ledger.
@@ -29,11 +30,15 @@ async def ping(node_id: str, address: str, capabilities: dict = None, strategies
     result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
     peer = result.scalars().first()
     
+    health_data = json.loads(health) if health else None
+    
     if peer:
         peer.last_seen = datetime.utcnow()
         peer.address = address
         if capabilities:
             peer.capabilities = capabilities
+        if health_data:
+            peer.health_metadata = health_data
         if strategies:
             try:
                 peer.strategies = json.loads(strategies)
@@ -45,6 +50,7 @@ async def ping(node_id: str, address: str, capabilities: dict = None, strategies
             address=address,
             capabilities=capabilities,
             strategies=json.loads(strategies) if strategies else None,
+            health_metadata=health_data,
             status="active"
         )
         db.add(new_peer)
@@ -125,21 +131,23 @@ async def run_gossip():
                             try:
                                 # Ping
                                 from app.core.heuristics import BiddingHeuristics
+                                from app.core.performance import PerformanceMonitor
                                 ping_url = f"{peer_address}/a2a/gossip/ping"
                                 params = {
                                     "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}",
                                     "address": f"http://localhost:{settings.PORT}",
-                                    "strategies": json.dumps(await BiddingHeuristics.share_heuristic())
+                                    "strategies": json.dumps(await BiddingHeuristics.share_heuristic()),
+                                    "health": json.dumps(await PerformanceMonitor.get_resource_health())
                                 }
-                                headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+                                headers = get_auth_headers("/a2a/gossip/ping")
 
                                 await client.get(ping_url, params=params, headers=headers, timeout=1.0)
-                                
+
                                 # Sync
                                 sync_url = f"{peer_address}/a2a/gossip/sync"
                                 sync_params = {"since": last_sync_check.isoformat()}
+                                headers = get_auth_headers("/a2a/gossip/sync")
                                 r = await client.get(sync_url, params=sync_params, headers=headers, timeout=5.0)
-                                
                                 if r.status_code == 200:
                                     sync_data = r.json()
                                     await merge_sync_data(sync_data)
@@ -349,6 +357,7 @@ async def merge_sync_data(data: dict):
                         capabilities=p_data.get('capabilities'),
                         strategies=p_data.get('strategies'),
                         performance=p_data.get('performance'),
+                        health_metadata=p_data.get('health_metadata'),
                         status=p_data.get('status', 'active'),
                         last_seen=datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00'))
                     )
@@ -363,6 +372,8 @@ async def merge_sync_data(data: dict):
                         existing.strategies = p_data['strategies']
                     if p_data.get('performance'):
                         existing.performance = p_data['performance']
+                    if p_data.get('health_metadata'):
+                        existing.health_metadata = p_data['health_metadata']
 
             await db.commit()
         except Exception as e:

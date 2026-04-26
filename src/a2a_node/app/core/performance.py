@@ -1,9 +1,10 @@
 from typing import Dict, Any, Optional, List
-from datetime import datetime
-from sqlalchemy import select, and_, or_, func
+from datetime import datetime, timedelta
+from sqlalchemy import select, and_, or_, func, delete
 from app.core.database import AsyncSessionLocal
 from app.models.ledger import PeerEntry, TaskEntry, PerformanceSnapshot
 from app.core.config import settings
+import asyncio
 
 class PerformanceMonitor:
     """
@@ -13,6 +14,33 @@ class PerformanceMonitor:
     @staticmethod
     def get_local_node_id() -> str:
         return f"{settings.PROJECT_NAME}-{settings.PORT}"
+
+    @classmethod
+    async def get_resource_health(cls) -> Dict[str, Any]:
+        """
+        Gathers real-time resource health metrics (CPU, Memory).
+        """
+        health = {
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "load_avg": [0.0, 0.0, 0.0],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        try:
+            import psutil
+            import os
+            health["cpu_percent"] = psutil.cpu_percent(interval=None)
+            health["memory_percent"] = psutil.virtual_memory().percent
+            if hasattr(os, "getloadavg"):
+                health["load_avg"] = list(os.getloadavg())
+        except ImportError:
+            # Fallback to os if psutil is not available
+            import os
+            if hasattr(os, "getloadavg"):
+                health["load_avg"] = list(os.getloadavg())
+        except Exception:
+            pass
+        return health
 
     @classmethod
     async def get_current_load(cls) -> Dict[str, Any]:
@@ -131,7 +159,21 @@ class PerformanceMonitor:
         Creates a point-in-time snapshot of performance for the node and mesh.
         """
         node_id = cls.get_local_node_id()
+        # print(f"📊 Recording snapshot for {node_id}...", flush=True)
         async with AsyncSessionLocal() as db:
+            # Update local peer health metadata
+            health = await cls.get_resource_health()
+            peer_result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+            local_peer = peer_result.scalars().first()
+            if local_peer:
+                # print(f"   ✅ Updating health for {node_id}: {health['cpu_percent']}% CPU", flush=True)
+                local_peer.health_metadata = health
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(local_peer, "health_metadata")
+            else:
+                # print(f"   ⚠️ Local peer {node_id} not found in ledger yet.", flush=True)
+                pass
+
             # 1. Local metrics
             result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
             peer = result.scalars().first()
@@ -186,6 +228,23 @@ class PerformanceMonitor:
             await db.commit()
 
     @classmethod
+    async def prune_snapshots(cls):
+        """
+        Prunes performance snapshots older than RETENTION_DAYS.
+        """
+        threshold = datetime.utcnow() - timedelta(days=settings.RETENTION_DAYS)
+        async with AsyncSessionLocal() as db:
+            try:
+                stmt = delete(PerformanceSnapshot).where(PerformanceSnapshot.timestamp < threshold)
+                result = await db.execute(stmt)
+                await db.commit()
+                count = result.rowcount
+                if count > 0:
+                    print(f"🧹 Janitor: Pruned {count} old performance snapshots.", flush=True)
+            except Exception as e:
+                print(f"❌ Error pruning snapshots: {e}", flush=True)
+
+    @classmethod
     async def get_history(cls, node_id: str = "global", limit: int = 50) -> List[Dict[str, Any]]:
         """
         Retrieves historical performance snapshots.
@@ -211,14 +270,19 @@ async def run_performance_monitor():
     Background loop to periodically record performance snapshots.
     """
     print("📊 Performance Monitoring loop started.", flush=True)
+    last_prune = datetime.utcnow()
+    
     while True:
         try:
             await PerformanceMonitor.record_snapshot()
-            # print("📊 Performance snapshot recorded.", flush=True)
+            
+            # Prune once per hour
+            if datetime.utcnow() - last_prune > timedelta(hours=1):
+                await PerformanceMonitor.prune_snapshots()
+                last_prune = datetime.utcnow()
+                
         except Exception as e:
             print(f"❌ Error recording performance snapshot: {e}", flush=True)
         
         # Record every 60 seconds
         await asyncio.sleep(60)
-
-import asyncio

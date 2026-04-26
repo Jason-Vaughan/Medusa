@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.6-beta] - 2026-04-26
+### Added
+- **Chunk 23: MESH HYGIENE & RESILIENCE** completed.
+- **Snapshot Pruning:** Implemented automated pruning of performance snapshots older than 7 days to prevent database bloat.
+- **Resource Health Telemetry:** Nodes now track and share real-time CPU, Memory, and Load metrics via the gossip protocol.
+- **Enhanced Security Handshake:** Upgraded P2P authentication with HMAC-SHA256 signatures and timestamp-based replay protection.
+- **Health-Aware Ledger:** Updated `PeerEntry` and `SyncResponse` to synchronize resource health across the mesh.
+
 ## [0.7.5-beta] - 2026-04-17
 ### Added
 - **Chunk 22: ADVANCED LLM DECOMPOSITION** completed.

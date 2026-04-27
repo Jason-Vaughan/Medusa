@@ -32,10 +32,13 @@ This backlog tracks out-of-scope items, future enhancements, and deferred tasks 
 | **Dynamic Load Balancing** | Chunk 20 Plan | Medium | ✅ Done | Account for node load (active tasks) in yielding, bidding, and decomposition logic. |
 | **Historical Analytics** | Chunk 21 Plan | High | ✅ Done | Implemented periodic snapshotting and time-series visualization of mesh performance. |
 | **Advanced LLM Decomposition** | Chunk 22 Plan | High | ✅ Done | Replaced mock decomposition rules with actual LLM calls (Anthropic/OpenAI) and priority support. |
+| **Task Resilience (Janitor)** | Chunk 24 Plan | High | ✅ Done | Implemented Work Stealing via Task Janitor for stalled task recovery. |
+| **Health-Based Bidding** | Chunk 24 Plan | Medium | ✅ Done | Factored real-time CPU/Memory into bidding heuristics and strategic yield. |
+| **Automated Re-vote** | Chunk 24 Plan | High | ✅ Done | Refined consensus with automated re-vote cool-down and HITL escalation. |
 
 ## 📥 Pending Items
 | Item | Origin | Priority | Status | Description |
 |------|--------|----------|--------|-------------|
 | **Exponential Backoff** | Chunk 14 Critic | Low | 📥 Pending | Improve retry logic with smarter wait times between attempts. |
-| **Gossip Consensus** | Chunk 12 Critic | Medium | 📥 Pending | Implement multi-node consensus for conflicting execution results. |
-| **Dashboard Telemetry UI** | Chunk 11 Critic | Low | 📥 Pending | Add more detailed telemetry graphs to the switchboard. |
+| **Node Reputation System** | Chunk 25 Plan | Medium | 📥 Pending | Track long-term reliability and accuracy of peers. |
+| **Dynamic Bidding Thresholds** | Chunk 25 Plan | Low | 📥 Pending | Adjust bidding aggressiveness based on swarm-wide success. |

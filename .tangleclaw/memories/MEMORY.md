@@ -2,13 +2,13 @@
 
 ## Project: Medusa (A2A Swarm)
 
-### Current State (2026-04-26)
-- **OFFICIAL PUBLIC BETA (v0.7.6-beta).**
-- **Chunk 23 Complete:** Mesh Hygiene & Resilience verified and operational.
-- **Snapshot Pruning:** Janitor task active (hourly) with 7-day retention.
-- **Mesh Health:** Real-time CPU/Mem/Load telemetry integrated into Gossip.
-- **Security:** HMAC-SHA256 handshake with timestamp verification active.
-- **Next: Chunk 24:** Task Resilience & Global Consensus Refinement.
+### Current State (2026-04-27)
+- **OFFICIAL PUBLIC BETA (v0.7.7-beta).**
+- **Chunk 24 Complete:** Task Resilience & Global Consensus Refinement verified.
+- **Task Janitor:** Operational, recovering stalled tasks via reset-to-pending.
+- **Automated Re-vote:** Active with cool-down and HITL escalation for deadlocks.
+- **Health-Based Bidding:** Factoring CPU/Mem into heuristics.
+- **Next: Chunk 25:** Node Reputation & Dynamic Bidding Thresholds.
 
 ### Key Decisions
 - **Signature Payload:** Decided on `timestamp + path` for HMAC payload to ensure simplicity while protecting against replay and path-manipulation attacks.

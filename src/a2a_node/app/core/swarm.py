@@ -49,7 +49,7 @@ async def run_swarm_intelligence():
                             continue
 
                     # 3. Evaluate task using heuristics and swarm-wide strategy
-                    eval_result = BiddingHeuristics.evaluate_with_swarm_intelligence(
+                    eval_result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
                         task.task_type, 
                         task.description,
                         peers,
@@ -81,3 +81,52 @@ async def run_swarm_intelligence():
             logger.error(f"⚠️ Swarm intelligence error: {str(e)}")
             
         await asyncio.sleep(10) # Poll every 10 seconds
+
+async def run_task_janitor():
+    """
+    Background task that monitors for stalled tasks and releases them back to the swarm.
+    Implementation of 'Work Stealing' via reset-to-pending (Chunk 24).
+    """
+    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    # STALL_TIMEOUT = 300 # 5 minutes in seconds
+    STALL_TIMEOUT = settings.STALL_TIMEOUT if hasattr(settings, "STALL_TIMEOUT") else 300
+    
+    print(f"🧹 Task Janitor started for node {node_id} (Timeout: {STALL_TIMEOUT}s)", flush=True)
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                from datetime import datetime, timedelta
+                stall_threshold = datetime.utcnow() - timedelta(seconds=STALL_TIMEOUT)
+                
+                # Find tasks in 'claimed' or 'processing' status that haven't been updated
+                result = await db.execute(
+                    select(TaskEntry).filter(
+                        and_(
+                            TaskEntry.status.in_(["claimed", "processing"]),
+                            TaskEntry.updated_at < stall_threshold
+                        )
+                    )
+                )
+                stalled_tasks = result.scalars().all()
+                
+                for task in stalled_tasks:
+                    print(f"🧹 Janitor: Task {task.id[:8]} stalled (Last Update: {task.updated_at}). Resetting to pending.", flush=True)
+                    
+                    old_owner = task.claimed_by
+                    task.status = "pending"
+                    task.claimed_by = None
+                    task.claim_timestamp = None
+                    task.updated_at = datetime.utcnow()
+                    task.retry_count += 1
+                    
+                    # Log event
+                    print(f"🏴‍☠️ Work Stealing: Node {old_owner} was too slow. Releasing task {task.id[:8]} back to the wild.", flush=True)
+                    
+                if stalled_tasks:
+                    await db.commit()
+                    
+        except Exception as e:
+            logger.error(f"⚠️ Task Janitor error: {str(e)}")
+            
+        await asyncio.sleep(60) # Run every minute

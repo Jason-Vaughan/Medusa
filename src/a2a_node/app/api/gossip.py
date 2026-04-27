@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.ledger import PeerEntry, LedgerPeer, TaskEntry, MessageEntry, LedgerTask, LedgerMessage
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
@@ -190,7 +190,7 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
 async def reach_consensus(task: TaskEntry):
     """
     Analyzes results_votes to reach consensus on a task result.
-    Implements a majority voting algorithm with sass.
+    Implements a majority voting algorithm with Automated Re-vote (Chunk 24).
     """
     votes = task.results_votes or {}
     if not votes:
@@ -198,12 +198,11 @@ async def reach_consensus(task: TaskEntry):
         return
 
     # Count occurrences of each result
-    # We serialize to JSON to make it hashable for counting
     from collections import Counter
     import json
     
     result_counts = Counter()
-    result_map = {} # map hash to original result
+    result_map = {} 
     
     for node_id, res in votes.items():
         res_json = json.dumps(res, sort_keys=True)
@@ -216,7 +215,7 @@ async def reach_consensus(task: TaskEntry):
     # Find the majority
     most_common_json, count = result_counts.most_common(1)[0]
     
-    print(f"🗳️ Consensus check for {task.id[:8]}: Quorum {count}/{task.min_votes}", flush=True)
+    print(f"🗳️ Consensus check for {task.id[:8]}: Quorum {count}/{task.min_votes} (Total Votes: {len(votes)})", flush=True)
     
     if count >= task.min_votes:
         # We have a winner!
@@ -226,10 +225,40 @@ async def reach_consensus(task: TaskEntry):
         print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Majority result selected.", flush=True)
     elif len(votes) >= task.min_votes:
         # Quorum met but no majority (or split vote)
-        # If we have enough votes but no majority, it's a conflict
         if len(result_counts) > 1:
-            task.consensus_status = "conflict"
-            print(f"❌ Consensus CONFLICT for task {task.id[:8]}. Split votes detected: {result_counts.values()}", flush=True)
+            # 1. Automated Re-vote Logic (Chunk 24)
+            metadata = task.execution_metadata or {}
+            revote_count = metadata.get("revote_count", 0)
+            last_conflict = metadata.get("last_conflict_ts")
+            
+            now = datetime.utcnow()
+            
+            if not last_conflict:
+                # First time we see this conflict
+                metadata["last_conflict_ts"] = now.isoformat()
+                task.execution_metadata = metadata
+                task.consensus_status = "conflict"
+                print(f"❌ Consensus CONFLICT for task {task.id[:8]}. Starting 2-minute cool-down for re-vote.", flush=True)
+            else:
+                last_conflict_dt = datetime.fromisoformat(last_conflict)
+                if now - last_conflict_dt > timedelta(minutes=2):
+                    # Cool-down finished, trigger re-vote
+                    if revote_count < 3:
+                        print(f"🔄 Consensus RE-VOTE: Cool-down finished for {task.id[:8]}. Clearing votes for Round {revote_count + 2}.", flush=True)
+                        task.results_votes = {}
+                        task.consensus_status = "pending"
+                        metadata["revote_count"] = revote_count + 1
+                        metadata["last_conflict_ts"] = None
+                        task.execution_metadata = metadata
+                    else:
+                        # Max re-votes reached, escalate to HITL
+                        print(f"🚨 Consensus DEADLOCK: Task {task.id[:8]} failed 3 re-votes. Escalating to Human-in-the-Loop.", flush=True)
+                        task.requires_approval = 1
+                        task.approval_status = "pending"
+                        task.consensus_status = "conflict"
+                else:
+                    task.consensus_status = "conflict"
+                    print(f"⏳ Consensus CONFLICT: Waiting for cool-down ({2 - (now - last_conflict_dt).seconds // 60}m left).", flush=True)
         else:
             task.consensus_status = "pending"
     else:

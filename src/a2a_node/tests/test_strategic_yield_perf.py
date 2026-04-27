@@ -3,10 +3,11 @@ from app.core.heuristics import BiddingHeuristics
 from app.models.ledger import PeerEntry
 
 class MockPeer:
-    def __init__(self, id, skills, performance=None, load=0):
+    def __init__(self, id, skills, performance=None, load=0, health=None):
         self.id = id
         self.strategies = {"skills": skills, "min_confidence": 0.6, "current_load": load}
         self.performance = performance
+        self.health_metadata = health or {"cpu_percent": 10, "memory_percent": 10}
 
 @pytest.mark.asyncio
 async def test_yield_to_better_performance():
@@ -31,7 +32,7 @@ async def test_yield_to_better_performance():
     # local_eval for "python_task" will have confidence ~0.7 (0.6 base + 0.1 match)
     # peer_confidence will be (0.6 + 0.1) * 1.2 (success bonus) * 1.1 (latency bonus) = 0.924
     
-    result = BiddingHeuristics.evaluate_with_swarm_intelligence(
+    result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
         "python_task", 
         "Execute a complex python script", 
         [peer]
@@ -61,7 +62,7 @@ async def test_no_yield_to_poor_performance():
     # peer_confidence will be (0.6 + 0.1) * 0.7 (failure penalty) * 0.9 (latency penalty) = 0.441
     # local confidence is ~0.7
     
-    result = BiddingHeuristics.evaluate_with_swarm_intelligence(
+    result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
         "python_task", 
         "Execute a complex python script", 
         [peer]

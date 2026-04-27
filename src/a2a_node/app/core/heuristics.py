@@ -15,7 +15,7 @@ class BiddingHeuristics:
         return [s.strip() for s in settings.MEDUSA_SKILLS.split(',') if s.strip()]
 
     @classmethod
-    def evaluate_task(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
+    async def evaluate_task(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
         """
         Evaluates a task and returns a bid decision.
         """
@@ -53,14 +53,33 @@ class BiddingHeuristics:
         load_penalty = current_load * 0.05
         confidence -= load_penalty
 
-        # 4. Decision
-        # If confidence is high enough, or if it's a generic task and load is low
-        should_bid = confidence >= 0.6 or (len(description.split()) > 10 and current_load < 3)
+        # 4. Resource Health Adjustment (Chunk 24)
+        health = await PerformanceMonitor.get_resource_health()
+        cpu = health.get("cpu_percent", 0)
+        mem = health.get("memory_percent", 0)
         
-        # 5. Bid Value (Cost/Time)
+        # Penalties for high resource usage
+        if cpu > 80: confidence -= 0.3
+        if mem > 90: confidence -= 0.4
+        
+        # Auto-rejection for extreme conditions
+        critical_condition = False
+        if cpu > 95 or mem > 98:
+            critical_condition = True
+
+        # 5. Decision
+        # If confidence is high enough, or if it's a generic task and load is low
+        # Auto-reject if in critical condition
+        should_bid = (confidence >= 0.6 or (len(description.split()) > 10 and current_load < 3)) and not critical_condition
+        
+        # 6. Bid Value (Cost/Time)
         # Base value 1.0, decreased by skills (lower is better/faster)
         # Increased by load (higher load = more "expensive" to take on)
         bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
+        
+        # Health multiplier for bid value (unhealthy = more expensive)
+        if cpu > 70: bid_value *= 1.5
+        if mem > 80: bid_value *= 2.0
 
         return {
             "should_bid": should_bid,
@@ -68,9 +87,11 @@ class BiddingHeuristics:
             "bid_value": max(bid_value, 0.1),
             "matched_skills": matched_skills,
             "current_load": current_load,
-            "sass": "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
+            "health": {"cpu": cpu, "mem": mem},
+            "sass": "I'm literally melting. No." if critical_condition else
+                    "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
                     "I suppose I could do this better than anyone else." if should_bid else 
-                    "I'm too swamped for this triviality." if current_load > 5 else
+                    "I'm too swamped for this triviality." if current_load > 5 or cpu > 85 else
                     "This is beneath my specialized talents."
         }
 
@@ -126,14 +147,14 @@ class BiddingHeuristics:
         }
 
     @classmethod
-    def evaluate_with_swarm_intelligence(cls, task_type: str, description: str, peers: List[Any], current_load: int = 0) -> Dict[str, Any]:
+    async def evaluate_with_swarm_intelligence(cls, task_type: str, description: str, peers: List[Any], current_load: int = 0) -> Dict[str, Any]:
         """
         Evaluates a task while considering the strategies and performance of other nodes.
         Implements 'Strategic Yield' - yielding to nodes with better specialized strategies,
-        proven superior performance, or lower current load.
+        proven superior performance, lower current load, or better resource health.
         """
         # 1. Local Evaluation
-        local_eval = cls.evaluate_task(task_type, description, current_load)
+        local_eval = await cls.evaluate_task(task_type, description, current_load)
 
         # 2. Peer Analysis
         better_peers = []
@@ -142,6 +163,7 @@ class BiddingHeuristics:
             peer_skills = strategies.get("skills", [])
             peer_perf = peer.performance or {}
             peer_load = strategies.get("current_load", 0)
+            peer_health = peer.health_metadata or {}
 
             # A. Skill Match Check
             peer_matches = 0
@@ -175,14 +197,32 @@ class BiddingHeuristics:
                     if success_rate < 0.8: perf_multiplier *= 0.8
                     if success_rate > 0.95: perf_multiplier *= 1.1
 
-            # C. Load Balancing Multiplier (Chunk 20)
-            # If peer has lower load than us, they are more attractive
+            # C. Load Balancing & Health Multiplier (Chunk 20 & 24)
+            # If peer has lower load or better health than us, they are more attractive
             load_multiplier = 1.0
+            
+            # Load component
             if current_load > peer_load:
-                load_multiplier = 1.0 + (0.1 * (current_load - peer_load))
+                load_multiplier += (0.1 * (current_load - peer_load))
             elif peer_load > current_load + 2:
-                # If peer is much busier than us, avoid yielding to them
-                load_multiplier = 0.5
+                load_multiplier *= 0.7
+
+            # Health component (Chunk 24)
+            peer_cpu = peer_health.get("cpu_percent", 0)
+            peer_mem = peer_health.get("memory_percent", 0)
+            
+            local_cpu = local_eval["health"]["cpu"]
+            local_mem = local_eval["health"]["mem"]
+            
+            # Bonus if peer is significantly healthier
+            if local_cpu > peer_cpu + 30:
+                load_multiplier *= 1.2
+            if local_mem > peer_mem + 20:
+                load_multiplier *= 1.1
+                
+            # Penalty if peer is unhealthy
+            if peer_cpu > 80 or peer_mem > 90:
+                load_multiplier *= 0.5
 
             peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier * load_multiplier
 
@@ -192,7 +232,8 @@ class BiddingHeuristics:
                     "confidence": peer_confidence,
                     "skills": peer_skills,
                     "perf_multiplier": perf_multiplier,
-                    "load": peer_load
+                    "load": peer_load,
+                    "cpu": peer_cpu
                 })
 
         # 3. Strategic Yield Decision
@@ -207,10 +248,11 @@ class BiddingHeuristics:
             reason = []
             if best_peer["perf_multiplier"] > 1.0: reason.append("superior performance")
             if best_peer["load"] < current_load: reason.append("lower load")
+            if best_peer["cpu"] < local_eval["health"]["cpu"] - 20: reason.append("better resource health")
             if not reason: reason.append("better specialization")
             
             local_eval["sass"] = f"Node {best_peer['id']} has {' and '.join(reason)}. I'll let them handle the heavy lifting while I take a nap."
-            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Load: {best_peer['load']} vs {current_load})", flush=True)
+            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Load: {best_peer['load']} vs {current_load}, CPU: {best_peer['cpu']}% vs {local_eval['health']['cpu']}%)", flush=True)
 
         return local_eval
 

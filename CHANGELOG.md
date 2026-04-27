@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.7.7-beta] - 2026-04-27
+### Added
+- **Chunk 24: TASK RESILIENCE & GLOBAL CONSENSUS REFINEMENT** completed.
+- **Health-Based Bidding:** Updated `BiddingHeuristics` to incorporate real-time resource metrics (CPU, Memory). Nodes now intelligently penalize or auto-reject bids when over-taxed.
+- **Work Stealing (Stalled Task Recovery):** Implemented `Task-Janitor` background service to detect stalled `claimed` tasks and reset them to `pending` for swarm recovery.
+- **Automated Re-vote:** Refined `reach_consensus` with an automated cool-down and re-vote mechanism for handling split-vote conflicts.
+- **Consensus Escalation:** Deadlocked tasks (3 failed re-votes) now automatically escalate to Human-in-the-Loop approval status.
+- **Async Heuristics:** Migrated all bidding and strategy evaluation logic to asynchronous patterns for improved non-blocking performance.
+
 ## [0.7.6-beta] - 2026-04-26
 ### Added
 - **Chunk 23: MESH HYGIENE & RESILIENCE** completed.

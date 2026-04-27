@@ -3,20 +3,22 @@
 ## Project: Medusa (A2A Swarm)
 
 ### Current State (2026-04-27)
-- **OFFICIAL PUBLIC BETA (v0.7.7-beta).**
-- **Chunk 24 Complete:** Task Resilience & Global Consensus Refinement verified.
-- **Task Janitor:** Operational, recovering stalled tasks via reset-to-pending.
-- **Automated Re-vote:** Active with cool-down and HITL escalation for deadlocks.
-- **Health-Based Bidding:** Factoring CPU/Mem into heuristics.
-- **Next: Chunk 25:** Node Reputation & Dynamic Bidding Thresholds.
+- **OFFICIAL PUBLIC BETA (v0.7.8-beta).**
+- **Chunk 25 Complete:** Node Reputation & Dynamic Bidding Thresholds verified.
+- **Reputation Engine:** Operational, tracking peer reliability and accuracy.
+- **Dynamic Bidding:** Active, adjusting confidence thresholds based on swarm health.
+- **Strategic Yield:** Factoring reputation scores to prefer reliable peers.
+- **Next: Chunk 26:** Skills Evolution & Automated Task Routing.
 
 ### Key Decisions
+- **Reputation Scaling:** Decided on +0.1 for completion and -0.5 for stalling (Janitor) to heavily penalize nodes that claim tasks and then fail to deliver.
+- **Swarm Health Index:** Using 5-snapshot average of global success rates to stabilize dynamic threshold changes.
 - **Signature Payload:** Decided on `timestamp + path` for HMAC payload to ensure simplicity while protecting against replay and path-manipulation attacks.
 - **Retention Policy:** Defaulted to 7 days for performance snapshots; configurable via `RETENTION_DAYS`.
 
 ### Open Questions / Future Work
-- **Chunk 24: Task Resilience:** Implement more aggressive "work stealing" for stalled tasks and refine the global consensus voting mechanism.
-- **Health-Based Bidding:** Factoring resource health (CPU/Load) into the `BiddingHeuristics` to avoid overloading struggling nodes.
+- **Node Pruning:** Should we automatically remove peers with reputation < 0.1 after a period of inactivity?
+- **Health-Based Bidding:** Factoring resource health (CPU/Load) into the `BiddingHeuristics` to avoid overloading struggling nodes. (Already implemented in Chunk 24, but refining).
 
 ### Resilience
 - TangleClaw PortHub integration is working but sometimes times out; gossip protocol handles this by muting errors after the first failure.

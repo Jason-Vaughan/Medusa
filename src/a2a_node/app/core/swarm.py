@@ -120,8 +120,11 @@ async def run_task_janitor():
                     task.updated_at = datetime.utcnow()
                     task.retry_count += 1
                     
-                    # Log event
+                    # Log event and update reputation
                     print(f"🏴‍☠️ Work Stealing: Node {old_owner} was too slow. Releasing task {task.id[:8]} back to the wild.", flush=True)
+                    if old_owner:
+                        from app.core.reputation import ReputationEngine
+                        await ReputationEngine.update_reputation(old_owner, "stalled")
                     
                 if stalled_tasks:
                     await db.commit()

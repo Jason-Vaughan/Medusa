@@ -223,6 +223,13 @@ async def reach_consensus(task: TaskEntry):
         task.status = "completed"
         task.consensus_status = "achieved"
         print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Majority result selected.", flush=True)
+        
+        # Update reputation for dissenters (Chunk 25)
+        for node_id, res in votes.items():
+            res_json = json.dumps(res, sort_keys=True)
+            if res_json != most_common_json:
+                from app.core.reputation import ReputationEngine
+                await ReputationEngine.update_reputation(node_id, "consensus_disagreement")
     elif len(votes) >= task.min_votes:
         # Quorum met but no majority (or split vote)
         if len(result_counts) > 1:
@@ -349,6 +356,21 @@ async def merge_sync_data(data: dict):
                     if should_update:
                         # Update core fields if remote is actually "better" or newer
                         if remote_updated > existing.updated_at or not existing.requires_consensus:
+                            # Reputation Updates (Chunk 25)
+                            # If status changed from claimed/processing to completed
+                            if existing.status in ["claimed", "processing", "running"] and t_data['status'] == "completed" and remote_claimed_by:
+                                from app.core.reputation import ReputationEngine
+                                # Calculate latency if possible
+                                latency = 0.0
+                                if existing.claim_timestamp:
+                                    latency = (remote_updated - existing.claim_timestamp).total_seconds()
+                                await ReputationEngine.update_reputation(remote_claimed_by, "completed", {"latency": latency})
+                            
+                            # If status changed to failed
+                            elif existing.status in ["claimed", "processing", "running"] and t_data['status'] == "failed" and remote_claimed_by:
+                                from app.core.reputation import ReputationEngine
+                                await ReputationEngine.update_reputation(remote_claimed_by, "failed")
+
                             existing.status = t_data['status']
                             existing.result = t_data.get('result')
                             existing.execution_metadata = t_data.get('execution_metadata')

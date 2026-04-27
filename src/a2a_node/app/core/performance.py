@@ -228,6 +228,26 @@ class PerformanceMonitor:
             await db.commit()
 
     @classmethod
+    async def get_swarm_health(cls) -> float:
+        """
+        Returns a swarm health index (0.0 to 1.0) based on recent global success rates.
+        Used for dynamic bidding thresholds (Chunk 25).
+        """
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(PerformanceSnapshot)
+                .filter(PerformanceSnapshot.node_id == "global")
+                .order_by(PerformanceSnapshot.timestamp.desc())
+                .limit(5)
+            )
+            snapshots = result.scalars().all()
+            if not snapshots:
+                return 1.0 # Assume healthy if no data
+            
+            avg_success = sum(s.metrics.get("success_rate", 100.0) for s in snapshots) / len(snapshots)
+            return avg_success / 100.0
+
+    @classmethod
     async def prune_snapshots(cls):
         """
         Prunes performance snapshots older than RETENTION_DAYS.

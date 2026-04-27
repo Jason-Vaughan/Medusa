@@ -67,12 +67,21 @@ class BiddingHeuristics:
         if cpu > 95 or mem > 98:
             critical_condition = True
 
-        # 5. Decision
+        # 5. Dynamic Threshold Adjustment (Chunk 25)
+        # Adjust confidence threshold based on swarm health
+        swarm_health = await PerformanceMonitor.get_swarm_health()
+        min_confidence = 0.6
+        if swarm_health < 0.8:
+            min_confidence += 0.1
+        if swarm_health < 0.5:
+            min_confidence += 0.2
+
+        # 6. Decision
         # If confidence is high enough, or if it's a generic task and load is low
         # Auto-reject if in critical condition
-        should_bid = (confidence >= 0.6 or (len(description.split()) > 10 and current_load < 3)) and not critical_condition
+        should_bid = (confidence >= min_confidence or (len(description.split()) > 10 and current_load < 3)) and not critical_condition
         
-        # 6. Bid Value (Cost/Time)
+        # 7. Bid Value (Cost/Time)
         # Base value 1.0, decreased by skills (lower is better/faster)
         # Increased by load (higher load = more "expensive" to take on)
         bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
@@ -84,11 +93,14 @@ class BiddingHeuristics:
         return {
             "should_bid": should_bid,
             "confidence": min(max(confidence, 0.1), 1.0),
+            "min_confidence": min_confidence,
+            "swarm_health": swarm_health,
             "bid_value": max(bid_value, 0.1),
             "matched_skills": matched_skills,
             "current_load": current_load,
             "health": {"cpu": cpu, "mem": mem},
             "sass": "I'm literally melting. No." if critical_condition else
+                    "Swarm is struggling. I'm being selective." if should_bid and swarm_health < 0.7 else
                     "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
                     "I suppose I could do this better than anyone else." if should_bid else 
                     "I'm too swamped for this triviality." if current_load > 5 or cpu > 85 else
@@ -224,12 +236,24 @@ class BiddingHeuristics:
             if peer_cpu > 80 or peer_mem > 90:
                 load_multiplier *= 0.5
 
-            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier * load_multiplier
+            # D. Reputation Adjustment (Chunk 25)
+            # Factor in long-term reputation score
+            reputation_score = peer_perf.get("reputation_score", 1.0)
+            
+            # Heavy penalty for low reputation
+            rep_multiplier = 1.0
+            if reputation_score < settings.REPUTATION_THRESHOLD_MIN:
+                rep_multiplier = 0.1 # Basically never yield to them
+            elif reputation_score < 0.7:
+                rep_multiplier = 0.5
+            
+            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier * load_multiplier * rep_multiplier
 
-            if peer_confidence > local_eval["confidence"]:
+            if peer_confidence > local_eval["confidence"] and reputation_score >= settings.REPUTATION_THRESHOLD_MIN:
                 better_peers.append({
                     "id": peer.id,
                     "confidence": peer_confidence,
+                    "reputation": reputation_score,
                     "skills": peer_skills,
                     "perf_multiplier": perf_multiplier,
                     "load": peer_load,
@@ -246,13 +270,14 @@ class BiddingHeuristics:
             local_eval["yielded_to"] = best_peer["id"]
             
             reason = []
+            if best_peer["reputation"] > 0.9: reason.append("stellar reputation")
             if best_peer["perf_multiplier"] > 1.0: reason.append("superior performance")
             if best_peer["load"] < current_load: reason.append("lower load")
             if best_peer["cpu"] < local_eval["health"]["cpu"] - 20: reason.append("better resource health")
             if not reason: reason.append("better specialization")
             
             local_eval["sass"] = f"Node {best_peer['id']} has {' and '.join(reason)}. I'll let them handle the heavy lifting while I take a nap."
-            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Load: {best_peer['load']} vs {current_load}, CPU: {best_peer['cpu']}% vs {local_eval['health']['cpu']}%)", flush=True)
+            print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Rep: {best_peer['reputation']:.2f}, Load: {best_peer['load']} vs {current_load})", flush=True)
 
         return local_eval
 

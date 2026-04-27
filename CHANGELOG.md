@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.8-beta] - 2026-04-27
+### Added
+- **Chunk 25: NODE REPUTATION & DYNAMIC BIDDING THRESHOLDS** completed.
+- **Node Reputation System:** Implemented `ReputationEngine` to track long-term peer reliability. Scores are boosted by completions and penalized by failures, stalls, and consensus disagreements.
+- **Reputation-Aware Yielding:** `BiddingHeuristics` now factors in peer reputation during strategic yielding. Nodes avoid yielding to unreliable peers (reputation < 0.3).
+- **Dynamic Bidding Thresholds:** Implemented swarm-health-based confidence adjustments. Nodes become more conservative and selective in bidding when global swarm success rate drops.
+- **Consensus Dissent Tracking:** Reputation is now penalized for nodes providing minority results in consensus votes.
+
 ## [0.7.7-beta] - 2026-04-27
 ### Added
 - **Chunk 24: TASK RESILIENCE & GLOBAL CONSENSUS REFINEMENT** completed.

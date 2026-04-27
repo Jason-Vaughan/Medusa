@@ -2,7 +2,7 @@ import os
 
 class Settings:
     PROJECT_NAME: str = os.getenv("A2A_PROJECT_NAME", "Medusa-A2A")
-    VERSION: str = "0.7.5-beta"
+    VERSION: str = "0.7.8-beta"
     A2A_SPEC_VERSION: str = "1.0-draft"
     PORT: int = int(os.getenv("A2A_PORT", 3200))
     HOST: str = "0.0.0.0"
@@ -11,6 +11,13 @@ class Settings:
     MEDUSA_SKILLS: str = os.getenv("MEDUSA_SKILLS", "python_expert,security_auditor,sass_master")
     GOSSIP_INTERVAL: int = int(os.getenv("GOSSIP_INTERVAL", 10))
     RETENTION_DAYS: int = int(os.getenv("RETENTION_DAYS", 7))
+    STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
+    
+    # Reputation Settings
+    REPUTATION_WEIGHT_COMPLETED: float = 0.1
+    REPUTATION_PENALTY_FAILED: float = 0.2
+    REPUTATION_PENALTY_STALLED: float = 0.5
+    REPUTATION_THRESHOLD_MIN: float = 0.3
     
     # LLM Configuration (Mirroring Medusa's multi-provider setup)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

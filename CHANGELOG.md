@@ -3,6 +3,7 @@
 ## [Unreleased]
 ### Fixed
 - **Issue #5:** Signed bridge-to-A2A requests with HMAC-SHA256 handshake.
+- **Issue #8:** Fixed A2A dependency resolver stalls by allowing 'failed' dependencies to unblock tasks and ensuring parent status sync.
 
 ## [0.7.8-beta] - 2026-04-27
 ### Added

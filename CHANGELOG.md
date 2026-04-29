@@ -1,10 +1,14 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.7.9-beta] - 2026-04-29
 ### Fixed
+- **Issue #3:** Implemented honest error propagation from A2A Node to Medusa Bridge.
+- **Issue #4:** Wired WebSocket push for real-time delivery of direct and broadcast messages.
 - **Issue #5:** Signed bridge-to-A2A requests with HMAC-SHA256 handshake.
+- **Issue #6:** Aligned documentation and server logs with WebSocket-only registration architecture.
 - **Issue #7:** Fixed A2A stall sweeper by including 'running' status in the stall check.
 - **Issue #8:** Fixed A2A dependency resolver stalls by allowing 'failed' dependencies to unblock tasks and ensuring parent status sync.
+- **Issue #9:** Resolved workspace registration split-brain by using `wsClients` as the unified source of truth.
 
 ## [0.7.8-beta] - 2026-04-27
 ### Added

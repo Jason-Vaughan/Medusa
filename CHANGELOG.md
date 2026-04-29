@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [Unreleased]
+### Fixed
+- **Issue #5:** Signed bridge-to-A2A requests with HMAC-SHA256 handshake.
+
 ## [0.7.8-beta] - 2026-04-27
 ### Added
 - **Chunk 25: NODE REPUTATION & DYNAMIC BIDDING THRESHOLDS** completed.

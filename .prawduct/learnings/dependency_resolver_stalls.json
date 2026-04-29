@@ -1,0 +1,7 @@
+{
+  "title": "A2A Dependency Resolver Stalls",
+  "bug_id": "8",
+  "root_cause": "Resolver only allowed 'completed' status to unblock dependencies, causing permanent stalls on any failure. Also found session isolation issues in background sync tasks.",
+  "solution": "Implemented 'fail-forward' by allowing 'failed' dependencies to unblock chains and refactored sync tasks to accept shared DB sessions.",
+  "timestamp": "2026-04-29T04:35:00Z"
+}

@@ -97,49 +97,60 @@ class TaskExecutor:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
-async def sync_parent_status():
+async def sync_parent_status(db: Optional[AsyncSession] = None):
     """
     Checks on 'waiting' parent tasks and completes them if all children are done.
     """
-    async with AsyncSessionLocal() as db:
-        # 1. Fetch 'waiting' tasks
-        result = await db.execute(
-            select(TaskEntry).filter(TaskEntry.status == "waiting")
+    if db is None:
+        async with AsyncSessionLocal() as new_db:
+            await _sync_parent_status_with_session(new_db)
+    else:
+        await _sync_parent_status_with_session(db)
+
+async def _sync_parent_status_with_session(db: AsyncSession):
+    """
+    Internal implementation of parent status sync using a provided session.
+    """
+    # 1. Fetch 'waiting' tasks
+    result = await db.execute(
+        select(TaskEntry).filter(TaskEntry.status == "waiting")
+    )
+    parents = result.scalars().all()
+
+    for parent in parents:
+        # 2. Check children
+        child_result = await db.execute(
+            select(TaskEntry).filter(TaskEntry.parent_id == parent.id)
         )
-        parents = result.scalars().all()
+        children = child_result.scalars().all()
 
-        for parent in parents:
-            # 2. Check children
-            child_result = await db.execute(
-                select(TaskEntry).filter(TaskEntry.parent_id == parent.id)
-            )
-            children = child_result.scalars().all()
+        if not children:
+            continue
 
-            if not children:
-                continue
+        all_done = all(c.status in ["completed", "failed"] for c in children)
 
-            all_done = all(c.status in ["completed", "failed"] for c in children)
+        if all_done:
+            print(f"🐝 Hive sync: Parent {parent.id} all children finished. Aggregating results.", flush=True)
 
-            if all_done:
-                print(f"🐝 Hive sync: Parent {parent.id} all children finished. Aggregating results.", flush=True)
+            # Aggregate results
+            results = []
+            for c in children:
+                results.append({
+                    "id": c.id,
+                    "type": c.task_type,
+                    "status": c.status,
+                    "result": c.result
+                })
 
-                # Aggregate results
-                results = []
-                for c in children:
-                    results.append({
-                        "id": c.id,
-                        "type": c.task_type,
-                        "status": c.status,
-                        "result": c.result
-                    })
-
-                parent.status = "completed"
-                parent.result = {
-                    "outcome": "Sub-tasks completed",
-                    "subtask_results": results,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                await db.commit()
+            parent.status = "completed"
+            parent.result = {
+                "outcome": "Sub-tasks completed",
+                "subtask_results": results,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            # We don't commit here if session is provided, caller handles it.
+            # Actually, for safety with this specific background logic, we should commit.
+            await db.commit()
 
 async def check_dependencies(db, task):
     """
@@ -159,7 +170,9 @@ async def check_dependencies(db, task):
     if len(deps) < len(task.depends_on):
         return False
         
-    return all(d.status == "completed" for d in deps)
+    # We allow 'failed' dependencies to unblock the chain, otherwise the system stalls forever.
+    # The dependent task itself will decide how to handle the failure in its execution logic if needed.
+    return all(d.status in ["completed", "failed"] for d in deps)
 
 async def run_execution_engine():
     """

@@ -337,6 +337,18 @@ const protocolServer = http.createServer(async (req, res) => {
         content: data.message
       });
       
+      // If successful, also push via WebSocket for real-time delivery
+      if (result.ok && result.data && result.data.id) {
+        sendWebSocketMessage(data.to, {
+          type: 'direct',
+          messageId: result.data.id,
+          from: data.from,
+          to: data.to,
+          message: data.message,
+          timestamp: result.data.received_at || new Date().toISOString()
+        });
+      }
+
       res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ success: result.ok, ...result.data }));
@@ -356,6 +368,20 @@ const protocolServer = http.createServer(async (req, res) => {
         content: data.message
       });
       
+      // If successful, push to ALL connected WebSocket clients
+      if (result.ok && result.data && result.data.id) {
+        for (const workspaceId of wsClients.keys()) {
+          sendWebSocketMessage(workspaceId, {
+            type: 'broadcast',
+            messageId: result.data.id,
+            from: data.from || 'system',
+            to: '*',
+            message: data.message,
+            timestamp: result.data.received_at || new Date().toISOString()
+          });
+        }
+      }
+
       res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ success: result.ok, ...result.data }));

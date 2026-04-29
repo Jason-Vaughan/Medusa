@@ -833,7 +833,6 @@ async function startMedusa() {
       console.log('');
       console.log('API Endpoints:');
       console.log('  GET  /health                    - Check server status');
-      console.log('  POST /workspaces/register       - Register a workspace');
       console.log('  GET  /workspaces                - List all workspaces');
       console.log('  POST /messages/direct           - Send direct message');
       console.log('  POST /messages/broadcast        - Broadcast to all workspaces');

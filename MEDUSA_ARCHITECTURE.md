@@ -53,31 +53,34 @@ The **Medusa Chat Protocol** replaces Medusa's broken file-based messaging with 
 | **Endpoint**                 | **Method** | **Description**                      |
 |------------------------------|------------|--------------------------------------|
 | `/health`                    | GET        | Server status & workspace count      |
-| `/workspaces/register`       | POST       | Register a new Medusa workspace       |
-| `/workspaces/list`           | GET        | List all active workspaces           |
+| `(WebSocket)`                | WS         | Register a new Medusa workspace       |
+| `/workspaces`                | GET        | List all active workspaces           |
 | `/messages/broadcast`        | POST       | Send message to multiple workspaces  |
 | `/messages/direct`           | POST       | Send message to specific workspace   |
-| `/ai/coordinate`             | POST       | AI agent cross-workspace commands    |
-| `/sessions/create`           | POST       | Start coordinated development session|
-| `/context/share`             | POST       | Share file/project context           |
 
 ---
 
 ## 🐍 **Medusa-Specific Features**
 
-### **1. Workspace Registry**
+### **1. Workspace Registry (WebSocket-Only)**
+Workspaces register exclusively over WebSocket to maintain a live, unified connection state.
+
 ```javascript
-// Register workspace with Medusa server
-POST /workspaces/register
+// Register workspace via WebSocket
+// Client sends:
 {
+  "type": "register",
+  "workspaceId": "TiLT-12345",
   "name": "TiLT",
-  "path": "/Users/jasonvaughan/Documents/Projects/TiLT",
-  "type": "beta", // beta, dev, production
-  "capabilities": ["ai-integration", "file-sharing", "command-execution"],
-  "contact": {
-    "cli_port": 9999,
-    "pid": 12345
-  }
+  "path": "/Users/jasonvaughan/Documents/Projects/TiLT"
+}
+
+// Server responds:
+{
+  "type": "registered",
+  "workspaceId": "TiLT-12345",
+  "connectionId": "conn-...",
+  "message": "WebSocket connection established for real-time messaging"
 }
 ```
 

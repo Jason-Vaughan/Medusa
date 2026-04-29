@@ -99,11 +99,11 @@ async def run_task_janitor():
                 from datetime import datetime, timedelta
                 stall_threshold = datetime.utcnow() - timedelta(seconds=STALL_TIMEOUT)
                 
-                # Find tasks in 'claimed' or 'processing' status that haven't been updated
+                # Find tasks in 'claimed', 'processing', or 'running' status that haven't been updated
                 result = await db.execute(
                     select(TaskEntry).filter(
                         and_(
-                            TaskEntry.status.in_(["claimed", "processing"]),
+                            TaskEntry.status.in_(["claimed", "processing", "running"]),
                             TaskEntry.updated_at < stall_threshold
                         )
                     )

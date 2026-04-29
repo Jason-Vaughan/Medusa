@@ -88,15 +88,31 @@ async function callA2A(method, endpoint, data = null) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         try {
-          if (body.trim() === '') return resolve({ success: res.statusCode < 400 });
-          resolve(JSON.parse(body));
+          const parsedData = body.trim() === '' ? {} : JSON.parse(body);
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            data: parsedData
+          });
         } catch (error) {
-          resolve({ error: 'Parse error', body });
+          resolve({
+            ok: false,
+            status: res.statusCode,
+            error: 'Parse error',
+            data: { message: body }
+          });
         }
       });
     });
     
-    req.on('error', reject);
+    req.on('error', (err) => {
+      resolve({
+        ok: false,
+        status: 503,
+        error: 'A2A Connection Error',
+        data: { message: err.message }
+      });
+    });
     if (data) req.write(JSON.stringify(data));
     req.end();
   });
@@ -199,10 +215,10 @@ const protocolServer = http.createServer(async (req, res) => {
         status: 'hissing',
         protocol: 'Medusa-A2A Bridge',
         version: MEDUSA_VERSION,
-        workspaces: Array.isArray(peers) ? peers.length : 0,
-        messages: Array.isArray(messages) ? messages.length : 0,
+        workspaces: Array.isArray(peers.data) ? peers.data.length : 0,
+        messages: Array.isArray(messages.data) ? messages.data.length : 0,
         uptime: process.uptime(),
-        a2a_connected: !a2aHealth.error
+        a2a_connected: a2aHealth.ok
       }));
     } catch (error) {
       res.statusCode = 200;
@@ -235,8 +251,8 @@ const protocolServer = http.createServer(async (req, res) => {
           }, {})
         },
         a2a: {
-          peers_count: Array.isArray(peers) ? peers.length : 0,
-          peers: peers
+          peers_count: Array.isArray(peers.data) ? peers.data.length : 0,
+          peers: peers.data || []
         },
         connections: {
           totalConnections: Array.from(wsClients.values()).reduce((acc, conns) => acc + conns.size, 0),
@@ -321,11 +337,12 @@ const protocolServer = http.createServer(async (req, res) => {
         content: data.message
       });
       
-      res.statusCode = 201;
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: !result.error, ...result }));
+      res.end(JSON.stringify({ success: result.ok, ...result.data }));
     } catch (error) {
       res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: error.message }));
     }
     return;
@@ -339,11 +356,12 @@ const protocolServer = http.createServer(async (req, res) => {
         content: data.message
       });
       
-      res.statusCode = 201;
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: !result.error, ...result }));
+      res.end(JSON.stringify({ success: result.ok, ...result.data }));
     } catch (error) {
       res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: error.message }));
     }
     return;
@@ -353,7 +371,7 @@ const protocolServer = http.createServer(async (req, res) => {
   if (path === '/messages/recent' && req.method === 'GET') {
     try {
       const messages = await callA2A('GET', '/a2a/messages');
-      const formatted = Array.isArray(messages) ? messages.map(m => ({
+      const formatted = Array.isArray(messages.data) ? messages.data.map(m => ({
         id: m.id,
         from: m.sender_id,
         fromName: m.sender_id.split('-')[0],
@@ -379,10 +397,10 @@ const protocolServer = http.createServer(async (req, res) => {
   // List all peers in the mesh (Bridged)
   if (path === '/mesh/peers' && req.method === 'GET') {
     try {
-      const peers = await callA2A('GET', '/a2a/gossip/peers');
-      res.statusCode = 200;
+      const result = await callA2A('GET', '/a2a/gossip/peers');
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ peers }));
+      res.end(JSON.stringify({ peers: result.data }));
     } catch (error) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));
@@ -393,10 +411,10 @@ const protocolServer = http.createServer(async (req, res) => {
   // List all tasks/auctions (Bridged)
   if (path === '/auctions' && req.method === 'GET') {
     try {
-      const tasks = await callA2A('GET', '/a2a/tasks');
-      res.statusCode = 200;
+      const result = await callA2A('GET', '/a2a/tasks');
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ tasks }));
+      res.end(JSON.stringify({ tasks: result.data }));
     } catch (error) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));
@@ -407,10 +425,13 @@ const protocolServer = http.createServer(async (req, res) => {
   // Get task tree (Bridged & Processed)
   if (path === '/a2a/tasks/tree' && req.method === 'GET') {
     try {
-      const tasks = await callA2A('GET', '/a2a/tasks?limit=100');
+      const result = await callA2A('GET', '/a2a/tasks?limit=100');
       
-      if (tasks.error) throw new Error(tasks.error);
+      if (!result.ok) throw new Error(result.error || 'A2A Task retrieval failed');
       
+      const tasks = result.data;
+      if (!Array.isArray(tasks)) throw new Error('A2A returned non-array for tasks');
+
       // Build tree
       const taskMap = new Map();
       const roots = [];
@@ -443,9 +464,9 @@ const protocolServer = http.createServer(async (req, res) => {
     try {
       const data = await readRequestBody(req);
       const result = await callA2A('POST', '/a2a/tasks/bid', data);
-      res.statusCode = 201;
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(result));
+      res.end(JSON.stringify(result.data));
     } catch (error) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));
@@ -457,9 +478,9 @@ if (path.startsWith('/auctions/') && path.endsWith('/resolve') && req.method ===
   try {
     const taskId = path.split('/')[2];
     const result = await callA2A('POST', `/a2a/tasks/${taskId}/resolve_auction`);
-    res.statusCode = 200;
+    res.statusCode = result.status;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(result));
+    res.end(JSON.stringify(result.data));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json');
@@ -475,9 +496,9 @@ if (path === '/a2a/performance/history' && req.method === 'GET') {
     const limit = url.searchParams.get('limit') || '50';
     const result = await callA2A('GET', `/a2a/performance/history?node_id=${nodeId}&limit=${limit}`);
 
-    res.statusCode = 200;
+    res.statusCode = result.status;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(result));
+    res.end(JSON.stringify(result.data));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json');
@@ -492,9 +513,9 @@ if (path === '/a2a/performance/history' && req.method === 'GET') {
     try {
       const taskId = path.split('/')[2];
       const result = await callA2A('POST', `/a2a/tasks/${taskId}/approve`);
-      res.statusCode = 200;
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(result));
+      res.end(JSON.stringify(result.data));
     } catch (error) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));
@@ -507,9 +528,9 @@ if (path === '/a2a/performance/history' && req.method === 'GET') {
     try {
       const taskId = path.split('/')[2];
       const result = await callA2A('POST', `/a2a/tasks/${taskId}/reject`);
-      res.statusCode = 200;
+      res.statusCode = result.status;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(result));
+      res.end(JSON.stringify(result.data));
     } catch (error) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));

@@ -263,19 +263,34 @@ const protocolServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // List all workspaces (Bridged to Peers)
+  // List all workspaces (Local-first from wsClients)
   if (path === '/workspaces' && req.method === 'GET') {
     try {
-      const peers = await callA2A('GET', '/a2a/gossip/peers');
-      const workspaces = Array.isArray(peers) ? peers.map(p => ({
-        id: p.id,
-        name: p.id.split('-')[0], // Extract name
-        status: p.status,
-        connected: p.status === 'active',
-        connection: { webSocket: true, connectionCount: 1 },
-        listener: { active: true, autonomousMode: true, lastHeartbeat: p.last_seen },
-        autonomousConversationReady: p.status === 'active'
-      })) : [];
+      // Single source of truth derived from wsClients Map
+      const workspaces = Array.from(wsClients.entries()).map(([id, connections]) => {
+        const status = listenerStatus.get(id) || { 
+          status: 'active', 
+          autonomousMode: true, 
+          lastHeartbeat: new Date() 
+        };
+        
+        return {
+          id: id,
+          name: id.split('-')[0], // Extract name from ID
+          status: status.status,
+          connected: true,
+          connection: { 
+            webSocket: true, 
+            connectionCount: connections.size 
+          },
+          listener: { 
+            active: true, 
+            autonomousMode: status.autonomousMode, 
+            lastHeartbeat: status.lastHeartbeat 
+          },
+          autonomousConversationReady: status.status === 'active'
+        };
+      });
       
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
@@ -290,6 +305,7 @@ const protocolServer = http.createServer(async (req, res) => {
       }));
     } catch (error) {
       res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: error.message }));
     }
     return;
@@ -539,6 +555,9 @@ function setupWebSocketHandlers() {
           // Add this connection to the workspace's connection pool
           wsClients.get(workspaceId).set(connectionId, ws);
           isRegistered = true;
+          
+          // Ensure listener status is initialized
+          updateListenerHeartbeat(workspaceId, 'active');
           
           ws.send(JSON.stringify({
             type: 'registered',

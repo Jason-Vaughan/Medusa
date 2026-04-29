@@ -8,6 +8,7 @@
  */
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
 const { EventEmitter } = require('events');
@@ -52,6 +53,24 @@ const wsClients = new Map(); // WebSocket connections by workspace ID - supports
 const A2A_BASE_URL = 'http://localhost:3200';
 const A2A_SECRET = process.env.A2A_SECRET || 'medusa-please';
 
+/**
+ * Signs an A2A request using HMAC-SHA256
+ * The signature payload is: timestamp + request path
+ */
+function signA2ARequest(path, secret) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const payload = `${timestamp}${path}`;
+  const signature = crypto.createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+    
+  return {
+    'X-Medusa-Secret': secret,
+    'X-Medusa-Timestamp': timestamp,
+    'X-Medusa-Signature': signature
+  };
+}
+
 // Helper to call A2A Node
 async function callA2A(method, endpoint, data = null) {
   return new Promise((resolve, reject) => {
@@ -60,7 +79,7 @@ async function callA2A(method, endpoint, data = null) {
       method: method,
       headers: {
         'Content-Type': 'application/json',
-        'X-Medusa-Secret': A2A_SECRET
+        ...signA2ARequest(url.pathname, A2A_SECRET)
       }
     };
     
@@ -809,5 +828,7 @@ if (require.main === module) {
 module.exports = {
   eventBus,
   workspaceRegistry,
-  messageHistory
+  messageHistory,
+  callA2A,
+  A2A_SECRET
 };

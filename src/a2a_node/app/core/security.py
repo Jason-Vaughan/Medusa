@@ -25,13 +25,16 @@ async def verify_medusa_handshake(
     request: Request,
     x_medusa_secret: str = Header(None),
     x_medusa_signature: str = Header(None),
-    x_medusa_timestamp: str = Header(None)
+    x_medusa_timestamp: str = Header(None),
+    x_medusa_client_id: str = Header(None)
 ):
     """
     Enhanced security handshake that verifies:
     1. The shared secret (X-Medusa-Secret)
     2. A cryptographic signature (X-Medusa-Signature)
     3. Timestamp validity to prevent replay attacks (X-Medusa-Timestamp)
+    
+    Returns the x_medusa_client_id if provided, otherwise "unknown-client".
     """
     # 1. Verify Secret
     if x_medusa_secret != settings.A2A_SECRET:
@@ -61,7 +64,7 @@ async def verify_medusa_handshake(
     if not verify_signature(x_medusa_signature, payload, settings.A2A_SECRET):
         raise HTTPException(status_code=403, detail="Invalid X-Medusa-Signature. Nice try, script kiddie.")
 
-    return x_medusa_secret
+    return x_medusa_client_id or "unknown-client"
 
 # Legacy support for internal calls that might not have signatures yet
 async def verify_medusa_secret(x_medusa_secret: str = Header(None)):

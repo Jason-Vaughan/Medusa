@@ -106,30 +106,6 @@ class BiddingHeuristics:
                     "I'm too swamped for this triviality." if current_load > 5 or cpu > 85 else
                     "This is beneath my specialized talents."
         }
-        # Base value 1.0, decreased by skills (lower is better/faster)
-        # Increased by load (higher load = more "expensive" to take on)
-        bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
-        
-        # Health multiplier for bid value (unhealthy = more expensive)
-        if cpu > 70: bid_value *= 1.5
-        if mem > 80: bid_value *= 2.0
-
-        return {
-            "should_bid": should_bid,
-            "confidence": min(max(confidence, 0.1), 1.0),
-            "min_confidence": min_confidence,
-            "swarm_health": swarm_health,
-            "bid_value": max(bid_value, 0.1),
-            "matched_skills": matched_skills,
-            "current_load": current_load,
-            "health": {"cpu": cpu, "mem": mem},
-            "sass": "I'm literally melting. No." if critical_condition else
-                    "Swarm is struggling. I'm being selective." if should_bid and swarm_health < 0.7 else
-                    "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
-                    "I suppose I could do this better than anyone else." if should_bid else 
-                    "I'm too swamped for this triviality." if current_load > 5 or cpu > 85 else
-                    "This is beneath my specialized talents."
-        }
 
     @classmethod
     def evaluate_decomposition(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:

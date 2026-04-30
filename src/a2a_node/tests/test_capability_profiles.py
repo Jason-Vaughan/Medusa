@@ -12,7 +12,7 @@ from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 import uuid
 
-def get_auth_headers(path: str):
+def get_auth_headers(path: str, client_id: str = "test-client"):
     timestamp = str(int(time.time()))
     payload = f"{timestamp}{path}"
     signature = hmac.new(
@@ -24,7 +24,8 @@ def get_auth_headers(path: str):
     return {
         "X-Medusa-Secret": settings.A2A_SECRET,
         "X-Medusa-Timestamp": timestamp,
-        "X-Medusa-Signature": signature
+        "X-Medusa-Signature": signature,
+        "X-Medusa-Client-ID": client_id
     }
 
 @pytest.mark.asyncio
@@ -71,7 +72,7 @@ async def test_capability_profiles_and_grants():
             "description": "ls -la",
             "assigned_by": workspace_id
         }
-        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path))
+        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path, client_id=workspace_id))
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "pending"
@@ -81,6 +82,7 @@ async def test_capability_profiles_and_grants():
             res = await db.execute(select(TaskEntry).filter(TaskEntry.id == data["task_id"]))
             task = res.scalars().first()
             assert task.approval_status == "pre_approved"
+            assert task.execution_metadata["grant_id"] == grant_id
             
         # 4. Create task NOT matching profile (git commit -m "oops")
         path = "/a2a/tasks"
@@ -89,7 +91,7 @@ async def test_capability_profiles_and_grants():
             "description": "git commit -m 'oops'",
             "assigned_by": workspace_id
         }
-        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path))
+        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path, client_id=workspace_id))
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending_approval"
         
@@ -100,7 +102,7 @@ async def test_capability_profiles_and_grants():
             "description": "ls; rm -rf /",
             "assigned_by": workspace_id
         }
-        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path))
+        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path, client_id=workspace_id))
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending_approval"
         
@@ -116,9 +118,40 @@ async def test_capability_profiles_and_grants():
             "description": "ls",
             "assigned_by": workspace_id
         }
-        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path))
+        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path, client_id=workspace_id))
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending_approval"
+
+@pytest.mark.asyncio
+async def test_global_deny_wins():
+    """
+    Verifies that if one grant allows but another denies, Deny wins globally.
+    """
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        workspace_id = "test-workspace-deny-wins"
+        
+        # 1. Profile A: Allows everything
+        path = "/a2a/capabilities/profiles"
+        await ac.post(path, json={"id": "allow-all", "allowed_patterns": [{"tool": ".*", "commandPattern": ".*"}]}, headers=get_auth_headers(path))
+        
+        # 2. Profile B: Denies specific tool
+        await ac.post(path, json={"id": "deny-bash", "denied_patterns": [{"tool": "bash", "commandPattern": ".*"}]}, headers=get_auth_headers(path))
+        
+        # 3. Issue both grants
+        path = f"/a2a/workspaces/{workspace_id}/grants"
+        expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        await ac.post(path, json={"profile_id": "allow-all", "granted_by": "admin", "expires_at": expiry}, headers=get_auth_headers(path))
+        await ac.post(path, json={"profile_id": "deny-bash", "granted_by": "admin", "expires_at": expiry}, headers=get_auth_headers(path))
+        
+        # 4. Create bash task -> should require approval because deny wins
+        path = "/a2a/tasks"
+        task_payload = {"task_type": "bash", "description": "some command"}
+        resp = await ac.post(path, json=task_payload, headers=get_auth_headers(path, client_id=workspace_id))
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending_approval"
+        assert "explicitly denied" in resp.json()["message"]
 
 @pytest.mark.asyncio
 async def test_grant_expiry():

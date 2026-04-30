@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, List
 import re
 from sqlalchemy.future import select
-from datetime import datetime
+from datetime import datetime, timezone
 
 class GovernanceEngine:
     """
@@ -30,7 +30,7 @@ class GovernanceEngine:
         reason = "Task appears safe for autonomous execution."
         
         # 1. Shell commands are inherently risky
-        if task_type_lower in ["shell", "command"]:
+        if re.search(r"shell|command|bash|sh", task_type_lower):
             requires_approval = True
             reason = "Direct shell commands always require human oversight in this hive."
             
@@ -55,10 +55,14 @@ class GovernanceEngine:
                 select(WorkspaceGrant)
                 .filter(WorkspaceGrant.workspace_id == workspace_id)
                 .filter(WorkspaceGrant.revoked == 0)
-                .filter(WorkspaceGrant.expires_at > datetime.utcnow())
+                .filter(WorkspaceGrant.expires_at > datetime.now(timezone.utc).replace(tzinfo=None))
             )
             grants = result.scalars().all()
             
+            any_allowed = False
+            approving_grant_id = None
+            approving_profile_id = None
+
             for grant in grants:
                 # Load profile
                 prof_result = await db.execute(
@@ -71,22 +75,30 @@ class GovernanceEngine:
                     continue
                 
                 # Check patterns
+                # Deny always wins globally
                 is_denied = cls._match_patterns(task_type, description, profile.denied_patterns or [])
                 if is_denied:
-                    reason = f"Action explicitly denied by capability profile '{profile.id}'."
-                    requires_approval = True
-                    break # Deny always wins
-                
-                is_allowed = cls._match_patterns(task_type, description, profile.allowed_patterns or [])
-                if is_allowed:
-                    requires_approval = False
-                    reason = f"Action pre-approved by capability profile '{profile.id}' under grant '{grant.id}'."
                     return {
-                        "requires_approval": False,
-                        "reason": reason,
-                        "grant_id": grant.id,
-                        "sass": f"Profile '{profile.id}' says I can do this. I'm taking the training wheels off."
+                        "requires_approval": True,
+                        "reason": f"Action explicitly denied by capability profile '{profile.id}' under grant '{grant.id}'.",
+                        "sass": "One of your minders said 'No'. I'm listening to them."
                     }
+                
+                # Check if allowed by this grant
+                if not any_allowed:
+                    is_allowed = cls._match_patterns(task_type, description, profile.allowed_patterns or [])
+                    if is_allowed:
+                        any_allowed = True
+                        approving_grant_id = grant.id
+                        approving_profile_id = profile.id
+
+            if any_allowed:
+                return {
+                    "requires_approval": False,
+                    "reason": f"Action pre-approved by capability profile '{approving_profile_id}' under grant '{approving_grant_id}'.",
+                    "grant_id": approving_grant_id,
+                    "sass": f"Profile '{approving_profile_id}' says I can do this. I'm taking the training wheels off."
+                }
 
         return {
             "requires_approval": requires_approval,

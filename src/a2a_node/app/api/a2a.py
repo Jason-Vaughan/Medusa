@@ -11,7 +11,7 @@ from app.models.ledger import (
 )
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.security import verify_medusa_handshake, verify_medusa_secret
 from app.core.auth_utils import get_auth_headers
 from app.core.config import settings
@@ -75,19 +75,26 @@ ProfileCreate.model_rebuild()
 GrantCreate.model_rebuild()
 
 @router.post("/tasks", response_model=TaskResponse)
-async def create_task(task: TaskRequest, db: AsyncSession = Depends(get_db)):
+async def create_task(
+    task: TaskRequest, 
+    db: AsyncSession = Depends(get_db),
+    caller_id: str = Depends(verify_medusa_handshake)
+):
     """
     Creates a new A2A task. If assigned_by is provided, it's treated as a remote request.
     """
     task_id = str(uuid.uuid4())
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
     
+    # Trusted client ID from handshake
+    client_id = caller_id if caller_id != "unknown-client" else (task.assigned_by or node_id)
+    
     # HITL Governance Evaluation
-    # Pass assigned_by as workspace_id for grant checks
+    # Use trusted client_id for grant checks
     gov_eval = await GovernanceEngine.evaluate_task(
         task.task_type, 
         task.description, 
-        workspace_id=task.assigned_by or node_id, 
+        workspace_id=client_id, 
         db=db
     )
     requires_approval = task.requires_approval if task.requires_approval is not None else gov_eval["requires_approval"]
@@ -112,7 +119,11 @@ async def create_task(task: TaskRequest, db: AsyncSession = Depends(get_db)):
         min_votes=task.min_votes or 1,
         results_votes={},
         consensus_status="pending" if task.requires_consensus else "none",
-        execution_metadata={"governance": gov_eval}
+        execution_metadata={
+            "governance": gov_eval,
+            "grant_id": gov_eval.get("grant_id")
+        },
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_task)
     await db.commit()
@@ -364,7 +375,7 @@ async def list_grants(workspace_id: str, db: AsyncSession = Depends(get_db)):
         select(WorkspaceGrant)
         .filter(WorkspaceGrant.workspace_id == workspace_id)
         .filter(WorkspaceGrant.revoked == 0)
-        .filter(WorkspaceGrant.expires_at > datetime.utcnow())
+        .filter(WorkspaceGrant.expires_at > datetime.now(timezone.utc).replace(tzinfo=None))
     )
     return result.scalars().all()
 
@@ -378,6 +389,32 @@ async def revoke_grant(grant_id: str, db: AsyncSession = Depends(get_db)):
     grant.revoked = 1
     await db.commit()
     return {"status": "revoked", "grant_id": grant_id}
+
+# Audit API
+@router.get("/audit/grants/{grant_id}", response_model=List[LedgerTask])
+async def get_grant_audit(grant_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns full action history under a specific grant.
+    """
+    # Note: Using string lookup in JSON for SQLite compatibility
+    result = await db.execute(
+        select(TaskEntry)
+        .filter(TaskEntry.execution_metadata.like(f'%"{grant_id}"%')) 
+        .order_by(TaskEntry.created_at.desc())
+    )
+    return result.scalars().all()
+
+@router.get("/audit/workspaces/{workspace_id}/actions", response_model=List[LedgerTask])
+async def get_workspace_actions(workspace_id: str, since: Optional[datetime] = None, db: AsyncSession = Depends(get_db)):
+    """
+    Returns chronological action log for a workspace.
+    """
+    query = select(TaskEntry).filter(TaskEntry.assigned_by == workspace_id)
+    if since:
+        query = query.filter(TaskEntry.created_at >= since)
+    
+    result = await db.execute(query.order_by(TaskEntry.created_at.desc()))
+    return result.scalars().all()
 @router.post("/tasks/{task_id}/announce")
 async def announce_task(task_id: str, db: AsyncSession = Depends(get_db)):
     """

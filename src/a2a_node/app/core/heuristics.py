@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.performance import PerformanceMonitor
 
@@ -70,7 +70,7 @@ class BiddingHeuristics:
         # 5. Dynamic Threshold Adjustment (Chunk 25)
         # Adjust confidence threshold based on swarm health
         swarm_health = await PerformanceMonitor.get_swarm_health()
-        min_confidence = 0.6
+        min_confidence = settings.BIDDING_CONFIDENCE_THRESHOLD # Default 0.6
         if swarm_health < 0.8:
             min_confidence += 0.1
         if swarm_health < 0.5:
@@ -153,9 +153,9 @@ class BiddingHeuristics:
         return {
             "strategy": "skill-priority",
             "skills": cls.get_local_skills(),
-            "min_confidence": 0.6,
+            "min_confidence": settings.BIDDING_CONFIDENCE_THRESHOLD,
             "current_load": load_info.get("total_load", 0),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     @classmethod

@@ -1,4 +1,7 @@
 import pytest
+import hmac
+import hashlib
+import time
 from httpx import AsyncClient, ASGITransport
 from main import app
 from app.core.governance import GovernanceEngine
@@ -9,6 +12,21 @@ from app.core.config import settings
 from sqlalchemy import select
 import uuid
 
+def get_auth_headers(path: str):
+    timestamp = str(int(time.time()))
+    payload = f"{timestamp}{path}"
+    signature = hmac.new(
+        settings.A2A_SECRET.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return {
+        "X-Medusa-Secret": settings.A2A_SECRET,
+        "X-Medusa-Timestamp": timestamp,
+        "X-Medusa-Signature": signature
+    }
+
 @pytest.mark.asyncio
 async def test_api_create_task_approval():
     """
@@ -17,13 +35,13 @@ async def test_api_create_task_approval():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+        path = "/a2a/tasks"
         payload = {
             "task_type": "shell",
             "description": "rm -rf /",
             "priority": 10
         }
-        response = await ac.post("/a2a/tasks", json=payload, headers=headers)
+        response = await ac.post(path, json=payload, headers=get_auth_headers(path))
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "pending_approval"
@@ -45,15 +63,15 @@ async def test_api_approval_flow():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
-        
         # 1. Create
+        path = "/a2a/tasks"
         payload = {"task_type": "shell", "description": "ls"}
-        response = await ac.post("/a2a/tasks", json=payload, headers=headers)
+        response = await ac.post(path, json=payload, headers=get_auth_headers(path))
         task_id = response.json()["task_id"]
         
         # 2. Approve
-        response = await ac.post(f"/a2a/tasks/{task_id}/approve", headers=headers)
+        path = f"/a2a/tasks/{task_id}/approve"
+        response = await ac.post(path, headers=get_auth_headers(path))
         assert response.status_code == 200
         assert response.json()["status"] == "approved"
         
@@ -72,15 +90,15 @@ async def test_api_rejection_flow():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = {"X-Medusa-Secret": settings.A2A_SECRET}
-        
         # 1. Create
+        path = "/a2a/tasks"
         payload = {"task_type": "shell", "description": "format c:"}
-        response = await ac.post("/a2a/tasks", json=payload, headers=headers)
+        response = await ac.post(path, json=payload, headers=get_auth_headers(path))
         task_id = response.json()["task_id"]
         
         # 2. Reject
-        response = await ac.post(f"/a2a/tasks/{task_id}/reject", headers=headers)
+        path = f"/a2a/tasks/{task_id}/reject"
+        response = await ac.post(path, headers=get_auth_headers(path))
         assert response.status_code == 200
         assert response.json()["status"] == "rejected"
         
@@ -97,16 +115,16 @@ async def test_governance_evaluation():
     Verifies that the GovernanceEngine correctly flags risky tasks.
     """
     # Safe task
-    safe_eval = GovernanceEngine.evaluate_task("other", "tell me a joke")
+    safe_eval = await GovernanceEngine.evaluate_task("other", "tell me a joke")
     assert safe_eval["requires_approval"] is False
     
     # Risky shell task
-    shell_eval = GovernanceEngine.evaluate_task("shell", "ls -la")
+    shell_eval = await GovernanceEngine.evaluate_task("shell", "ls -la")
     assert shell_eval["requires_approval"] is True
     assert "shell" in shell_eval["reason"].lower()
     
     # Risky keyword task
-    rm_eval = GovernanceEngine.evaluate_task("other", "please rm -rf /")
+    rm_eval = await GovernanceEngine.evaluate_task("other", "please rm -rf /")
     assert rm_eval["requires_approval"] is True
     assert "rm " in rm_eval["reason"]
 

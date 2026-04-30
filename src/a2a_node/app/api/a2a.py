@@ -1,14 +1,17 @@
 from fastapi import APIRouter, HTTPException, Body, Depends
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.ledger import TaskEntry, MessageEntry, PeerEntry, LedgerTask, LedgerMessage
+from app.models.ledger import (
+    TaskEntry, MessageEntry, PeerEntry, LedgerTask, LedgerMessage,
+    CapabilityProfile, WorkspaceGrant, CapabilityProfileSchema, WorkspaceGrantSchema
+)
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.security import verify_medusa_handshake, verify_medusa_secret
 from app.core.auth_utils import get_auth_headers
 from app.core.config import settings
@@ -54,20 +57,52 @@ class BidRequest(BaseModel):
     metadata: Optional[dict] = None
     bidder_skills: Optional[List[str]] = None
 
+class ProfileCreate(BaseModel):
+    id: str
+    description: Optional[str] = None
+    allowed_patterns: Optional[List[Dict[str, Any]]] = None
+    denied_patterns: Optional[List[Dict[str, Any]]] = None
+    path_scope: Optional[Dict[str, Any]] = None
+    approval_routing: Optional[Dict[str, Any]] = None
+
+class GrantCreate(BaseModel):
+    profile_id: str
+    granted_by: str
+    scope: Optional[str] = None
+    expires_at: datetime
+
+ProfileCreate.model_rebuild()
+GrantCreate.model_rebuild()
+
 @router.post("/tasks", response_model=TaskResponse)
-async def create_task(task: TaskRequest, db: AsyncSession = Depends(get_db)):
+async def create_task(
+    task: TaskRequest, 
+    db: AsyncSession = Depends(get_db),
+    caller_id: str = Depends(verify_medusa_handshake)
+):
     """
     Creates a new A2A task. If assigned_by is provided, it's treated as a remote request.
     """
     task_id = str(uuid.uuid4())
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
     
+    # Trusted client ID from handshake
+    client_id = caller_id if caller_id != "unknown-client" else (task.assigned_by or node_id)
+    
     # HITL Governance Evaluation
-    gov_eval = GovernanceEngine.evaluate_task(task.task_type, task.description)
+    # Use trusted client_id for grant checks
+    gov_eval = await GovernanceEngine.evaluate_task(
+        task.task_type, 
+        task.description, 
+        workspace_id=client_id, 
+        db=db
+    )
     requires_approval = task.requires_approval if task.requires_approval is not None else gov_eval["requires_approval"]
     
     status = "pending_approval" if requires_approval else "pending"
     approval_status = "pending" if requires_approval else "none"
+    if not requires_approval and gov_eval.get("grant_id"):
+        approval_status = "pre_approved"
     
     new_task = TaskEntry(
         id=task_id,
@@ -84,7 +119,11 @@ async def create_task(task: TaskRequest, db: AsyncSession = Depends(get_db)):
         min_votes=task.min_votes or 1,
         results_votes={},
         consensus_status="pending" if task.requires_consensus else "none",
-        execution_metadata={"governance": gov_eval}
+        execution_metadata={
+            "governance": gov_eval,
+            "grant_id": gov_eval.get("grant_id")
+        },
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_task)
     await db.commit()
@@ -233,15 +272,15 @@ async def place_bid(bid: BidRequest, db: AsyncSession = Depends(get_db)):
     task = result.scalars().first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found in ledger.")
-    
+
     # 2. Update task status and bid metadata
     task.status = "negotiating"
-    
+
     current_bid_data = task.bid_metadata or {"bids": []}
     # Ensure bids is a list
     if not isinstance(current_bid_data.get("bids"), list):
         current_bid_data["bids"] = []
-        
+
     current_bid_data["bids"].append({
         "bidder_id": bid.bidder_id,
         "bid_value": bid.bid_value,
@@ -250,18 +289,132 @@ async def place_bid(bid: BidRequest, db: AsyncSession = Depends(get_db)):
         "bidder_skills": bid.bidder_skills,
         "timestamp": datetime.utcnow().isoformat()
     })
-    
+
     # Update status based on some logic? No, just keep negotiating.
-    
+
     # IMPORTANT: SQLAlchemy JSON columns need explicit re-assignment to trigger update
     from sqlalchemy.orm.attributes import flag_modified
     task.bid_metadata = current_bid_data
     flag_modified(task, "bid_metadata")
-    
+
     await db.commit()
-    
+
     return {"status": "bid_accepted", "message": "Your bid has been recorded. Don't hold your breath.", "task_id": task.id}
 
+# Capability Profiles API
+@router.post("/capabilities/profiles", response_model=CapabilityProfileSchema)
+async def create_profile(profile: ProfileCreate, db: AsyncSession = Depends(get_db)):
+    # Check if profile with same ID exists to increment version
+    result = await db.execute(
+        select(CapabilityProfile)
+        .filter(CapabilityProfile.id == profile.id)
+        .order_by(CapabilityProfile.version.desc())
+    )
+    latest = result.scalars().first()
+    version = (latest.version + 1) if latest else 1
+
+    new_profile = CapabilityProfile(
+        id=profile.id,
+        version=version,
+        description=profile.description,
+        allowed_patterns=profile.allowed_patterns,
+        denied_patterns=profile.denied_patterns,
+        path_scope=profile.path_scope,
+        approval_routing=profile.approval_routing
+    )
+    db.add(new_profile)
+    await db.commit()
+    await db.refresh(new_profile)
+    return new_profile
+
+@router.get("/capabilities/profiles", response_model=List[CapabilityProfileSchema])
+async def list_profiles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CapabilityProfile))
+    return result.scalars().all()
+
+@router.get("/capabilities/profiles/{profile_id}", response_model=List[CapabilityProfileSchema])
+async def get_profile(profile_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CapabilityProfile).filter(CapabilityProfile.id == profile_id))
+    profiles = result.scalars().all()
+    if not profiles:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profiles
+
+# Workspace Grants API
+@router.post("/workspaces/{workspace_id}/grants", response_model=WorkspaceGrantSchema)
+async def issue_grant(workspace_id: str, grant: GrantCreate, db: AsyncSession = Depends(get_db)):
+    # Verify profile exists
+    result = await db.execute(
+        select(CapabilityProfile)
+        .filter(CapabilityProfile.id == grant.profile_id)
+        .order_by(CapabilityProfile.version.desc())
+    )
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Capability profile not found")
+
+    grant_id = f"grant-{str(uuid.uuid4())[:8]}"
+    new_grant = WorkspaceGrant(
+        id=grant_id,
+        workspace_id=workspace_id,
+        profile_id=profile.id,
+        profile_version=profile.version,
+        granted_by=grant.granted_by,
+        scope=grant.scope,
+        expires_at=grant.expires_at,
+        revoked=0
+    )
+    db.add(new_grant)
+    await db.commit()
+    await db.refresh(new_grant)
+    return new_grant
+
+@router.get("/workspaces/{workspace_id}/grants", response_model=List[WorkspaceGrantSchema])
+async def list_grants(workspace_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(WorkspaceGrant)
+        .filter(WorkspaceGrant.workspace_id == workspace_id)
+        .filter(WorkspaceGrant.revoked == 0)
+        .filter(WorkspaceGrant.expires_at > datetime.now(timezone.utc).replace(tzinfo=None))
+    )
+    return result.scalars().all()
+
+@router.delete("/grants/{grant_id}")
+async def revoke_grant(grant_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WorkspaceGrant).filter(WorkspaceGrant.id == grant_id))
+    grant = result.scalars().first()
+    if not grant:
+        raise HTTPException(status_code=404, detail="Grant not found")
+
+    grant.revoked = 1
+    await db.commit()
+    return {"status": "revoked", "grant_id": grant_id}
+
+# Audit API
+@router.get("/audit/grants/{grant_id}", response_model=List[LedgerTask])
+async def get_grant_audit(grant_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns full action history under a specific grant.
+    """
+    # Note: Using string lookup in JSON for SQLite compatibility
+    result = await db.execute(
+        select(TaskEntry)
+        .filter(TaskEntry.execution_metadata.like(f'%"{grant_id}"%')) 
+        .order_by(TaskEntry.created_at.desc())
+    )
+    return result.scalars().all()
+
+@router.get("/audit/workspaces/{workspace_id}/actions", response_model=List[LedgerTask])
+async def get_workspace_actions(workspace_id: str, since: Optional[datetime] = None, db: AsyncSession = Depends(get_db)):
+    """
+    Returns chronological action log for a workspace.
+    """
+    query = select(TaskEntry).filter(TaskEntry.assigned_by == workspace_id)
+    if since:
+        query = query.filter(TaskEntry.created_at >= since)
+    
+    result = await db.execute(query.order_by(TaskEntry.created_at.desc()))
+    return result.scalars().all()
 @router.post("/tasks/{task_id}/announce")
 async def announce_task(task_id: str, db: AsyncSession = Depends(get_db)):
     """

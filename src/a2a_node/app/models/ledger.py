@@ -70,6 +70,31 @@ class PerformanceSnapshot(Base):
     node_id = Column(String, index=True) # "global" for mesh-wide, or specific node_id
     metrics = Column(JSON, nullable=False) # {success_rate, avg_latency, total_tasks, active_nodes, etc.}
 
+class CapabilityProfile(Base):
+    __tablename__ = "capability_profiles"
+    
+    id = Column(String, primary_key=True, index=True)
+    version = Column(Integer, default=1, primary_key=True) # Composite PK for versioning
+    description = Column(Text, nullable=True)
+    allowed_patterns = Column(JSON, nullable=True) # List of {tool, commandPattern}
+    denied_patterns = Column(JSON, nullable=True) # List of {tool, commandPattern}
+    path_scope = Column(JSON, nullable=True) # {read: [], write: []}
+    approval_routing = Column(JSON, nullable=True) # {targetWorkspace, timeout, onTimeout}
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class WorkspaceGrant(Base):
+    __tablename__ = "workspace_grants"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, index=True, nullable=False)
+    profile_id = Column(String, nullable=False)
+    profile_version = Column(Integer, nullable=False)
+    granted_by = Column(String, nullable=False)
+    scope = Column(String, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Integer, default=0) # 0 for False, 1 for True
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):
     id: str
@@ -135,6 +160,33 @@ class PerformanceSnapshotSchema(BaseModel):
     timestamp: datetime
     node_id: str
     metrics: Dict[str, Any]
+
+    class Config:
+        from_attributes = True
+
+class CapabilityProfileSchema(BaseModel):
+    id: str
+    version: int = 1
+    description: Optional[str] = None
+    allowed_patterns: Optional[List[Dict[str, Any]]] = None
+    denied_patterns: Optional[List[Dict[str, Any]]] = None
+    path_scope: Optional[Dict[str, Any]] = None
+    approval_routing: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class WorkspaceGrantSchema(BaseModel):
+    id: str
+    workspace_id: str
+    profile_id: str
+    profile_version: int
+    granted_by: str
+    scope: Optional[str] = None
+    expires_at: datetime
+    revoked: bool
+    created_at: datetime
 
     class Config:
         from_attributes = True

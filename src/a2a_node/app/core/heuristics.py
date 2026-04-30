@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.performance import PerformanceMonitor
 
@@ -70,7 +70,7 @@ class BiddingHeuristics:
         # 5. Dynamic Threshold Adjustment (Chunk 25)
         # Adjust confidence threshold based on swarm health
         swarm_health = await PerformanceMonitor.get_swarm_health()
-        min_confidence = 0.6
+        min_confidence = settings.BIDDING_CONFIDENCE_THRESHOLD # Default 0.6
         if swarm_health < 0.8:
             min_confidence += 0.1
         if swarm_health < 0.5:
@@ -82,6 +82,30 @@ class BiddingHeuristics:
         should_bid = (confidence >= min_confidence or (len(description.split()) > 10 and current_load < 3)) and not critical_condition
         
         # 7. Bid Value (Cost/Time)
+        # Base value 1.0, decreased by skills (lower is better/faster)
+        # Increased by load (higher load = more "expensive" to take on)
+        bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
+        
+        # Health multiplier for bid value (unhealthy = more expensive)
+        if cpu > 70: bid_value *= 1.5
+        if mem > 80: bid_value *= 2.0
+
+        return {
+            "should_bid": should_bid,
+            "confidence": min(max(confidence, 0.1), 1.0),
+            "min_confidence": min_confidence,
+            "swarm_health": swarm_health,
+            "bid_value": max(bid_value, 0.1),
+            "matched_skills": matched_skills,
+            "current_load": current_load,
+            "health": {"cpu": cpu, "mem": mem},
+            "sass": "I'm literally melting. No." if critical_condition else
+                    "Swarm is struggling. I'm being selective." if should_bid and swarm_health < 0.7 else
+                    "I'm busy, but for this, I'll make time." if should_bid and current_load > 2 else 
+                    "I suppose I could do this better than anyone else." if should_bid else 
+                    "I'm too swamped for this triviality." if current_load > 5 or cpu > 85 else
+                    "This is beneath my specialized talents."
+        }
         # Base value 1.0, decreased by skills (lower is better/faster)
         # Increased by load (higher load = more "expensive" to take on)
         bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
@@ -153,9 +177,9 @@ class BiddingHeuristics:
         return {
             "strategy": "skill-priority",
             "skills": cls.get_local_skills(),
-            "min_confidence": 0.6,
+            "min_confidence": settings.BIDDING_CONFIDENCE_THRESHOLD,
             "current_load": load_info.get("total_load", 0),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     @classmethod

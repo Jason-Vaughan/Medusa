@@ -12,6 +12,7 @@ class Settings:
     GOSSIP_INTERVAL: int = int(os.getenv("GOSSIP_INTERVAL", 10))
     RETENTION_DAYS: int = int(os.getenv("RETENTION_DAYS", 7))
     STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
+    BIDDING_CONFIDENCE_THRESHOLD: float = 0.6
     
     # Reputation Settings
     REPUTATION_WEIGHT_COMPLETED: float = 0.1

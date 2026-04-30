@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [0.7.10-beta] - 2026-04-29
+### Added
+- **Issue #12: Agent Capability Profiles + Scoped Pre-approval.**
+- **Layer 1 Autonomy Primitives:** Introduced Capability Profiles for defining versioned, pattern-based tool/command permissions.
+- **Scoped Grants:** Implemented time-bounded, revocable grants for specific workspaces to bypass per-task HITL prompts.
+- **Governance Audit:** Added API endpoints for tracking full action history under specific grants (`/a2a/audit/grants/{id}`) and chronological workspace actions.
+### Fixed
+- **Deny Wins Globally:** Enforced absolute precedence of 'deny' patterns across all active grants in the `GovernanceEngine`.
+- **Workspace Spoofing Protection:** Hardened task creation by extracting trusted workspace identity from HMAC handshake headers.
+- **Bidding Regression:** Fixed duplicate code block and return logic in `heuristics.py`.
+- **Maintenance:** Standardized all `datetime` usage to timezone-aware UTC across core modules and tests.
+
 ## [0.7.9-beta] - 2026-04-29
 ### Fixed
 - **Issue #3:** Implemented honest error propagation from A2A Node to Medusa Bridge.

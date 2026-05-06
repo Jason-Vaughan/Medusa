@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [0.7.11-beta] - 2026-05-05
+### Added
+- **Chunk 31: Swarm Self-Healing & Auto-Recovery.**
+- **Rogue Node Isolation:** Implemented automatic 'quarantine' status for nodes with excessive consensus conflicts (5+), ignoring their votes in future consensus.
+- **Zombie Task Scavenger:** Background process that automatically resets tasks claimed by peers that have been offline for >5 minutes.
+- **Consensus Stress Testing:** New test suite `test_consensus_stress.py` verifying behavior under partitions and zero-reputation scenarios.
+- **Conflict Visualization:** Dashboard now shows conflict counts (⚔) and prominent quarantine badges (🚫) on peer cards.
+### Fixed
+- **A2A Security Hardening:** Removed transmission of raw `A2A_SECRET` in HTTP headers; shifted to pure HMAC-SHA256 signature verification.
+- **Session Cache Regression:** Fixed SQLAlchemy session cache issue in partition merge tests.
+- **Consensus API:** Refactored `reach_consensus` to handle database sessions explicitly, fixing asynchronous race conditions during gossip sync.
+
 ## [0.7.10-beta] - 2026-04-29
 ### Added
 - **Issue #12: Agent Capability Profiles + Scoped Pre-approval.**

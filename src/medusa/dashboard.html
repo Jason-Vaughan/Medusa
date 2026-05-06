@@ -326,6 +326,123 @@
       height: 250px;
       width: 100%;
     }
+
+    /* CHUNK 29: VISUALIZATION 2.0 */
+    .skill-bar-container {
+      margin-top: 8px;
+    }
+    
+    .skill-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    
+    .skill-label {
+      font-size: 0.75em;
+      color: var(--text-muted);
+      width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .skill-progress-bg {
+      flex: 1;
+      height: 6px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    .skill-progress-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 3px;
+      transition: width 0.5s ease-out;
+    }
+    
+    .reputation-badge {
+      font-size: 0.7em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-left: 8px;
+    }
+    
+    .badge-legendary { background: linear-gradient(45deg, #ffd700, #ff8c00); color: black; box-shadow: 0 0 5px #ffd700; }
+    .badge-veteran { background: #00ff88; color: black; }
+    .badge-reliable { background: var(--primary); color: white; }
+    .badge-novice { background: #4A90E2; color: white; }
+    .badge-untrusted { background: #ff4444; color: white; }
+    
+    .vitality-indicator {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 10px;
+      font-size: 0.75em;
+      color: var(--text-muted);
+    }
+    
+    .vitality-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+    
+    .vitality-melting { background: var(--warning); box-shadow: 0 0 5px var(--warning); }
+    .vitality-critical { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    
+    .backoff-countdown {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255, 68, 68, 0.1);
+      color: #ff4444;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8em;
+      font-weight: bold;
+      border: 1px solid rgba(255, 68, 68, 0.2);
+      margin-left: 10px;
+    }
+    
+    .backoff-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ff4444;
+      animation: pulse-red 1s infinite;
+    }
+    
+    @keyframes pulse-red {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+    }
+    
+    /* CHUNK 30: ADVANCED CONSENSUS */
+    .consensus-progress {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(74, 144, 226, 0.1);
+      border: 1px solid rgba(74, 144, 226, 0.2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 10px;
+    }
+    
+    .consensus-dist-container {
+      margin-top: 5px;
+      font-size: 0.8em;
+      background: rgba(0,0,0,0.2);
+      padding: 5px;
+      border-radius: 4px;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>

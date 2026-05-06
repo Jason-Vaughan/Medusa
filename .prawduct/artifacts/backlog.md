@@ -37,9 +37,12 @@ This backlog tracks out-of-scope items, future enhancements, and deferred tasks 
 | **Automated Re-vote** | Chunk 24 Plan | High | ✅ Done | Refined consensus with automated re-vote cool-down and HITL escalation. |
 | **Node Reputation System** | Chunk 25 Plan | Medium | ✅ Done | Track long-term reliability and accuracy of peers. |
 | **Dynamic Bidding Thresholds** | Chunk 25 Plan | Low | ✅ Done | Adjust bidding aggressiveness based on swarm-wide success. |
+| **Skills Evolution** | Chunk 26 Plan | Medium | ✅ Done | Nodes dynamically acquire new skills based on task success (Chunk 27). |
+| **Exponential Backoff** | Chunk 14 Critic | Low | ✅ Done | Improved retry logic with jittered exponential backoff (Chunk 28). |
+| **Mesh Visualization 2.0** | Chunk 29 Plan | High | ✅ Done | Surfaced skills, reputation, health, and retry countdowns on the dashboard. |
+| **Advanced Consensus** | Phase 3 Plan | High | ✅ Done | Reputation-weighted voting, adaptive quorums, and tie-breaking (Chunk 30). |
 
 ## 📥 Pending Items
 | Item | Origin | Priority | Status | Description |
 |------|--------|----------|--------|-------------|
-| **Exponential Backoff** | Chunk 14 Critic | Low | 📥 Pending | Improve retry logic with smarter wait times between attempts. |
-| **Skills Evolution** | Chunk 26 Plan | Medium | 📥 Pending | Nodes dynamically acquire new skills based on task success. |
+| **Swarm Self-Healing** | Phase 3 Plan | High | 📥 Pending | Auto-isolation of rogue nodes and quorum recovery (Chunk 31). |

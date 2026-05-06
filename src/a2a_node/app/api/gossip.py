@@ -190,84 +190,121 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
 async def reach_consensus(task: TaskEntry):
     """
     Analyzes results_votes to reach consensus on a task result.
-    Implements a majority voting algorithm with Automated Re-vote (Chunk 24).
+    Implements Advanced Consensus 2.0: Reputation-Weighted Voting & Adaptive Quorums.
     """
     votes = task.results_votes or {}
     if not votes:
         task.consensus_status = "none"
         return
 
-    # Count occurrences of each result
     from collections import Counter
     import json
+    from app.core.reputation import ReputationEngine
     
+    # 1. Calculate Weights
+    total_weight = 0.0
+    result_weights = {} # res_json -> weight
     result_counts = Counter()
     result_map = {} 
+    node_reputations = {} # node_id -> reputation
     
     for node_id, res in votes.items():
         res_json = json.dumps(res, sort_keys=True)
+        reputation = await ReputationEngine.get_reputation_score(node_id)
+        node_reputations[node_id] = reputation
+        
+        weight = max(0.1, reputation) # Minimum weight to ensure even low-reputation nodes have some say
+        total_weight += weight
+        
+        result_weights[res_json] = result_weights.get(res_json, 0.0) + weight
         result_counts[res_json] += 1
         result_map[res_json] = res
         
     if not result_counts:
         return
 
-    # Find the majority
-    most_common_json, count = result_counts.most_common(1)[0]
+    # Find the most weighted result
+    sorted_results = sorted(result_weights.items(), key=lambda x: x[1], reverse=True)
+    best_res_json, best_weight = sorted_results[0]
     
-    print(f"🗳️ Consensus check for {task.id[:8]}: Quorum {count}/{task.min_votes} (Total Votes: {len(votes)})", flush=True)
+    # Store metadata for visualization (Chunk 30)
+    task.results_metadata = {
+        "total_weight": round(total_weight, 2),
+        "distribution": {res_json: {"weight": round(w, 2), "count": result_counts[res_json]} for res_json, w in result_weights.items()}
+    }
+
+    print(f"🗳️ Consensus check for {task.id[:8]}: Strategy={task.consensus_strategy}, Quorum={len(votes)}/{task.min_votes}", flush=True)
+    print(f"   Weight: {best_weight:.2f}/{total_weight:.2f} ({(best_weight/total_weight)*100:.1f}%)", flush=True)
     
-    if count >= task.min_votes:
+    # 2. Evaluate Strategy
+    achieved = False
+    
+    if len(votes) >= task.min_votes:
+        if task.consensus_strategy == "unanimous":
+            if len(result_counts) == 1:
+                achieved = True
+        elif task.consensus_strategy == "weighted_threshold":
+            if (best_weight / total_weight) >= (task.quorum_threshold or 0.5):
+                achieved = True
+        else: # Default: majority
+            if best_weight > (total_weight / 2):
+                achieved = True
+            # Tie-breaking Heuristic (Chunk 30)
+            elif len(result_counts) > 1:
+                # If there's a tie or no clear majority, check if the most reputable node voted for the top result
+                most_reputable_node_id, most_reputable_score = max(node_reputations.items(), key=lambda x: x[1])
+                if most_reputable_score >= 0.9:
+                    # Does the top result match what the most reputable node voted?
+                    rep_node_vote = json.dumps(votes[most_reputable_node_id], sort_keys=True)
+                    if rep_node_vote == best_res_json:
+                        print(f"⚖️ Tie-break: Favoring result from highly reputable node {most_reputable_node_id[:8]}.", flush=True)
+                        achieved = True
+
+    # 3. Handle Outcome
+    if achieved:
         # We have a winner!
-        task.result = result_map[most_common_json]
+        task.result = result_map[best_res_json]
         task.status = "completed"
         task.consensus_status = "achieved"
-        print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Majority result selected.", flush=True)
+        print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Weighted majority selected.", flush=True)
         
         # Update reputation for dissenters (Chunk 25)
         for node_id, res in votes.items():
             res_json = json.dumps(res, sort_keys=True)
-            if res_json != most_common_json:
-                from app.core.reputation import ReputationEngine
+            if res_json != best_res_json:
                 await ReputationEngine.update_reputation(node_id, "consensus_disagreement")
+    
     elif len(votes) >= task.min_votes:
-        # Quorum met but no majority (or split vote)
-        if len(result_counts) > 1:
-            # 1. Automated Re-vote Logic (Chunk 24)
-            metadata = task.execution_metadata or {}
-            revote_count = metadata.get("revote_count", 0)
-            last_conflict = metadata.get("last_conflict_ts")
-            
-            now = datetime.utcnow()
-            
-            if not last_conflict:
-                # First time we see this conflict
-                metadata["last_conflict_ts"] = now.isoformat()
-                task.execution_metadata = metadata
-                task.consensus_status = "conflict"
-                print(f"❌ Consensus CONFLICT for task {task.id[:8]}. Starting 2-minute cool-down for re-vote.", flush=True)
-            else:
-                last_conflict_dt = datetime.fromisoformat(last_conflict)
-                if now - last_conflict_dt > timedelta(minutes=2):
-                    # Cool-down finished, trigger re-vote
-                    if revote_count < 3:
-                        print(f"🔄 Consensus RE-VOTE: Cool-down finished for {task.id[:8]}. Clearing votes for Round {revote_count + 2}.", flush=True)
-                        task.results_votes = {}
-                        task.consensus_status = "pending"
-                        metadata["revote_count"] = revote_count + 1
-                        metadata["last_conflict_ts"] = None
-                        task.execution_metadata = metadata
-                    else:
-                        # Max re-votes reached, escalate to HITL
-                        print(f"🚨 Consensus DEADLOCK: Task {task.id[:8]} failed 3 re-votes. Escalating to Human-in-the-Loop.", flush=True)
-                        task.requires_approval = 1
-                        task.approval_status = "pending"
-                        task.consensus_status = "conflict"
-                else:
-                    task.consensus_status = "conflict"
-                    print(f"⏳ Consensus CONFLICT: Waiting for cool-down ({2 - (now - last_conflict_dt).seconds // 60}m left).", flush=True)
+        # Quorum met but no consensus (conflict)
+        metadata = task.execution_metadata or {}
+        revote_count = metadata.get("revote_count", 0)
+        last_conflict = metadata.get("last_conflict_ts")
+        
+        now = datetime.utcnow()
+        
+        if not last_conflict:
+            metadata["last_conflict_ts"] = now.isoformat()
+            task.execution_metadata = metadata
+            task.consensus_status = "conflict"
+            print(f"❌ Consensus CONFLICT for task {task.id[:8]}. Starting 2-minute cool-down for re-vote.", flush=True)
         else:
-            task.consensus_status = "pending"
+            last_conflict_dt = datetime.fromisoformat(last_conflict)
+            if (now - last_conflict_dt).total_seconds() > 120:
+                if revote_count < 3:
+                    print(f"🔄 Consensus RE-VOTE: Cool-down finished for {task.id[:8]}. Round {revote_count + 2}.", flush=True)
+                    task.results_votes = {}
+                    task.consensus_status = "pending"
+                    metadata["revote_count"] = revote_count + 1
+                    metadata["last_conflict_ts"] = None
+                    task.execution_metadata = metadata
+                else:
+                    print(f"🚨 Consensus DEADLOCK: Task {task.id[:8]} failed 3 re-votes. Escalating to HITL.", flush=True)
+                    task.requires_approval = 1
+                    task.approval_status = "pending"
+                    task.consensus_status = "conflict"
+            else:
+                task.consensus_status = "conflict"
+                print(f"⏳ Consensus CONFLICT: Waiting for cool-down.", flush=True)
     else:
         task.consensus_status = "pending"
 
@@ -306,6 +343,9 @@ async def merge_sync_data(data: dict):
                         min_votes=t_data.get('min_votes', 1),
                         results_votes=t_data.get('results_votes'),
                         consensus_status=t_data.get('consensus_status', 'none'),
+                        consensus_strategy=t_data.get('consensus_strategy', 'majority'),
+                        quorum_threshold=t_data.get('quorum_threshold', 0.5),
+                        results_metadata=t_data.get('results_metadata'),
                         created_at=datetime.fromisoformat(t_data['created_at'].replace('Z', '+00:00')),
                         updated_at=datetime.fromisoformat(t_data['updated_at'].replace('Z', '+00:00'))
                     )
@@ -387,6 +427,9 @@ async def merge_sync_data(data: dict):
                         existing.next_retry_at = datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')) if t_data.get('next_retry_at') else None
                         existing.requires_consensus = t_data.get('requires_consensus', existing.requires_consensus)
                         existing.min_votes = t_data.get('min_votes', existing.min_votes)
+                        existing.consensus_strategy = t_data.get('consensus_strategy', existing.consensus_strategy)
+                        existing.quorum_threshold = t_data.get('quorum_threshold', existing.quorum_threshold)
+                        existing.results_metadata = t_data.get('results_metadata', existing.results_metadata)
 
             # Merge Messages
             for m_data in data.get('messages', []):

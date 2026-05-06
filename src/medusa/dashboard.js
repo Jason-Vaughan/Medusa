@@ -804,10 +804,18 @@ async function rejectTask(taskId) {
   }
 }
 
+// Registry for backoff timers to enable live countdowns
+const backoffTimers = new Map();
+
 function renderTaskTree(tasks, level = 0) {
   return tasks.map(task => {
     const indent = level * 20;
     const isPendingApproval = task.status === 'pending_approval';
+    
+    // Chunk 28: Handle backoff state
+    const now = new Date();
+    const nextRetry = task.next_retry_at ? new Date(task.next_retry_at) : null;
+    const isInBackoff = (task.status === 'failed' || task.status === 'pending') && nextRetry && nextRetry > now;
     
     const statusMap = {
       'completed': { label: 'SUCCESS', color: 'var(--success)' },
@@ -819,9 +827,43 @@ function renderTaskTree(tasks, level = 0) {
       'waiting': { label: 'DECOMPOSING', color: '#4A90E2' }
     };
 
-    const statusInfo = statusMap[task.status] || { label: task.status.toUpperCase(), color: 'var(--text)' };
+    let statusInfo = statusMap[task.status] || { label: task.status.toUpperCase(), color: 'var(--text)' };
+    
+    // Override status if in backoff
+    if (isInBackoff) {
+      statusInfo = { label: 'BACKOFF', color: '#ff4444' };
+    }
+
     const nodeInfo = task.claimed_by || task.assigned_to || 'unassigned';
     
+    // Chunk 30: Consensus Visualization
+    let consensusHtml = '';
+    if (task.requires_consensus) {
+      const metadata = task.results_metadata || {};
+      const distribution = metadata.distribution || {};
+      const totalWeight = metadata.total_weight || 0;
+      
+      let weightInfo = '';
+      if (totalWeight > 0) {
+          const distributionItems = Object.values(distribution);
+          if (distributionItems.length > 0) {
+              const top = distributionItems.sort((a, b) => b.weight - a.weight)[0];
+              const percent = ((top.weight / totalWeight) * 100).toFixed(0);
+              weightInfo = `<span style="font-size: 0.85em; color: var(--text-muted); margin-left: 8px;">(${percent}% Agreemnt)</span>`;
+          }
+      }
+
+      const consensusStatusLabel = task.consensus_status === 'achieved' ? '✅' : (task.consensus_status === 'conflict' ? '❌' : '⏳');
+      
+      consensusHtml = `
+        <div class="consensus-progress" title="Consensus: ${task.consensus_status} via ${task.consensus_strategy}">
+          <span style="font-size: 0.9em; margin-right: 5px;">${consensusStatusLabel}</span>
+          <span style="font-size: 0.75em; font-weight: bold; color: #4A90E2; letter-spacing: 0.05em;">CONSENSUS</span>
+          ${weightInfo}
+        </div>
+      `;
+    }
+
     let governanceNote = '';
     if (isPendingApproval && task.execution_metadata?.governance) {
       governanceNote = `<div style="color: #ff00ff; font-size: 0.8em; margin: 4px 0; font-style: italic;">⚠ ${task.execution_metadata.governance.reason}</div>`;
@@ -829,7 +871,21 @@ function renderTaskTree(tasks, level = 0) {
 
     let retryNote = '';
     if (task.retry_count > 0) {
-        retryNote = `<span style="color: var(--warning); font-size: 0.8em; margin-left: 8px;">(Retry ${task.retry_count}/${task.max_retries})</span>`;
+        retryNote = `<span style="color: var(--warning); font-size: 0.8em; margin-left: 8px;">(Attempt ${task.retry_count}/${task.max_retries})</span>`;
+    }
+
+    let backoffHtml = '';
+    if (isInBackoff) {
+      const secondsLeft = Math.ceil((nextRetry - now) / 1000);
+      const timerId = `timer-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      backoffTimers.set(task.id, { expiry: nextRetry, elementId: timerId });
+      
+      backoffHtml = `
+        <div class="backoff-countdown" id="${timerId}">
+          <div class="backoff-pulse"></div>
+          Retry in ${secondsLeft}s
+        </div>
+      `;
     }
 
     let html = `
@@ -839,6 +895,8 @@ function renderTaskTree(tasks, level = 0) {
           <strong style="color: var(--text);">${task.task_type}</strong>
           <span style="font-size: 0.8em; color: var(--text-muted);">@ ${nodeInfo.split('-')[0]}</span>
           ${retryNote}
+          ${backoffHtml}
+          ${consensusHtml}
         </div>
         <div style="font-size: 0.9em; margin: 4px 0; color: #ddd;">${task.description}</div>
         ${governanceNote}
@@ -859,6 +917,121 @@ function renderTaskTree(tasks, level = 0) {
 
     return html;
   }).join('');
+}
+
+// Background timer to update backoff countdowns every second
+setInterval(() => {
+  const now = new Date();
+  backoffTimers.forEach((data, taskId) => {
+    const el = document.getElementById(data.elementId);
+    if (!el) {
+      backoffTimers.delete(taskId);
+      return;
+    }
+    
+    const secondsLeft = Math.ceil((data.expiry - now) / 1000);
+    if (secondsLeft <= 0) {
+      el.innerHTML = '<div class="backoff-pulse" style="background: var(--success); animation: none;"></div> Ready';
+      el.style.color = 'var(--success)';
+      el.style.borderColor = 'var(--success)';
+      backoffTimers.delete(taskId);
+    } else {
+      el.innerHTML = `<div class="backoff-pulse"></div> Retry in ${secondsLeft}s`;
+    }
+  });
+}, 1000);
+
+/**
+ * Helper to generate reputation badge HTML.
+ */
+function getReputationBadge(score) {
+  if (score === undefined || score === null) return '';
+  
+  let label = 'Novice';
+  let className = 'badge-novice';
+  let icon = '🥉';
+
+  if (score >= 0.9) {
+    label = 'Legendary';
+    className = 'badge-legendary';
+    icon = '🏆';
+  } else if (score >= 0.7) {
+    label = 'Veteran';
+    className = 'badge-veteran';
+    icon = '🥇';
+  } else if (score >= 0.5) {
+    label = 'Reliable';
+    className = 'badge-reliable';
+    icon = '🥈';
+  } else if (score <= 0.3) {
+    label = 'Untrusted';
+    className = 'badge-untrusted';
+    icon = '💀';
+  }
+
+  return `<span class="reputation-badge ${className}">${icon} ${label}</span>`;
+}
+
+/**
+ * Helper to generate skill progress bars.
+ */
+function renderSkillBars(skillsMatrix, genericSkills = []) {
+  const matrix = skillsMatrix || {};
+  
+  // Combine matrix keys with generic skills
+  const allSkills = new Set([...Object.keys(matrix), ...genericSkills]);
+  if (allSkills.size === 0) return '<div style="font-size: 0.8em; color: var(--text-muted);">No specialized skills.</div>';
+
+  return `
+    <div class="skill-bar-container">
+      ${Array.from(allSkills).map(skill => {
+        const weight = matrix[skill] || 0.1;
+        const percent = Math.min(100, (weight * 100));
+        let color = 'var(--text-muted)';
+        if (weight >= 0.8) color = 'var(--success)';
+        else if (weight >= 0.4) color = 'var(--primary)';
+        
+        return `
+          <div class="skill-row">
+            <div class="skill-label" title="${skill}">${skill}</div>
+            <div class="skill-progress-bg">
+              <div class="skill-progress-fill" style="width: ${percent}%; background: ${color};"></div>
+            </div>
+            <div style="font-size: 0.7em; width: 25px; text-align: right; color: ${color}">${weight.toFixed(1)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+/**
+ * Helper to generate health vitality indicator.
+ */
+function getVitalityIndicator(health) {
+  if (!health) return '';
+  
+  const cpu = health.cpu_percent || 0;
+  const mem = health.memory_percent || 0;
+  const load = Math.max(cpu, mem);
+  
+  let status = 'Healthy';
+  let className = '';
+  
+  if (load > 85) {
+    status = 'Critical';
+    className = 'vitality-critical';
+  } else if (load > 60) {
+    status = 'Melting';
+    className = 'vitality-melting';
+  }
+  
+  return `
+    <div class="vitality-indicator">
+      <div class="vitality-dot ${className}"></div>
+      <span>Vitality: ${status} (${load.toFixed(0)}% Load)</span>
+    </div>
+  `;
 }
 
 /**
@@ -890,12 +1063,14 @@ async function loadPeers() {
     container.innerHTML = data.peers.map(peer => {
       const perf = peer.performance || {};
       const stats = peer.strategies || {};
-      const skills = stats.skills || (peer.metadata?.skills ? peer.metadata.skills.split(',') : ['generic']);
+      const skillsMatrix = peer.skills_matrix || {};
+      const genericSkills = stats.skills || (peer.metadata?.skills ? peer.metadata.skills.split(',') : []);
       
       // Calculate individual metrics
       const pTasks = perf.total_tasks || 0;
       const pSuccess = perf.success_count || 0;
       const pLatency = perf.total_latency || 0;
+      const reputation = perf.reputation_score;
       
       const successRate = pTasks > 0 ? (pSuccess / pTasks * 100).toFixed(1) : '100';
       const avgLatency = pTasks > 0 ? (pLatency / pTasks).toFixed(2) : '0.00';
@@ -917,7 +1092,10 @@ async function loadPeers() {
         <div class="card" style="margin: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
             <div>
-              <strong style="color: var(--primary); font-size: 1.1em;">${peer.id.split('-')[0]}</strong>
+              <div style="display: flex; align-items: center;">
+                <strong style="color: var(--primary); font-size: 1.1em;">${peer.id.split('-')[0]}</strong>
+                ${getReputationBadge(reputation)}
+              </div>
               <div style="font-size: 0.7em; color: var(--text-muted); font-family: monospace;">${peer.id}</div>
             </div>
             <span class="status active" style="margin: 0;">${peer.status}</span>
@@ -943,13 +1121,12 @@ async function loadPeers() {
             <span style="color: var(--primary);">${stats.strategy || 'default'}</span>
           </div>
 
-          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-            ${skills.map(skill => `
-              <span style="background: rgba(145, 70, 255, 0.15); color: var(--primary); padding: 2px 8px; border-radius: 12px; font-size: 0.75em; border: 1px solid rgba(145, 70, 255, 0.3);">
-                ${skill.trim()}
-              </span>
-            `).join('')}
+          <div style="margin-top: 10px;">
+            <strong style="color: var(--text-muted); font-size: 0.75em;">SKILL EVOLUTION</strong>
+            ${renderSkillBars(skillsMatrix, genericSkills)}
           </div>
+          
+          ${getVitalityIndicator(peer.health_metadata)}
           
           <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 12px;">
             Last Seen: ${formatTimeAgo(peer.last_seen)}

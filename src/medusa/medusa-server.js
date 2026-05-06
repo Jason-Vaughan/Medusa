@@ -568,10 +568,27 @@ const protocolServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: error.message }));
     }
     return;
-  }
-  
-  // List all tasks/auctions (Bridged)
-  if (path === '/auctions' && req.method === 'GET') {
+    }
+
+    // Create a new task in the swarm (Bridged)
+    if (path === '/a2a/tasks' && req.method === 'POST') {
+    try {
+      const data = await readRequestBody(req);
+      const result = await callA2A('POST', '/a2a/tasks', data);
+
+      res.statusCode = result.status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(result.data));
+    } catch (error) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+    }
+
+    // List all tasks/auctions (Bridged)
+    if (path === '/auctions' && req.method === 'GET') {
+
     try {
       const result = await callA2A('GET', '/a2a/tasks');
       res.statusCode = result.status;

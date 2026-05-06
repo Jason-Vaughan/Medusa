@@ -29,6 +29,8 @@ class TaskRequest(BaseModel):
     requires_approval: Optional[bool] = None # Explicit override
     requires_consensus: Optional[bool] = False
     min_votes: Optional[int] = 1
+    consensus_strategy: Optional[str] = "majority"
+    quorum_threshold: Optional[float] = 0.5
 
 class TaskResponse(BaseModel):
     task_id: str
@@ -117,6 +119,8 @@ async def create_task(
         approval_status=approval_status,
         requires_consensus=1 if task.requires_consensus else 0,
         min_votes=task.min_votes or 1,
+        consensus_strategy=task.consensus_strategy or "majority",
+        quorum_threshold=task.quorum_threshold or 0.5,
         results_votes={},
         consensus_status="pending" if task.requires_consensus else "none",
         execution_metadata={

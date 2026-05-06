@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from sqlalchemy.ext.mutable import MutableList
-from sqlalchemy import Column, String, Integer, DateTime, JSON, Text
+from sqlalchemy import Column, String, Integer, DateTime, JSON, Text, Float
 from app.core.database import Base
 
 # SQLAlchemy Models for DB persistence
@@ -38,6 +38,9 @@ class TaskEntry(Base):
     min_votes = Column(Integer, default=1)
     results_votes = Column(JSON, nullable=True) # Dict of {node_id: result}
     consensus_status = Column(String, default="none") # none, pending, achieved, conflict
+    consensus_strategy = Column(String, default="majority") # majority, unanimous, weighted_threshold
+    quorum_threshold = Column(Float, default=0.5) # Required weighted score (0.0 to 1.0)
+    results_metadata = Column(JSON, nullable=True) # Metadata about the voting process
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -136,6 +139,9 @@ class LedgerTask(BaseModel):
     min_votes: Optional[int] = 1
     results_votes: Optional[Dict[str, Any]] = None
     consensus_status: Optional[str] = "none"
+    consensus_strategy: str = "majority"
+    quorum_threshold: float = 0.5
+    results_metadata: Optional[Dict[str, Any]] = None
     
     created_at: datetime
     updated_at: datetime

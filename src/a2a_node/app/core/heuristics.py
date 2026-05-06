@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.performance import PerformanceMonitor
+from app.core.learning import LearningEngine
 
 class BiddingHeuristics:
     """
@@ -10,43 +11,50 @@ class BiddingHeuristics:
     """
 
     @staticmethod
-    def get_local_skills() -> List[str]:
-        """Returns the list of local skills from configuration."""
-        return [s.strip() for s in settings.MEDUSA_SKILLS.split(',') if s.strip()]
+    async def get_local_skills() -> dict:
+        """Returns the weighted local skills matrix (Chunk 27)."""
+        return await LearningEngine.get_local_skills()
 
     @classmethod
     async def evaluate_task(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
         """
         Evaluates a task and returns a bid decision.
         """
-        local_skills = cls.get_local_skills()
+        local_skills = await cls.get_local_skills()
         
         # 1. Skill Match (Primary Heuristic)
         # Check if any skill matches the task_type or keywords in the description
         matched_skills = []
-        for skill in local_skills:
+        skill_weight_bonus = 0.0
+        
+        task_type_lower = task_type.lower()
+        desc_lower = description.lower()
+
+        for skill, weight in local_skills.items():
             skill_lower = skill.lower()
-            task_type_lower = task_type.lower()
-            desc_lower = description.lower()
+            match_found = False
             
             # 1. Exact or Substring match for skill name
             if skill_lower in task_type_lower or task_type_lower in skill_lower:
-                matched_skills.append(skill)
-                continue
+                match_found = True
                 
             # 2. Keyword-based matching
-            skill_keywords = skill_lower.split('_')
-            for kw in skill_keywords:
-                if len(kw) <= 3: continue
-                if kw in task_type_lower or kw in desc_lower or task_type_lower in kw:
-                    matched_skills.append(skill)
-                    break
+            if not match_found:
+                skill_keywords = skill_lower.split('_')
+                for kw in skill_keywords:
+                    if len(kw) <= 3: continue
+                    if kw in task_type_lower or kw in desc_lower or task_type_lower in kw:
+                        match_found = True
+                        break
+            
+            if match_found:
+                matched_skills.append(skill)
+                # Skill weight bonus: weight 1.0 = +0.1 confidence, 2.0 = +0.2 confidence
+                skill_weight_bonus += (0.1 * weight)
 
         # 2. Confidence Calculation
-        # Base confidence is 0.5, increased by skill matches
-        confidence = 0.5
-        if matched_skills:
-            confidence += 0.1 * len(matched_skills)
+        # Base confidence is 0.5, increased by skill matches and their weights
+        confidence = 0.5 + skill_weight_bonus
             
         # 3. Load Adjustment (Chunk 20)
         # Reduce confidence if load is high. Each active task reduces confidence by 0.05
@@ -83,8 +91,9 @@ class BiddingHeuristics:
         
         # 7. Bid Value (Cost/Time)
         # Base value 1.0, decreased by skills (lower is better/faster)
+        # Weight 1.0 reduces bid by 0.1, weight 2.0 reduces by 0.2
         # Increased by load (higher load = more "expensive" to take on)
-        bid_value = 1.0 - (0.1 * len(matched_skills)) + (0.2 * current_load)
+        bid_value = 1.0 - skill_weight_bonus + (0.2 * current_load)
         
         # Health multiplier for bid value (unhealthy = more expensive)
         if cpu > 70: bid_value *= 1.5
@@ -152,7 +161,7 @@ class BiddingHeuristics:
         load_info = await PerformanceMonitor.get_current_load()
         return {
             "strategy": "skill-priority",
-            "skills": cls.get_local_skills(),
+            "skills": await cls.get_local_skills(),
             "min_confidence": settings.BIDDING_CONFIDENCE_THRESHOLD,
             "current_load": load_info.get("total_load", 0),
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -172,17 +181,26 @@ class BiddingHeuristics:
         better_peers = []
         for peer in peers:
             strategies = peer.strategies or {}
-            peer_skills = strategies.get("skills", [])
+            peer_skills_raw = strategies.get("skills", [])
             peer_perf = peer.performance or {}
             peer_load = strategies.get("current_load", 0)
             peer_health = peer.health_metadata or {}
 
+            # Handle both old-style list and new-style weighted dict
+            peer_skills_dict = {}
+            if isinstance(peer_skills_raw, list):
+                peer_skills_dict = {s: 1.0 for s in peer_skills_raw}
+            elif isinstance(peer_skills_raw, dict):
+                peer_skills_dict = peer_skills_raw
+
             # A. Skill Match Check
             peer_matches = 0
-            for skill in peer_skills:
+            peer_weight_bonus = 0.0
+            for skill, weight in peer_skills_dict.items():
                 skill_lower = skill.lower()
                 if skill_lower in task_type.lower() or skill_lower in description.lower():
                     peer_matches += 1
+                    peer_weight_bonus += (0.1 * weight)
 
             # B. Performance Multiplier
             # Factor in success rate and average latency if available
@@ -247,14 +265,14 @@ class BiddingHeuristics:
             elif reputation_score < 0.7:
                 rep_multiplier = 0.5
             
-            peer_confidence = (strategies.get("min_confidence", 0.5) + (0.1 * peer_matches)) * perf_multiplier * load_multiplier * rep_multiplier
+            peer_confidence = (strategies.get("min_confidence", 0.5) + peer_weight_bonus) * perf_multiplier * load_multiplier * rep_multiplier
 
             if peer_confidence > local_eval["confidence"] and reputation_score >= settings.REPUTATION_THRESHOLD_MIN:
                 better_peers.append({
                     "id": peer.id,
                     "confidence": peer_confidence,
                     "reputation": reputation_score,
-                    "skills": peer_skills,
+                    "skills": list(peer_skills_dict.keys()),
                     "perf_multiplier": perf_multiplier,
                     "load": peer_load,
                     "cpu": peer_cpu
@@ -280,4 +298,3 @@ class BiddingHeuristics:
             print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (Conf: {best_peer['confidence']:.2f} > {local_eval['confidence']:.2f}, Rep: {best_peer['reputation']:.2f}, Load: {best_peer['load']} vs {current_load})", flush=True)
 
         return local_eval
-

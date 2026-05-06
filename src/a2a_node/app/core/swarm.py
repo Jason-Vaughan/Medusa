@@ -31,11 +31,19 @@ async def run_swarm_intelligence():
 
                 # 2. Fetch 'pending' tasks that haven't been claimed yet
                 # Or tasks that require consensus and we haven't voted on yet
+                # Filter by next_retry_at (Chunk 28)
+                now = datetime.utcnow()
                 result = await db.execute(
                     select(TaskEntry).filter(
-                        or_(
-                            and_(TaskEntry.status == "pending", TaskEntry.claimed_by == None),
-                            and_(TaskEntry.requires_consensus == 1, TaskEntry.consensus_status != "achieved")
+                        and_(
+                            or_(
+                                and_(TaskEntry.status == "pending", TaskEntry.claimed_by == None),
+                                and_(TaskEntry.requires_consensus == 1, TaskEntry.consensus_status != "achieved")
+                            ),
+                            or_(
+                                TaskEntry.next_retry_at == None,
+                                TaskEntry.next_retry_at <= now
+                            )
                         )
                     )
                 )

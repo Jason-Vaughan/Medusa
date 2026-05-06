@@ -279,20 +279,44 @@ const protocolServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // List all workspaces (Local-first from wsClients)
+  // List all workspaces (Merged from Registry and wsClients)
   if (path === '/workspaces' && req.method === 'GET') {
     try {
-      // Single source of truth derived from wsClients Map
-      const workspaces = Array.from(wsClients.entries()).map(([id, connections]) => {
+      // Create a map to hold merged workspace data
+      const mergedWorkspaces = new Map();
+      
+      // 1. Add all registered workspaces from disk registry
+      for (const [id, ws] of workspaceRegistry) {
+        mergedWorkspaces.set(id, {
+          id: id,
+          name: ws.name,
+          path: ws.path,
+          type: ws.type || 'medusa',
+          status: 'idle',
+          connected: false,
+          registeredAt: ws.registeredAt,
+          lastSeen: ws.lastSeen,
+          connection: { webSocket: false, connectionCount: 0 },
+          listener: { active: false, autonomousMode: false, lastHeartbeat: null }
+        });
+      }
+      
+      // 2. Overlay live connection data from wsClients
+      for (const [id, connections] of wsClients) {
         const status = listenerStatus.get(id) || { 
           status: 'active', 
           autonomousMode: true, 
           lastHeartbeat: new Date() 
         };
         
-        return {
+        const existing = mergedWorkspaces.get(id) || {
           id: id,
-          name: id.split('-')[0], // Extract name from ID
+          name: id.split('-')[0],
+          connected: true
+        };
+        
+        mergedWorkspaces.set(id, {
+          ...existing,
           status: status.status,
           connected: true,
           connection: { 
@@ -305,8 +329,10 @@ const protocolServer = http.createServer(async (req, res) => {
             lastHeartbeat: status.lastHeartbeat 
           },
           autonomousConversationReady: status.status === 'active'
-        };
-      });
+        });
+      }
+      
+      const workspaces = Array.from(mergedWorkspaces.values());
       
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
@@ -316,12 +342,122 @@ const protocolServer = http.createServer(async (req, res) => {
         telemetry: {
           autonomousConversationReady: workspaces.filter(w => w.connected).length,
           totalWorkspaces: workspaces.length,
-          readinessPercentage: workspaces.length > 0 ? 100 : 0
+          readinessPercentage: workspaces.length > 0 ? (workspaces.filter(w => w.connected).length / workspaces.length * 100) : 0
         }
       }));
     } catch (error) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // Register a new workspace (HTTP)
+  if (path === '/workspaces/register' && req.method === 'POST') {
+    try {
+      const data = await readRequestBody(req);
+      const { name, path: workspacePath, type } = data;
+      
+      if (!name || !workspacePath) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Missing name or path' }));
+        return;
+      }
+      
+      const workspaceId = `${name.toLowerCase().replace(/\s+/g, '-')}-${crypto.randomBytes(4).toString('hex')}`;
+      const now = new Date();
+      
+      const workspace = {
+        id: workspaceId,
+        name,
+        path: workspacePath,
+        type: type || 'medusa',
+        registeredAt: now,
+        lastSeen: now
+      };
+      
+      workspaceRegistry.set(workspaceId, workspace);
+      await saveRegistry();
+      
+      console.log(`🐍 Registered new workspace: ${name} (${workspaceId})`);
+      
+      res.statusCode = 201;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Workspace registered successfully',
+        workspace
+      }));
+    } catch (error) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // Get messages for a specific workspace (Bridged)
+  if (path.startsWith('/messages/workspace/') && req.method === 'GET') {
+    try {
+      const targetWorkspace = path.split('/')[3];
+      // Filter recent messages from A2A (Note: A2A doesn't support filtering by recipient yet, so we filter here)
+      const result = await callA2A('GET', '/a2a/messages');
+      
+      const messages = Array.isArray(result.data) ? result.data
+        .filter(m => m.recipient_id === targetWorkspace || m.message_type === 'broadcast')
+        .map(m => ({
+          id: m.id,
+          from: m.sender_id,
+          to: m.recipient_id || '*',
+          message: m.content,
+          timestamp: m.received_at,
+          type: m.message_type === 'broadcast' ? 'broadcast' : 'direct'
+        })) : [];
+      
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        workspaceId: targetWorkspace,
+        messages,
+        count: messages.length
+      }));
+    } catch (error) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // Share context between workspaces
+  if (path === '/context/share' && req.method === 'POST') {
+    try {
+      const data = await readRequestBody(req);
+      const { from, context, targets } = data;
+      
+      console.log(`🧠 Context shared from ${from} to ${targets.length > 0 ? targets.join(', ') : 'all'}`);
+      
+      // Notify targets via WebSocket
+      const notification = {
+        type: 'context_shared',
+        from,
+        context,
+        timestamp: new Date().toISOString()
+      };
+      
+      if (targets && targets.length > 0) {
+        targets.forEach(targetId => sendWebSocketMessage(targetId, notification));
+      } else {
+        // Broadcast to all
+        for (const id of wsClients.keys()) {
+          if (id !== from) sendWebSocketMessage(id, notification);
+        }
+      }
+      
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ success: true, message: 'Context shared' }));
+    } catch (error) {
+      res.statusCode = 500;
       res.end(JSON.stringify({ error: error.message }));
     }
     return;

@@ -31,6 +31,7 @@ class TaskEntry(Base):
     approval_status = Column(String, default="none") # none, pending, approved, rejected
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
+    next_retry_at = Column(DateTime, nullable=True) # Scheduling for exponential backoff (Chunk 28)
     
     # Distributed Gossip Consensus (Phase 12)
     requires_consensus = Column(Integer, default=0) # 0 for False, 1 for True
@@ -61,6 +62,15 @@ class PeerEntry(Base):
     strategies = Column(JSON, nullable=True)
     performance = Column(JSON, nullable=True)
     health_metadata = Column(JSON, nullable=True)
+    skills_matrix = Column(JSON, nullable=True) # Weighted skill matrix (Chunk 27)
+
+class LocalState(Base):
+    """Persists local node state (e.g. evolved skills) across restarts."""
+    __tablename__ = "local_state"
+    
+    key = Column(String, primary_key=True, index=True)
+    value = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
@@ -119,6 +129,7 @@ class LedgerTask(BaseModel):
     approval_status: str = "none"
     retry_count: int = 0
     max_retries: int = 3
+    next_retry_at: Optional[datetime] = None
     
     # Distributed Gossip Consensus
     requires_consensus: Optional[bool] = False
@@ -151,6 +162,15 @@ class LedgerPeer(BaseModel):
     strategies: Optional[Dict[str, Any]] = None
     performance: Optional[Dict[str, Any]] = None
     health_metadata: Optional[Dict[str, Any]] = None
+    skills_matrix: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+class LocalStateSchema(BaseModel):
+    key: str
+    value: Dict[str, Any]
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -190,4 +210,3 @@ class WorkspaceGrantSchema(BaseModel):
 
     class Config:
         from_attributes = True
-

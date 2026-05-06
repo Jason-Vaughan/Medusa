@@ -5,7 +5,7 @@ const http = require('http');
 async function test() {
   console.log('🚀 Starting reproduction for Issue #9');
   
-  // 1. Check current workspaces (should be 0)
+  // 1. Check current workspaces
   const initialWorkspaces = await getWorkspaces();
   console.log(`Initial workspaces count: ${initialWorkspaces.count}`);
 
@@ -28,11 +28,14 @@ async function test() {
     });
   });
 
-  // 3. Check workspaces again (Expect 1, but currently might be 0)
+  // 3. Check workspaces again
   const afterOneRegister = await getWorkspaces();
   console.log(`Workspaces count after 1 register: ${afterOneRegister.count}`);
-  if (afterOneRegister.workspaces.length > 0) {
-    console.log(`Workspace 1 connectionCount: ${afterOneRegister.workspaces[0].connection.connectionCount}`);
+  const ws1Info = afterOneRegister.workspaces.find(ws => ws.id === 'test-workspace-1');
+  if (ws1Info) {
+    console.log(`Workspace 1 connectionCount: ${ws1Info.connection.connectionCount}`);
+  } else {
+    console.log('❌ Workspace 1 not found in list!');
   }
 
   // 4. Connect another client to same workspace
@@ -54,11 +57,12 @@ async function test() {
     });
   });
 
-  // 5. Check workspaces again (Expect 1 workspace, 2 connections)
+  // 5. Check workspaces again (Expect 2 connections for test-workspace-1)
   const afterTwoRegisters = await getWorkspaces();
   console.log(`Workspaces count after 2 registers: ${afterTwoRegisters.count}`);
-  if (afterTwoRegisters.workspaces.length > 0) {
-    console.log(`Workspace 1 connectionCount: ${afterTwoRegisters.workspaces[0].connection.connectionCount}`);
+  const ws1Info2 = afterTwoRegisters.workspaces.find(ws => ws.id === 'test-workspace-1');
+  if (ws1Info2) {
+    console.log(`Workspace 1 connectionCount: ${ws1Info2.connection.connectionCount}`);
   }
 
   // 6. Disconnect one
@@ -67,8 +71,9 @@ async function test() {
 
   const afterOneDisconnect = await getWorkspaces();
   console.log(`Workspaces count after 1 disconnect: ${afterOneDisconnect.count}`);
-  if (afterOneDisconnect.workspaces.length > 0) {
-    console.log(`Workspace 1 connectionCount: ${afterOneDisconnect.workspaces[0].connection.connectionCount}`);
+  const ws1Info3 = afterOneDisconnect.workspaces.find(ws => ws.id === 'test-workspace-1');
+  if (ws1Info3) {
+    console.log(`Workspace 1 connectionCount: ${ws1Info3.connection.connectionCount}`);
   }
 
   // 7. Disconnect second

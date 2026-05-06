@@ -301,6 +301,7 @@ async def merge_sync_data(data: dict):
                         approval_status=t_data.get('approval_status', 'none'),
                         retry_count=t_data.get('retry_count', 0),
                         max_retries=t_data.get('max_retries', 3),
+                        next_retry_at=datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')) if t_data.get('next_retry_at') else None,
                         requires_consensus=t_data.get('requires_consensus', 0),
                         min_votes=t_data.get('min_votes', 1),
                         results_votes=t_data.get('results_votes'),
@@ -381,6 +382,9 @@ async def merge_sync_data(data: dict):
                         # Always sync governance and consensus settings
                         existing.requires_approval = t_data.get('requires_approval', existing.requires_approval)
                         existing.approval_status = t_data.get('approval_status', existing.approval_status)
+                        existing.retry_count = t_data.get('retry_count', existing.retry_count)
+                        existing.max_retries = t_data.get('max_retries', existing.max_retries)
+                        existing.next_retry_at = datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')) if t_data.get('next_retry_at') else None
                         existing.requires_consensus = t_data.get('requires_consensus', existing.requires_consensus)
                         existing.min_votes = t_data.get('min_votes', existing.min_votes)
 

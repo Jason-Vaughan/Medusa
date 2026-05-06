@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.heuristics import BiddingHeuristics
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
+from app.core.reputation import ReputationEngine
 from datetime import datetime
 import json
 
@@ -189,19 +190,27 @@ async def run_execution_engine():
             async with AsyncSessionLocal() as db:
                 # 1. Fetch pending tasks assigned to local or claimed by local
                 # Or tasks that require consensus and haven't achieved it yet
+                # Filter by next_retry_at (Chunk 28)
                 node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+                now = datetime.utcnow()
                 result = await db.execute(
                     select(TaskEntry)
                     .filter(
-                        or_(
-                            and_(TaskEntry.status == "pending", TaskEntry.assigned_to == "local"),
-                            and_(TaskEntry.status == "claimed", TaskEntry.claimed_by == node_id),
-                            and_(TaskEntry.requires_consensus == 1, TaskEntry.consensus_status != "achieved")
+                        and_(
+                            or_(
+                                and_(TaskEntry.status == "pending", TaskEntry.assigned_to == "local"),
+                                and_(TaskEntry.status == "claimed", TaskEntry.claimed_by == node_id),
+                                and_(TaskEntry.requires_consensus == 1, TaskEntry.consensus_status != "achieved")
+                            ),
+                            or_(
+                                TaskEntry.next_retry_at == None,
+                                TaskEntry.next_retry_at <= now
+                            )
                         )
                     )
                     .order_by(TaskEntry.priority.desc(), TaskEntry.created_at.asc())
                 )
-                tasks = result.scalars().all()
+
 
                 for task in tasks:
                     # Governance Check: Skip tasks requiring approval
@@ -264,11 +273,32 @@ async def run_execution_engine():
                         outcome != "failed", 
                         latency
                     )
+
+                    # Trigger Reputation and Skill Evolution (Chunk 27)
+                    rep_event = "completed"
+                    if outcome == "failed":
+                        rep_event = "failed" if task.retry_count >= task.max_retries else "retried"
+
+                    await ReputationEngine.update_reputation(
+                        node_id, 
+                        rep_event,
+                        {"task_type": task.task_type, "latency": latency}
+                    )
                     
                     if outcome == "failed" and task.retry_count < task.max_retries:
                         task.retry_count += 1
                         task.status = "pending" # Put it back in queue
-                        print(f"🔄 Task {task.id[:8]} failed. Retrying ({task.retry_count}/{task.max_retries})...", flush=True)
+                        
+                        # Exponential Backoff (Chunk 28)
+                        import random
+                        from datetime import timedelta
+                        base_delay = 10
+                        delay = base_delay * (2 ** task.retry_count)
+                        jitter = delay * 0.2
+                        final_delay = delay + random.uniform(-jitter, jitter)
+                        task.next_retry_at = datetime.utcnow() + timedelta(seconds=final_delay)
+                        
+                        print(f"🔄 Task {task.id[:8]} failed. Retrying in {final_delay:.1f}s ({task.retry_count}/{task.max_retries})...", flush=True)
                         
                         # Add failure info to metadata
                         if not task.execution_metadata:

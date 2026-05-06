@@ -71,14 +71,14 @@ class ProcessLock {
       const age = Date.now() - lockData.lastHeartbeat;
       if (age > this.maxAge) {
         console.log(`🧹 Cleaning up stale lock (age: ${Math.round(age/1000)}s)`);
-        await this.release();
+        await fs.unlink(this.lockFile);
         return null;
       }
 
       // Check if process is still running
       if (!this.isProcessRunning(lockData.pid)) {
         console.log(`🧹 Cleaning up orphaned lock (PID ${lockData.pid} not running)`);
-        await this.release();
+        await fs.unlink(this.lockFile);
         return null;
       }
 

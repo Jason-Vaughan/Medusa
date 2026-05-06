@@ -31,7 +31,10 @@ class ConfigManager {
     this.workspaceMapFile = path.join(this.globalConfigDir, 'workspaces.json');
 
     // Ensure the global config directory exists (create the medusa-cave)
-    this.ensureGlobalConfigExists();
+    this.ensureGlobalConfigExists().catch(error => {
+      // Non-blocking in constructor, but log if it fails
+      console.error(`⚠️  Medusa initialization warning: ${error.message}`);
+    });
   }
 
   /**

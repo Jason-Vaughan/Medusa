@@ -100,9 +100,10 @@ class MedusaNotifier {
           title: '👋 Still waiting...',
           message: 'Your Medusa is getting impatient.',
           timeout: 5
+        }).catch(error => {
+          console.log(chalk.gray(`⚠️  Follow-up notification failed: ${error.message}`));
         });
       }, 3000);
-
       console.log(chalk.red('👋 STONE notification delivered with maximum prejudice!'));
 
     } catch (error) {
@@ -190,7 +191,8 @@ class MedusaNotifier {
         'reminder': '⏰ Medusa Reminder (Don\'t Forget)'
       };
 
-      const finalTitle = notifyTitles[options.type] || title;
+      // Use provided title if it exists, otherwise use the type-based title
+      const finalTitle = title || notifyTitles[options.type];
 
       const notificationData = {
         title: finalTitle,

@@ -148,12 +148,20 @@ class WorkspaceDetector {
       if (pathMatches && pathMatches.length > 0) {
         const potentialWorkspace = pathMatches[pathMatches.length - 1].replace('/', '');
 
-        // Filter out system directories and focus on likely project names
-        const systemDirs = ['bin', 'usr', 'opt', 'Applications', 'Program Files'];
-        if (!systemDirs.some(dir => potentialWorkspace.includes(dir))) {
+        // Filter out known system directory names and generic process names
+        const systemNames = [
+          'bin', 'usr', 'opt', 'Applications', 'Program Files', 'System', 'sbin',
+          'Cursor', 'Cursor.exe', 'cursor', 'MacOS', 'Contents', 'Frameworks', 'Resources'
+        ];
+        
+        const isGenericName = systemNames.some(name => 
+          potentialWorkspace.toLowerCase() === name.toLowerCase()
+        );
+        
+        if (!isGenericName) {
           return {
             name: potentialWorkspace,
-            path: null, // Would need more sophisticated detection
+            path: null,
             pid: this.extractPID(processLine),
             active: true
           };

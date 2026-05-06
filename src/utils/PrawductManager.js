@@ -288,6 +288,11 @@ async getLearnings() {
         }
 
         if (inPendingSection && line.startsWith('|') && !line.includes('Item | Origin')) {
+          // Skip separator lines (|---|---|)
+          if (line.match(/^[|\s-]+$/)) {
+            continue;
+          }
+          
           const parts = line.split('|').map(p => p.trim());
           if (parts.length >= 6 && parts[1]) {
             pendingItems.push({

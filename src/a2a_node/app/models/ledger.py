@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, UTC
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy import Column, String, Integer, DateTime, JSON, Text, Float
 from app.core.database import Base
@@ -22,6 +22,7 @@ class TaskEntry(Base):
     parent_id = Column(String, nullable=True, index=True) # For sub-tasks
     depends_on = Column(MutableList.as_mutable(JSON), nullable=True) # List of task IDs this task depends on
     subtask_count = Column(Integer, default=0) # Number of children
+    decomposition_depth = Column(Integer, default=0) # Recursive depth tracking (Chunk 32)
     result = Column(JSON, nullable=True)
     execution_metadata = Column(JSON, nullable=True)
     bid_metadata = Column(JSON, nullable=True)
@@ -43,8 +44,8 @@ class TaskEntry(Base):
     results_metadata = Column(JSON, nullable=True) # Metadata about the voting process
     last_health_check = Column(DateTime, nullable=True) # For zombie recovery (Chunk 31)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 class MessageEntry(Base):
     __tablename__ = "messages"
@@ -53,7 +54,7 @@ class MessageEntry(Base):
     sender_id = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     message_type = Column(String, default="chat")
-    received_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 class PeerEntry(Base):
     __tablename__ = "peers"
@@ -61,7 +62,7 @@ class PeerEntry(Base):
     id = Column(String, primary_key=True, index=True)
     address = Column(String, nullable=False) # e.g. "http://localhost:3201"
     status = Column(String, default="active")
-    last_seen = Column(DateTime, default=datetime.utcnow)
+    last_seen = Column(DateTime, default=lambda: datetime.now(UTC))
     capabilities = Column(JSON, nullable=True)
     strategies = Column(JSON, nullable=True)
     performance = Column(JSON, nullable=True)
@@ -74,13 +75,13 @@ class LocalState(Base):
     
     key = Column(String, primary_key=True, index=True)
     value = Column(JSON, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
     
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
     node_id = Column(String, index=True) # "global" for mesh-wide, or specific node_id
     metrics = Column(JSON, nullable=False) # {success_rate, avg_latency, total_tasks, active_nodes, etc.}
 
@@ -94,7 +95,7 @@ class CapabilityProfile(Base):
     denied_patterns = Column(JSON, nullable=True) # List of {tool, commandPattern}
     path_scope = Column(JSON, nullable=True) # {read: [], write: []}
     approval_routing = Column(JSON, nullable=True) # {targetWorkspace, timeout, onTimeout}
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 class WorkspaceGrant(Base):
     __tablename__ = "workspace_grants"
@@ -107,7 +108,7 @@ class WorkspaceGrant(Base):
     scope = Column(String, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Integer, default=0) # 0 for False, 1 for True
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):
@@ -124,6 +125,7 @@ class LedgerTask(BaseModel):
     parent_id: Optional[str] = None
     depends_on: Optional[List[str]] = None
     subtask_count: int = 0
+    decomposition_depth: int = 0
     result: Optional[Dict[str, Any]] = None
     execution_metadata: Optional[Dict[str, Any]] = None
     bid_metadata: Optional[Dict[str, Any]] = None
@@ -148,8 +150,7 @@ class LedgerTask(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class LedgerMessage(BaseModel):
     id: str
@@ -158,8 +159,7 @@ class LedgerMessage(BaseModel):
     message_type: str
     received_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class LedgerPeer(BaseModel):
     id: str
@@ -172,16 +172,14 @@ class LedgerPeer(BaseModel):
     health_metadata: Optional[Dict[str, Any]] = None
     skills_matrix: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class LocalStateSchema(BaseModel):
     key: str
     value: Dict[str, Any]
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PerformanceSnapshotSchema(BaseModel):
     id: Optional[int] = None
@@ -189,8 +187,7 @@ class PerformanceSnapshotSchema(BaseModel):
     node_id: str
     metrics: Dict[str, Any]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CapabilityProfileSchema(BaseModel):
     id: str
@@ -202,8 +199,7 @@ class CapabilityProfileSchema(BaseModel):
     approval_routing: Optional[Dict[str, Any]] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkspaceGrantSchema(BaseModel):
     id: str
@@ -216,5 +212,4 @@ class WorkspaceGrantSchema(BaseModel):
     revoked: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

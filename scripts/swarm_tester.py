@@ -1,6 +1,8 @@
 import subprocess
 import time
 import requests
+import hmac
+import hashlib
 import os
 import signal
 import sys
@@ -12,6 +14,15 @@ MEDUSA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 A2A_PATH = os.path.join(MEDUSA_ROOT, "src", "a2a_node", "main.py")
 PYTHON_VENV = os.path.join(MEDUSA_ROOT, "src", "a2a_node", "venv", "bin", "python")
 SECRET = "medusa-please"
+
+def hhmac_signature(path, secret, timestamp):
+    payload = f"{timestamp}{path}"
+    signature = hmac.new(
+        secret.encode('utf-8'),
+        payload.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return signature
 
 # Use free ports (4200+)
 nodes = []
@@ -52,8 +63,14 @@ def cleanup():
 def check_sync(task_id):
     results = {}
     for n in nodes:
-        url = f"http://localhost:{n['port']}/a2a/gossip/sync"
-        headers = {"X-Medusa-Secret": SECRET}
+        path = "/a2a/gossip/sync"
+        url = f"http://localhost:{n['port']}{path}"
+        ts = str(int(time.time()))
+        sig = hhmac_signature(path, SECRET, ts)
+        headers = {
+            "X-Medusa-Timestamp": ts,
+            "X-Medusa-Signature": sig
+        }
         try:
             r = requests.get(url, headers=headers, timeout=2)
             if r.status_code == 200:
@@ -101,15 +118,21 @@ def main():
         
         # 2. Create a COMPLEX task that triggers DECOMPOSITION
         print("POSTING Complex Research task to Node 4200...", flush=True)
+        path = "/a2a/tasks"
         task_payload = {
             "task_type": "research_project",
             "description": "Research and report on the history of Fibonacci numbers.",
             "priority": 8,
             "assigned_to": "swarm"
         }
-        headers = {"X-Medusa-Secret": SECRET}
+        ts = str(int(time.time()))
+        sig = hhmac_signature(path, SECRET, ts)
+        headers = {
+            "X-Medusa-Timestamp": ts,
+            "X-Medusa-Signature": sig
+        }
         
-        r = requests.post("http://localhost:4200/a2a/tasks", json=task_payload, headers=headers, timeout=5)
+        r = requests.post(f"http://localhost:4200{path}", json=task_payload, headers=headers, timeout=5)
         if r.status_code != 200:
             print(f"ERROR: Failed to create task on 4200: {r.status_code} {r.text}", flush=True)
             return
@@ -127,7 +150,14 @@ def main():
             # Check for sub-tasks (any node having more than 1 task in ledger)
             subtasks_found = False
             for n in nodes:
-                url = f"http://localhost:{n['port']}/a2a/gossip/sync"
+                path = "/a2a/gossip/sync"
+                url = f"http://localhost:{n['port']}{path}"
+                ts = str(int(time.time()))
+                sig = hhmac_signature(path, SECRET, ts)
+                headers = {
+                    "X-Medusa-Timestamp": ts,
+                    "X-Medusa-Signature": sig
+                }
                 r = requests.get(url, headers=headers, timeout=2)
                 if r.status_code == 200:
                     tasks = r.json()["tasks"]
@@ -143,13 +173,20 @@ def main():
         
         # 4. Create a Security task on Node 4201
         print("POSTING Security Audit task to Node 4201...", flush=True)
+        path = "/a2a/tasks"
         sec_payload = {
             "task_type": "security_audit",
             "description": "Perform a security audit and report findings.",
             "priority": 10,
             "assigned_to": "swarm"
         }
-        r = requests.post("http://localhost:4201/a2a/tasks", json=sec_payload, headers=headers, timeout=5)
+        ts = str(int(time.time()))
+        sig = hhmac_signature(path, SECRET, ts)
+        headers = {
+            "X-Medusa-Timestamp": ts,
+            "X-Medusa-Signature": sig
+        }
+        r = requests.post(f"http://localhost:4201{path}", json=sec_payload, headers=headers, timeout=5)
         if r.status_code == 200:
             sec_task_id = r.json()["task_id"]
             for i in range(24):

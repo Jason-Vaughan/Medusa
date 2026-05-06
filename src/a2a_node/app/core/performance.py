@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from sqlalchemy import select, and_, or_, func, delete
 from app.core.database import AsyncSessionLocal
 from app.models.ledger import PeerEntry, TaskEntry, PerformanceSnapshot
@@ -24,7 +24,7 @@ class PerformanceMonitor:
             "cpu_percent": 0.0,
             "memory_percent": 0.0,
             "load_avg": [0.0, 0.0, 0.0],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         }
         try:
             import psutil
@@ -92,7 +92,7 @@ class PerformanceMonitor:
                 "failure_count": 0,
                 "total_latency": 0.0,
                 "task_types": {},
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": datetime.now(UTC).isoformat()
             }
 
     @classmethod
@@ -131,7 +131,7 @@ class PerformanceMonitor:
                 perf["failure_count"] = perf.get("failure_count", 0) + 1
             
             perf["total_latency"] = perf.get("total_latency", 0.0) + latency
-            perf["last_updated"] = datetime.utcnow().isoformat()
+            perf["last_updated"] = datetime.now(UTC).isoformat()
             
             # Task-type specific updates
             tt = perf.get("task_types", {})
@@ -259,7 +259,7 @@ class PerformanceMonitor:
         """
         Prunes performance snapshots older than RETENTION_DAYS.
         """
-        threshold = datetime.utcnow() - timedelta(days=settings.RETENTION_DAYS)
+        threshold = datetime.now(UTC) - timedelta(days=settings.RETENTION_DAYS)
         async with AsyncSessionLocal() as db:
             try:
                 stmt = delete(PerformanceSnapshot).where(PerformanceSnapshot.timestamp < threshold)
@@ -297,16 +297,16 @@ async def run_performance_monitor():
     Background loop to periodically record performance snapshots.
     """
     print("📊 Performance Monitoring loop started.", flush=True)
-    last_prune = datetime.utcnow()
+    last_prune = datetime.now(UTC)
     
     while True:
         try:
             await PerformanceMonitor.record_snapshot()
             
             # Prune once per hour
-            if datetime.utcnow() - last_prune > timedelta(hours=1):
+            if datetime.now(UTC) - last_prune > timedelta(hours=1):
                 await PerformanceMonitor.prune_snapshots()
-                last_prune = datetime.utcnow()
+                last_prune = datetime.now(UTC)
                 
         except Exception as e:
             print(f"❌ Error recording performance snapshot: {e}", flush=True)

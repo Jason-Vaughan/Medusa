@@ -12,7 +12,6 @@ def get_auth_headers(path: str) -> dict:
     signature = create_signature(payload, settings.A2A_SECRET)
     
     return {
-        "X-Medusa-Secret": settings.A2A_SECRET,
         "X-Medusa-Timestamp": timestamp,
         "X-Medusa-Signature": signature
     }

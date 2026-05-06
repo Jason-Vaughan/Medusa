@@ -11,7 +11,7 @@ from app.models.ledger import (
 )
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from app.core.security import verify_medusa_handshake, verify_medusa_secret
 from app.core.auth_utils import get_auth_headers
 from app.core.config import settings
@@ -291,7 +291,7 @@ async def place_bid(bid: BidRequest, db: AsyncSession = Depends(get_db)):
         "confidence": bid.confidence,
         "metadata": bid.metadata,
         "bidder_skills": bid.bidder_skills,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(UTC).isoformat()
     })
 
     # Update status based on some logic? No, just keep negotiating.
@@ -455,7 +455,7 @@ async def announce_task(task_id: str, db: AsyncSession = Depends(get_db)):
                     }),
                     "message_type": "task_announcement"
                 }
-                headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+                headers = get_auth_headers("/a2a/messages")
                 r = await client.post(f"{peer.address}/a2a/messages", json=payload, headers=headers, timeout=2)
                 if r.status_code == 200:
                     success_count += 1

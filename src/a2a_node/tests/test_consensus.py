@@ -1,6 +1,7 @@
 import pytest
 from app.api.gossip import reach_consensus
 from app.models.ledger import TaskEntry
+from unittest.mock import patch
 
 @pytest.mark.asyncio
 async def test_consensus_majority_wins():
@@ -63,7 +64,9 @@ async def test_consensus_conflict():
         consensus_status="pending"
     )
     
-    await reach_consensus(task)
+    # Mock reputations to be low so tie-break doesn't trigger
+    with patch("app.core.reputation.ReputationEngine.get_reputation_score", return_value=0.5):
+        await reach_consensus(task)
     
     assert task.consensus_status == "conflict"
     assert task.status == "pending"

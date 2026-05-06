@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.ledger import PeerEntry, LedgerPeer, TaskEntry, MessageEntry, LedgerTask, LedgerMessage
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
@@ -33,7 +33,7 @@ async def ping(node_id: str, address: str, capabilities: dict = None, strategies
     health_data = json.loads(health) if health else None
     
     if peer:
-        peer.last_seen = datetime.utcnow()
+        peer.last_seen = datetime.now(UTC)
         peer.address = address
         if capabilities:
             peer.capabilities = capabilities
@@ -90,7 +90,7 @@ async def sync_ledger(since: Optional[datetime] = None, db: AsyncSession = Depen
         tasks=tasks_result.scalars().all(),
         messages=messages_result.scalars().all(),
         peers=peers_result.scalars().all(),
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(UTC)
     )
 
 _discovery_failed_last_time = False
@@ -152,15 +152,14 @@ async def run_gossip():
                                     sync_data = r.json()
                                     await merge_sync_data(sync_data)
                                     
-                            except Exception as e:
-                                # print(f"Failed to sync with {peer_address}: {e}", flush=True)
+                            except Exception:
                                 pass
 
                     # 3. Swarm Self-Healing (Chunk 31)
                     async with AsyncSessionLocal() as db:
                         await cleanup_zombie_tasks(db)
                 
-                last_sync_check = datetime.utcnow()
+                last_sync_check = datetime.now(UTC)
             
         except Exception as e:
             print(f"❌ Gossip fatal error: {str(e)}", flush=True)
@@ -185,8 +184,8 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
     
     task.status = "claimed"
     task.claimed_by = node_id
-    task.claim_timestamp = datetime.utcnow()
-    task.updated_at = datetime.utcnow()
+    task.claim_timestamp = datetime.now(UTC)
+    task.updated_at = datetime.now(UTC)
     
     await db.commit()
     return {"status": "claimed", "task_id": task_id, "claimed_by": node_id, "timestamp": task.claim_timestamp}
@@ -298,7 +297,7 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
         revote_count = metadata.get("revote_count", 0)
         last_conflict = metadata.get("last_conflict_ts")
         
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         
         if not last_conflict:
             metadata["last_conflict_ts"] = now.isoformat()
@@ -348,7 +347,7 @@ async def track_node_conflict(node_id: str, db: AsyncSession):
 
 async def cleanup_zombie_tasks(db: AsyncSession):
     """Resets tasks claimed by nodes that have gone offline."""
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     # Find active tasks
     result = await db.execute(
         select(TaskEntry).filter(
@@ -545,10 +544,6 @@ async def merge_sync_data(data: dict):
                     if p_data.get('health_metadata'):
                         existing.health_metadata = p_data['health_metadata']
 
-            await db.commit()
-        except Exception as e:
-            print(f"❌ Error merging sync data: {e}", flush=True)
-            await db.rollback()
             await db.commit()
         except Exception as e:
             print(f"❌ Error merging sync data: {e}", flush=True)

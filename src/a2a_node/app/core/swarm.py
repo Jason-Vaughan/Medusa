@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import httpx
-from datetime import datetime
+from datetime import datetime, UTC, timedelta
 from sqlalchemy import select, or_, and_
 from app.core.database import AsyncSessionLocal
 from app.models.ledger import TaskEntry, PeerEntry
@@ -32,7 +32,7 @@ async def run_swarm_intelligence():
                 # 2. Fetch 'pending' tasks that haven't been claimed yet
                 # Or tasks that require consensus and we haven't voted on yet
                 # Filter by next_retry_at (Chunk 28)
-                now = datetime.utcnow()
+                now = datetime.now(UTC)
                 result = await db.execute(
                     select(TaskEntry).filter(
                         and_(
@@ -104,8 +104,7 @@ async def run_task_janitor():
     while True:
         try:
             async with AsyncSessionLocal() as db:
-                from datetime import datetime, timedelta
-                stall_threshold = datetime.utcnow() - timedelta(seconds=STALL_TIMEOUT)
+                stall_threshold = datetime.now(UTC) - timedelta(seconds=STALL_TIMEOUT)
                 
                 # Find tasks in 'claimed', 'processing', or 'running' status that haven't been updated
                 result = await db.execute(
@@ -125,7 +124,7 @@ async def run_task_janitor():
                     task.status = "pending"
                     task.claimed_by = None
                     task.claim_timestamp = None
-                    task.updated_at = datetime.utcnow()
+                    task.updated_at = datetime.now(UTC)
                     task.retry_count += 1
                     
                     # Log event and update reputation

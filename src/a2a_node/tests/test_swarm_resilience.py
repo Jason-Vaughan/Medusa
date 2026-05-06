@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from unittest.mock import patch, AsyncMock
 from app.core.swarm import run_task_janitor
 from app.api.gossip import reach_consensus
@@ -17,7 +17,7 @@ async def test_task_janitor_recovery():
         # 1. Create a stalled task
         import uuid
         task_id = f"stalled-task-{uuid.uuid4().hex[:8]}"
-        stalled_time = datetime.utcnow() - timedelta(minutes=10)
+        stalled_time = datetime.now(UTC) - timedelta(minutes=10)
         
         task = TaskEntry(
             id=task_id,
@@ -52,7 +52,7 @@ async def test_task_janitor_recovery():
             assert updated_task.status == "pending"
             assert updated_task.claimed_by is None
             assert updated_task.retry_count == 1
-            assert updated_task.updated_at > stalled_time
+            assert updated_task.updated_at.replace(tzinfo=None) > stalled_time.replace(tzinfo=None)
             
             # Cleanup
             await db_check.delete(updated_task)
@@ -77,21 +77,23 @@ async def test_automated_revote_conflict():
         execution_metadata={}
     )
     
-    # 1. First consensus check -> Should trigger conflict and cool-down
-    await reach_consensus(task)
-    assert task.consensus_status == "conflict"
-    assert "last_conflict_ts" in task.execution_metadata
-    
-    # 2. Check again before cool-down -> Should still be conflict
-    await reach_consensus(task)
-    assert task.consensus_status == "conflict"
-    
-    # 3. Mock cool-down finished
-    task.execution_metadata["last_conflict_ts"] = (datetime.utcnow() - timedelta(minutes=3)).isoformat()
-    
-    # 4. Check again -> Should trigger RE-VOTE
-    await reach_consensus(task)
-    assert task.consensus_status == "pending"
-    assert task.results_votes == {} # Votes cleared
-    assert task.execution_metadata["revote_count"] == 1
-    assert task.execution_metadata["last_conflict_ts"] is None
+    # Mock reputations to be low so tie-break doesn't trigger
+    with patch("app.core.reputation.ReputationEngine.get_reputation_score", return_value=0.5):
+        # 1. First consensus check -> Should trigger conflict and cool-down
+        await reach_consensus(task)
+        assert task.consensus_status == "conflict"
+        assert "last_conflict_ts" in task.execution_metadata
+        
+        # 2. Check again before cool-down -> Should still be conflict
+        await reach_consensus(task)
+        assert task.consensus_status == "conflict"
+        
+        # 3. Mock cool-down finished
+        task.execution_metadata["last_conflict_ts"] = (datetime.now(UTC) - timedelta(minutes=3)).isoformat()
+        
+        # 4. Check again -> Should trigger RE-VOTE
+        await reach_consensus(task)
+        assert task.consensus_status == "pending"
+        assert task.results_votes == {} # Votes cleared
+        assert task.execution_metadata["revote_count"] == 1
+        assert task.execution_metadata["last_conflict_ts"] is None

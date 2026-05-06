@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 
 class MedusaMCPServer {
   constructor() {
@@ -22,6 +23,22 @@ class MedusaMCPServer {
     this.nodeId = process.env.A2A_PROJECT_NAME || 'Medusa-MCP-Gateway';
   }
   
+  /**
+   * Signs an A2A request using HMAC-SHA256
+   */
+  signA2ARequest(path, secret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const payload = `${timestamp}${path}`;
+    const signature = crypto.createHmac('sha256', secret)
+      .update(payload)
+      .digest('hex');
+      
+    return {
+      'X-Medusa-Timestamp': timestamp,
+      'X-Medusa-Signature': signature
+    };
+  }
+
   // Make HTTP requests to local A2A Node
   async callA2A(method, endpoint, data = null) {
     return new Promise((resolve, reject) => {
@@ -31,7 +48,7 @@ class MedusaMCPServer {
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'Medusa-MCP-Gateway/1.0.0',
-          'X-Medusa-Secret': this.a2aSecret
+          ...this.signA2ARequest(url.pathname, this.a2aSecret)
         }
       };
       

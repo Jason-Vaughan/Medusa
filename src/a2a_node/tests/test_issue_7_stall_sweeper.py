@@ -1,7 +1,7 @@
 import pytest
 import uuid
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from app.models.ledger import TaskEntry
 from app.core.database import AsyncSessionLocal, init_db
 from app.core.swarm import run_task_janitor
@@ -19,7 +19,7 @@ async def test_stall_sweeper_fixed():
     async with AsyncSessionLocal() as db:
         # 1. Create a task stuck in 'running' status
         stalled_id = str(uuid.uuid4())
-        old_time = datetime.utcnow() - timedelta(seconds=600)
+        old_time = datetime.now(UTC) - timedelta(seconds=600)
         
         stalled_task = TaskEntry(
             id=stalled_id,
@@ -40,7 +40,7 @@ async def test_stall_sweeper_fixed():
             # But we can simulate its body.
             
             # STALL_TIMEOUT = 300
-            stall_threshold = datetime.utcnow() - timedelta(seconds=settings.STALL_TIMEOUT)
+            stall_threshold = datetime.now(UTC) - timedelta(seconds=settings.STALL_TIMEOUT)
             
             result = await db.execute(
                 select(TaskEntry).filter(
@@ -56,7 +56,7 @@ async def test_stall_sweeper_fixed():
                 old_owner = task.claimed_by
                 task.status = "pending"
                 task.claimed_by = None
-                task.updated_at = datetime.utcnow()
+                task.updated_at = datetime.now(UTC)
                 await mock_rep(old_owner, "stalled")
             
             await db.commit()

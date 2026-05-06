@@ -7,6 +7,7 @@
  */
 
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { program } = require('commander');
 const chalk = require('chalk');
@@ -24,6 +25,22 @@ const PrawductManager = require('../src/utils/PrawductManager');
 
 // Use built-in fetch (Node.js 18+)
 const fetch = globalThis.fetch;
+
+/**
+ * Signs an A2A request using HMAC-SHA256
+ */
+function signA2ARequest(path, secret) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const payload = `${timestamp}${path}`;
+  const signature = crypto.createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+    
+  return {
+    'X-Medusa-Timestamp': timestamp,
+    'X-Medusa-Signature': signature
+  };
+}
 
 // Get version from package.json
 const packageJson = require('../package.json');
@@ -526,8 +543,9 @@ a2a
   .action(async () => {
     try {
       const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
-      const response = await fetch('http://localhost:3200/a2a/tasks', {
-        headers: { 'X-Medusa-Secret': a2aSecret }
+      const endpoint = '/a2a/tasks';
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        headers: signA2ARequest(endpoint, a2aSecret)
       });
       
       if (!response.ok) {
@@ -568,11 +586,12 @@ a2a
     try {
       const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
       const nodeId = `Medusa-CLI-${process.pid}`;
+      const endpoint = `/a2a/gossip/claim/${taskId}`;
       
-      const response = await fetch(`http://localhost:3200/a2a/gossip/claim/${taskId}`, {
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'POST',
         headers: { 
-          'X-Medusa-Secret': a2aSecret,
+          ...signA2ARequest(endpoint, a2aSecret),
           'node-id': nodeId
         }
       });

@@ -14,6 +14,8 @@ class DecompositionEngine:
     Uses LLM prompts to intelligently decompose tasks.
     """
     
+    MAX_DECOMPOSITION_DEPTH = 3 # Prevent infinite fractal decomposition loops
+
     @staticmethod
     async def get_decomposition_plan(description: str, context: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -28,11 +30,28 @@ class DecompositionEngine:
         """
         Mock decomposition rules as a safety fallback.
         """
-        # (Rest of existing rules logic...)
         subtasks = []
         desc_lower = description.lower()
+        clean_desc = description.replace("Research and report on ", "").replace("Perform a security audit and report findings for ", "")
         
-        # ... (same as before)
+        if "research" in desc_lower and "report" in desc_lower:
+            subtasks = [
+                {"type": "research", "desc": f"Gather data: {clean_desc}", "priority": 8},
+                {"type": "analysis", "desc": f"Analyze gathered data: {clean_desc}", "priority": 7, "depends_on_idx": [0]},
+                {"type": "report", "desc": f"Draft the final report: {clean_desc}", "priority": 6, "depends_on_idx": [1]}
+            ]
+        elif "implement" in desc_lower or "fix" in desc_lower:
+            subtasks = [
+                {"type": "analysis", "desc": f"Analyze requirements: {clean_desc}", "priority": 9},
+                {"type": "coding", "desc": f"Perform implementation: {clean_desc}", "priority": 8, "depends_on_idx": [0]},
+                {"type": "testing", "desc": f"Verify implementation: {clean_desc}", "priority": 7, "depends_on_idx": [1]}
+            ]
+        elif len(description.split()) > 10:
+            subtasks = [
+                {"type": "subtask_1", "desc": f"Partial execution: {description[:30]}...", "priority": 5},
+                {"type": "subtask_2", "desc": f"Remaining execution: {description[30:]}...", "priority": 5}
+            ]
+        return subtasks
 
     @classmethod
     async def decompose_task(cls, parent_task_id: str, db: Optional[AsyncSessionLocal] = None) -> Dict[str, Any]:
@@ -59,6 +78,9 @@ class DecompositionEngine:
             
         if parent_task.subtask_count > 0:
             return {"error": "Task already decomposed."}
+            
+        if parent_task.decomposition_depth >= cls.MAX_DECOMPOSITION_DEPTH:
+            return {"error": f"Maximum decomposition depth ({cls.MAX_DECOMPOSITION_DEPTH}) reached. Task is now considered atomic."}
         
         # 2. Get decomposition plan from LLM
         subtask_plans = await cls.get_decomposition_plan(parent_task.description, parent_task.context)
@@ -66,27 +88,7 @@ class DecompositionEngine:
         # 3. Fallback to hardcoded rules if LLM failed
         if not subtask_plans:
             print(f"⚠️ LLM decomposition failed for {parent_task_id[:8]}. Using fallback rules.", flush=True)
-            # Re-implementing a simplified version of get_fallback_rules logic inline or calling it
-            desc_lower = parent_task.description.lower()
-            clean_desc = parent_task.description.replace("Research and report on ", "").replace("Perform a security audit and report findings for ", "")
-            
-            if "research" in desc_lower and "report" in desc_lower:
-                subtask_plans = [
-                    {"type": "research", "desc": f"Gather data: {clean_desc}", "priority": 8},
-                    {"type": "analysis", "desc": f"Analyze gathered data: {clean_desc}", "priority": 7, "depends_on_idx": [0]},
-                    {"type": "report", "desc": f"Draft the final report: {clean_desc}", "priority": 6, "depends_on_idx": [1]}
-                ]
-            elif "implement" in desc_lower or "fix" in desc_lower:
-                subtask_plans = [
-                    {"type": "analysis", "desc": f"Analyze requirements: {clean_desc}", "priority": 9},
-                    {"type": "coding", "desc": f"Perform implementation: {clean_desc}", "priority": 8, "depends_on_idx": [0]},
-                    {"type": "testing", "desc": f"Verify implementation: {clean_desc}", "priority": 7, "depends_on_idx": [1]}
-                ]
-            elif len(parent_task.description.split()) > 10:
-                subtask_plans = [
-                    {"type": "subtask_1", "desc": f"Partial execution: {parent_task.description[:30]}...", "priority": 5},
-                    {"type": "subtask_2", "desc": f"Remaining execution: {parent_task.description[30:]}...", "priority": 5}
-                ]
+            subtask_plans = cls.get_fallback_rules(parent_task.task_type, parent_task.description)
         
         if not subtask_plans:
             return {"message": "Task is atomic and cannot be decomposed further."}
@@ -118,7 +120,8 @@ class DecompositionEngine:
                 assigned_to=parent_task.assigned_to, 
                 assigned_by=parent_task.assigned_by,
                 parent_id=parent_task.id,
-                depends_on=deps
+                depends_on=deps,
+                decomposition_depth=parent_task.decomposition_depth + 1
             )
             db.add(new_subtask)
         
@@ -130,11 +133,11 @@ class DecompositionEngine:
         
         await db.commit()
         
-        # Update status to waiting
+        # Update status to waiting (waiting for children)
         parent_task.status = "waiting"
         await db.commit()
         
-        print(f"🐝 Decomposed {parent_task_id[:8]} into {len(created_ids)} subtasks via LLM.", flush=True)
+        print(f"🐝 Decomposed {parent_task_id[:8]} into {len(created_ids)} subtasks (Depth: {parent_task.decomposition_depth} -> {parent_task.decomposition_depth + 1}).", flush=True)
         
         return {
             "status": "success",

@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const yaml = require('js-yaml');
+const crypto = require('crypto');
 
 class PrawductManager {
   constructor() {
@@ -18,6 +19,22 @@ class PrawductManager {
     this.hooksPath = path.join(this.prawductPath, 'hooks');
     this.stateFile = path.join(this.prawductPath, 'project-state.yaml');
     this.backlogFile = path.join(this.artifactsPath, 'backlog.md');
+  }
+
+  /**
+   * Signs an A2A request using HMAC-SHA256
+   */
+  signA2ARequest(path, secret) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const payload = `${timestamp}${path}`;
+    const signature = crypto.createHmac('sha256', secret)
+      .update(payload)
+      .digest('hex');
+      
+    return {
+      'X-Medusa-Timestamp': timestamp,
+      'X-Medusa-Signature': signature
+    };
   }
 
   /**
@@ -88,11 +105,12 @@ class PrawductManager {
   async addLearning(title, content, tags = []) {
     try {
       const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
-      const response = await fetch('http://localhost:3200/a2a/learnings/', {
+      const endpoint = '/a2a/learnings/';
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Medusa-Secret': a2aSecret
+          ...this.signA2ARequest(endpoint, a2aSecret)
         },
         body: JSON.stringify({ title, content, tags })
       });
@@ -132,10 +150,9 @@ class PrawductManager {
 async getLearnings() {
   try {
     const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
-    const response = await fetch('http://localhost:3200/a2a/learnings/', {
-      headers: {
-        'X-Medusa-Secret': a2aSecret
-      }
+    const endpoint = '/a2a/learnings/';
+    const response = await fetch(`http://localhost:3200${endpoint}`, {
+      headers: this.signA2ARequest(endpoint, a2aSecret)
     });
 
     if (!response.ok) {

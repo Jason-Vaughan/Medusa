@@ -10,7 +10,7 @@ from app.core.heuristics import BiddingHeuristics
 from app.core.decomposition import DecompositionEngine
 from app.core.governance import GovernanceEngine
 from app.core.reputation import ReputationEngine
-from datetime import datetime
+from datetime import datetime, UTC
 import json
 
 class TaskExecutor:
@@ -34,7 +34,7 @@ class TaskExecutor:
             return {
                 "outcome": "Success (Simulated)",
                 "processed_by": f"{settings.PROJECT_NAME}-{settings.PORT}",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "output": f"Processed '{task.description}' with extreme efficiency and moderate sass."
             }
 
@@ -57,13 +57,13 @@ class TaskExecutor:
                 "exit_code": process.returncode,
                 "stdout": stdout.decode().strip(),
                 "stderr": stderr.decode().strip(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
         except Exception as e:
             return {
                 "outcome": "failed",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
 
     @staticmethod
@@ -88,14 +88,14 @@ class TaskExecutor:
                 "tool": tool_name,
                 "stdout": stdout.decode().strip(),
                 "stderr": stderr.decode().strip(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
         except Exception as e:
             return {
                 "outcome": "failed",
                 "tool": tool_name,
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
 
 async def sync_parent_status(db: Optional[AsyncSession] = None):
@@ -133,21 +133,24 @@ async def _sync_parent_status_with_session(db: AsyncSession):
         if all_done:
             print(f"🐝 Hive sync: Parent {parent.id} all children finished. Aggregating results.", flush=True)
 
-            # Aggregate results
-            results = []
+            # Aggregate results and check for any failures
+            aggregated_results = []
+            any_failed = False
             for c in children:
-                results.append({
+                aggregated_results.append({
                     "id": c.id,
                     "type": c.task_type,
                     "status": c.status,
                     "result": c.result
                 })
+                if c.status == "failed":
+                    any_failed = True
 
-            parent.status = "completed"
+            parent.status = "failed" if any_failed else "completed"
             parent.result = {
-                "outcome": "Sub-tasks completed",
-                "subtask_results": results,
-                "timestamp": datetime.utcnow().isoformat()
+                "outcome": "One or more sub-tasks failed" if any_failed else "Sub-tasks completed",
+                "subtask_results": aggregated_results,
+                "timestamp": datetime.now(UTC).isoformat()
             }
             # We don't commit here if session is provided, caller handles it.
             # Actually, for safety with this specific background logic, we should commit.
@@ -192,7 +195,7 @@ async def run_execution_engine():
                 # Or tasks that require consensus and haven't achieved it yet
                 # Filter by next_retry_at (Chunk 28)
                 node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
-                now = datetime.utcnow()
+                now = datetime.now(UTC)
                 result = await db.execute(
                     select(TaskEntry)
                     .filter(
@@ -296,7 +299,7 @@ async def run_execution_engine():
                         delay = base_delay * (2 ** task.retry_count)
                         jitter = delay * 0.2
                         final_delay = delay + random.uniform(-jitter, jitter)
-                        task.next_retry_at = datetime.utcnow() + timedelta(seconds=final_delay)
+                        task.next_retry_at = datetime.now(UTC) + timedelta(seconds=final_delay)
                         
                         print(f"🔄 Task {task.id[:8]} failed. Retrying in {final_delay:.1f}s ({task.retry_count}/{task.max_retries})...", flush=True)
                         
@@ -308,7 +311,7 @@ async def run_execution_engine():
                         retries.append({
                             "retry": task.retry_count,
                             "error": result.get("error") or result.get("stderr"),
-                            "timestamp": datetime.utcnow().isoformat()
+                            "timestamp": datetime.now(UTC).isoformat()
                         })
                         task.execution_metadata["retries"] = retries
                         

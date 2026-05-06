@@ -1,6 +1,7 @@
 import pytest
 from app.core.heuristics import BiddingHeuristics
 from app.models.ledger import PeerEntry
+from unittest.mock import patch, AsyncMock
 
 class MockPeer:
     def __init__(self, id, skills, performance=None, load=0, health=None):
@@ -17,7 +18,7 @@ async def test_yield_to_better_performance():
     # Mock peer with 100% success rate and low latency
     peer = MockPeer(
         id="top-node", 
-        skills=["python"], 
+        skills={"python": 1.0}, 
         performance={
             "total_tasks": 10,
             "success_count": 10,
@@ -32,11 +33,19 @@ async def test_yield_to_better_performance():
     # local_eval for "python_task" will have confidence ~0.7 (0.6 base + 0.1 match)
     # peer_confidence will be (0.6 + 0.1) * 1.2 (success bonus) * 1.1 (latency bonus) = 0.924
     
-    result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
-        "python_task", 
-        "Execute a complex python script", 
-        [peer]
-    )
+    with patch("app.core.heuristics.BiddingHeuristics.get_local_skills", new_callable=AsyncMock) as mock_skills, \
+         patch("app.core.performance.PerformanceMonitor.get_swarm_health", new_callable=AsyncMock) as mock_swarm_health, \
+         patch("app.core.performance.PerformanceMonitor.get_resource_health", new_callable=AsyncMock) as mock_resource_health:
+        
+        mock_skills.return_value = {"python": 1.0}
+        mock_swarm_health.return_value = 1.0
+        mock_resource_health.return_value = {"cpu_percent": 10, "memory_percent": 10}
+
+        result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
+            "python_task", 
+            "Execute a complex python script", 
+            [peer]
+        )
     
     assert result["should_bid"] is False
     assert result["yielded_to"] == "top-node"
@@ -47,7 +56,7 @@ async def test_no_yield_to_poor_performance():
     # Peer has the skill but POOR performance
     peer = MockPeer(
         id="failing-node", 
-        skills=["python"], 
+        skills={"python": 1.0}, 
         performance={
             "total_tasks": 10,
             "success_count": 5,
@@ -62,11 +71,19 @@ async def test_no_yield_to_poor_performance():
     # peer_confidence will be (0.6 + 0.1) * 0.7 (failure penalty) * 0.9 (latency penalty) = 0.441
     # local confidence is ~0.7
     
-    result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
-        "python_task", 
-        "Execute a complex python script", 
-        [peer]
-    )
+    with patch("app.core.heuristics.BiddingHeuristics.get_local_skills", new_callable=AsyncMock) as mock_skills, \
+         patch("app.core.performance.PerformanceMonitor.get_swarm_health", new_callable=AsyncMock) as mock_swarm_health, \
+         patch("app.core.performance.PerformanceMonitor.get_resource_health", new_callable=AsyncMock) as mock_resource_health:
+        
+        mock_skills.return_value = {"python": 1.0}
+        mock_swarm_health.return_value = 1.0
+        mock_resource_health.return_value = {"cpu_percent": 10, "memory_percent": 10}
+
+        result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
+            "python_task", 
+            "Execute a complex python script", 
+            [peer]
+        )
     
     # We should NOT yield because the peer is unreliable
     assert result["should_bid"] is True

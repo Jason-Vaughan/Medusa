@@ -3,7 +3,7 @@ from app.api.gossip import merge_sync_data
 from app.models.ledger import TaskEntry, MessageEntry
 from app.core.database import AsyncSessionLocal
 from sqlalchemy import select
-from datetime import datetime
+from datetime import datetime, UTC
 
 @pytest.mark.asyncio
 async def test_merge_sync_data_tasks():
@@ -20,8 +20,8 @@ async def test_merge_sync_data_tasks():
                 "status": "completed",
                 "priority": 1,
                 "assigned_to": "remote-node",
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat()
             }
         ],
         "messages": []
@@ -51,7 +51,7 @@ async def test_merge_sync_data_messages():
                 "sender_id": "remote-node",
                 "content": "Hello Swarm",
                 "message_type": "chat",
-                "received_at": datetime.utcnow().isoformat()
+                "received_at": datetime.now(UTC).isoformat()
             }
         ]
     }

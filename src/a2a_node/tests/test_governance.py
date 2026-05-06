@@ -22,7 +22,6 @@ def get_auth_headers(path: str):
     ).hexdigest()
     
     return {
-        "X-Medusa-Secret": settings.A2A_SECRET,
         "X-Medusa-Timestamp": timestamp,
         "X-Medusa-Signature": signature
     }

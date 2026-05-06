@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import pytest
 
 # Add src/a2a_node to sys.path
 sys.path.append(os.path.join(os.getcwd(), "src/a2a_node"))
@@ -16,6 +17,7 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
+@pytest.mark.asyncio
 async def test_skills_evolution():
     print("🚀 Starting Skills Evolution Test...")
     await setup_db()

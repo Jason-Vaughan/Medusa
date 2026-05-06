@@ -1,11 +1,12 @@
 import pytest
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, UTC, timedelta
 from app.api.gossip import reach_consensus
 from app.models.ledger import TaskEntry, PeerEntry
 from app.core.database import AsyncSessionLocal
 from sqlalchemy import delete, select
+from unittest.mock import patch, AsyncMock
 
 @pytest.mark.asyncio
 async def test_zero_reputation_swarm():
@@ -20,6 +21,7 @@ async def test_zero_reputation_swarm():
             for i in range(3)
         ]
         db.add_all(nodes)
+        await db.commit()
         
         task = TaskEntry(
             id="task-zero-rep",
@@ -61,6 +63,7 @@ async def test_tie_with_low_reputation():
             for i in range(2)
         ]
         db.add_all(nodes)
+        await db.commit()
         
         task = TaskEntry(
             id="task-low-rep-tie",
@@ -79,7 +82,9 @@ async def test_tie_with_low_reputation():
         await db.commit()
         await db.refresh(task)
         
-        await reach_consensus(task)
+        # Mock reputations to be exactly 0.5
+        with patch("app.core.reputation.ReputationEngine.get_reputation_score", side_effect=lambda x: 0.5):
+            await reach_consensus(task)
         
         # Weight A = 0.5, Weight B = 0.5. Total = 1.0. 
         # best_weight (0.5) is NOT > total_weight / 2 (0.5).
@@ -114,7 +119,8 @@ async def test_partition_merge_logic():
             results_votes={
                 "node-0": {"result": "A"},
                 "node-1": {"result": "A"}
-            }
+            },
+            updated_at=datetime.now(UTC) - timedelta(minutes=5)
         )
         db.add(task)
         await db.commit()
@@ -136,14 +142,18 @@ async def test_partition_merge_logic():
                     "node-2": {"result": "B"},
                     "node-3": {"result": "B"}
                 },
-                "updated_at": datetime.utcnow().isoformat(),
-                "created_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.now(UTC).isoformat(),
+                "created_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+                "claim_timestamp": None,
+                "next_retry_at": None
             }],
             "messages": [],
             "peers": []
         }
         
-        await merge_sync_data(sync_data)
+        # Mock reputation to avoid tie-breaking
+        with patch("app.core.reputation.ReputationEngine.get_reputation_score", side_effect=lambda x: 0.8):
+            await merge_sync_data(sync_data)
         
         # Check task state after merge - use a fresh session or refresh
         async with AsyncSessionLocal() as db_check:

@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [0.8.0-beta] - 2026-05-06
+### Added
+- **Chunk 32: Advanced Task Decomposition 2.0 (Recursive Splitting).** Tasks can now meet complexity thresholds and trigger their own decomposition recursively, up to a limit of 3 levels.
+- **Dependency Mesh Visualization:** Real-time dependency tracking with visual identifiers in the dashboard.
+- **Recursive Status Propagation:** Implemented automatic parent completion/failure based on the collective outcome of sub-tasks.
+
+### Changed
+- **Security Hardening (A2A Handshake):** Replaced raw `X-Medusa-Secret` header transmission with **HMAC-SHA256 signatures** (`X-Medusa-Signature` and `X-Medusa-Timestamp`) across all Node.js and Python mesh components.
+- **Python Standardization:** Replaced deprecated `datetime.utcnow()` with `datetime.now(UTC)` throughout the A2A node.
+- **Pydantic v2 Migration:** Updated A2A models to use `model_config = ConfigDict(from_attributes=True)`.
+
+### Fixed
+- **Test Suite Stabilization:** Fixed 16 failing tests in the A2A ledger and consensus modules, standardizing on AsyncMock and UTC-aware timestamps.
+- **Zombie Task Recovery:** Fixed regressions in the swarm self-healing logic.
+
 ## [0.7.11-beta] - 2026-05-05
 ### Added
 - **Chunk 31: Swarm Self-Healing & Auto-Recovery.**

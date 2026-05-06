@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from app.api.gossip import reach_consensus, cleanup_zombie_tasks, track_node_conflict
 from app.models.ledger import TaskEntry, PeerEntry
 from app.core.database import AsyncSessionLocal
@@ -70,7 +70,7 @@ async def test_zombie_task_recovery():
         dead_node = PeerEntry(
             id="dead-node", 
             address="http://loc:999", 
-            last_seen=datetime.utcnow() - timedelta(minutes=10)
+            last_seen=datetime.now(UTC) - timedelta(minutes=10)
         )
         db.add(dead_node)
         
@@ -81,7 +81,7 @@ async def test_zombie_task_recovery():
             description="zombie test",
             status="claimed",
             claimed_by="dead-node",
-            claim_timestamp=datetime.utcnow() - timedelta(minutes=10)
+            claim_timestamp=datetime.now(UTC) - timedelta(minutes=10)
         )
         db.add(task)
         await db.commit()

@@ -50,13 +50,7 @@ async def verify_medusa_handshake(
 
     # 2. Verify Signature
     if not x_medusa_signature:
-        # If no signature, fallback to legacy secret-only check (not recommended)
-        if x_medusa_secret != settings.A2A_SECRET:
-            raise HTTPException(
-                status_code=403,
-                detail="Forbidden. No signature and invalid secret."
-            )
-        return x_medusa_client_id or "unknown-client"
+        raise HTTPException(status_code=403, detail="Missing X-Medusa-Signature header.")
 
     # The signature payload is: timestamp + request path
     payload = f"{x_medusa_timestamp}{request.url.path}"

@@ -836,6 +836,13 @@ function renderTaskTree(tasks, level = 0) {
 
     const nodeInfo = task.claimed_by || task.assigned_to || 'unassigned';
     
+    // Chunk 32: Visualize dependencies
+    let dependenciesHtml = '';
+    if (task.depends_on && task.depends_on.length > 0) {
+      const depShortIds = task.depends_on.map(id => id.substring(0, 4)).join(', ');
+      dependenciesHtml = `<span style="color: #4A90E2; font-size: 0.75em; margin-left: 8px;">🔗 deps: [${depShortIds}]</span>`;
+    }
+    
     // Chunk 30: Consensus Visualization
     let consensusHtml = '';
     if (task.requires_consensus) {
@@ -896,6 +903,7 @@ function renderTaskTree(tasks, level = 0) {
           <span style="font-size: 0.8em; color: var(--text-muted);">@ ${nodeInfo.split('-')[0]}</span>
           ${retryNote}
           ${backoffHtml}
+          ${dependenciesHtml}
           ${consensusHtml}
         </div>
         <div style="font-size: 0.9em; margin: 4px 0; color: #ddd;">${task.description}</div>

@@ -41,6 +41,7 @@ class TaskEntry(Base):
     consensus_strategy = Column(String, default="majority") # majority, unanimous, weighted_threshold
     quorum_threshold = Column(Float, default=0.5) # Required weighted score (0.0 to 1.0)
     results_metadata = Column(JSON, nullable=True) # Metadata about the voting process
+    last_health_check = Column(DateTime, nullable=True) # For zombie recovery (Chunk 31)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -142,6 +143,7 @@ class LedgerTask(BaseModel):
     consensus_strategy: str = "majority"
     quorum_threshold: float = 0.5
     results_metadata: Optional[Dict[str, Any]] = None
+    last_health_check: Optional[datetime] = None
     
     created_at: datetime
     updated_at: datetime

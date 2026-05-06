@@ -155,6 +155,10 @@ async def run_gossip():
                             except Exception as e:
                                 # print(f"Failed to sync with {peer_address}: {e}", flush=True)
                                 pass
+
+                    # 3. Swarm Self-Healing (Chunk 31)
+                    async with AsyncSessionLocal() as db:
+                        await cleanup_zombie_tasks(db)
                 
                 last_sync_check = datetime.utcnow()
             
@@ -187,11 +191,15 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
     await db.commit()
     return {"status": "claimed", "task_id": task_id, "claimed_by": node_id, "timestamp": task.claim_timestamp}
 
-async def reach_consensus(task: TaskEntry):
+async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     """
     Analyzes results_votes to reach consensus on a task result.
     Implements Advanced Consensus 2.0: Reputation-Weighted Voting & Adaptive Quorums.
     """
+    if not db:
+        async with AsyncSessionLocal() as new_db:
+            return await reach_consensus(task, new_db)
+
     votes = task.results_votes or {}
     if not votes:
         task.consensus_status = "none"
@@ -209,6 +217,13 @@ async def reach_consensus(task: TaskEntry):
     node_reputations = {} # node_id -> reputation
     
     for node_id, res in votes.items():
+        # Check if node is quarantined (Chunk 31)
+        res_peer = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+        peer_obj = res_peer.scalars().first()
+        if peer_obj and peer_obj.status == "quarantined":
+            print(f"🚫 Skipping vote from quarantined node {node_id[:8]}", flush=True)
+            continue
+
         res_json = json.dumps(res, sort_keys=True)
         reputation = await ReputationEngine.get_reputation_score(node_id)
         node_reputations[node_id] = reputation
@@ -267,15 +282,18 @@ async def reach_consensus(task: TaskEntry):
         task.status = "completed"
         task.consensus_status = "achieved"
         print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Weighted majority selected.", flush=True)
-        
+
         # Update reputation for dissenters (Chunk 25)
         for node_id, res in votes.items():
             res_json = json.dumps(res, sort_keys=True)
             if res_json != best_res_json:
                 await ReputationEngine.update_reputation(node_id, "consensus_disagreement")
-    
+                # Track conflict for isolation (Chunk 31)
+                await track_node_conflict(node_id, db)
+
     elif len(votes) >= task.min_votes:
-        # Quorum met but no consensus (conflict)
+        # ... (keep existing conflict handling)
+
         metadata = task.execution_metadata or {}
         revote_count = metadata.get("revote_count", 0)
         last_conflict = metadata.get("last_conflict_ts")
@@ -307,6 +325,60 @@ async def reach_consensus(task: TaskEntry):
                 print(f"⏳ Consensus CONFLICT: Waiting for cool-down.", flush=True)
     else:
         task.consensus_status = "pending"
+
+async def track_node_conflict(node_id: str, db: AsyncSession):
+    """Increments conflict count for a node and quarantines if threshold reached."""
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+    peer = result.scalars().first()
+    if not peer:
+        return
+
+    health = peer.health_metadata or {}
+    conflicts = health.get("conflict_count", 0) + 1
+    health["conflict_count"] = conflicts
+    peer.health_metadata = health
+    
+    # Isolation threshold: 5 conflicts
+    if conflicts >= 5 and peer.status != "quarantined":
+        peer.status = "quarantined"
+        print(f"⚠️ NODE QUARANTINED: {node_id[:8]} isolated due to repeated conflicts.", flush=True)
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(peer, "health_metadata")
+
+async def cleanup_zombie_tasks(db: AsyncSession):
+    """Resets tasks claimed by nodes that have gone offline."""
+    now = datetime.utcnow()
+    # Find active tasks
+    result = await db.execute(
+        select(TaskEntry).filter(
+            TaskEntry.status.in_(["claimed", "processing", "running"]),
+            TaskEntry.claimed_by.isnot(None)
+        )
+    )
+    tasks = result.scalars().all()
+    
+    for task in tasks:
+        # Check if the claiming node is still active
+        peer_res = await db.execute(select(PeerEntry).filter(PeerEntry.id == task.claimed_by))
+        peer = peer_res.scalars().first()
+        
+        # If peer hasn't been seen for 5 minutes, it's a zombie
+        is_zombie = False
+        if not peer:
+            is_zombie = True
+        elif peer.last_seen < (now - timedelta(minutes=5)):
+            is_zombie = True
+            
+        if is_zombie:
+            print(f"🧟 Zombie Task Recovery: Resetting {task.id[:8]} (Claimed by dead node {task.claimed_by[:8]})", flush=True)
+            task.status = "pending"
+            task.claimed_by = None
+            task.claim_timestamp = None
+            task.retry_count += 1
+            task.last_health_check = now
+            
+    await db.commit()
 
 async def merge_sync_data(data: dict):
     """
@@ -376,7 +448,7 @@ async def merge_sync_data(data: dict):
                             flag_modified(existing, "results_votes")
                             
                             # Reach Consensus
-                            await reach_consensus(existing)
+                            await reach_consensus(existing, db)
                             should_update = True # To ensure it's saved
 
                     # 2. Regular LWW for other fields

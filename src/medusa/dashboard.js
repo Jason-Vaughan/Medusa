@@ -944,7 +944,10 @@ setInterval(() => {
 /**
  * Helper to generate reputation badge HTML.
  */
-function getReputationBadge(score) {
+function getReputationBadge(score, status = 'active') {
+  if (status === 'quarantined') {
+    return `<span class="reputation-badge badge-untrusted" style="background: #ff4444; color: white;">🚫 Quarantined</span>`;
+  }
   if (score === undefined || score === null) return '';
   
   let label = 'Novice';
@@ -1089,21 +1092,21 @@ async function loadPeers() {
       const latencyColor = parseFloat(avgLatency) <= 1.0 ? 'var(--success)' : (parseFloat(avgLatency) <= 3.0 ? 'var(--warning)' : 'var(--danger)');
 
       return `
-        <div class="card" style="margin: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+        <div class="card" style="margin: 0; background: ${peer.status === 'quarantined' ? 'rgba(255, 68, 68, 0.05)' : 'rgba(255,255,255,0.03)'}; border: 1px solid ${peer.status === 'quarantined' ? '#ff4444' : 'rgba(255,255,255,0.08)'};">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
             <div>
               <div style="display: flex; align-items: center;">
                 <strong style="color: var(--primary); font-size: 1.1em;">${peer.id.split('-')[0]}</strong>
-                ${getReputationBadge(reputation)}
+                ${getReputationBadge(reputation, peer.status)}
               </div>
               <div style="font-size: 0.7em; color: var(--text-muted); font-family: monospace;">${peer.id}</div>
             </div>
-            <span class="status active" style="margin: 0;">${peer.status}</span>
+            <span class="status ${peer.status === 'quarantined' ? 'inactive' : 'active'}" style="margin: 0;">${peer.status}</span>
           </div>
 
           <div class="stats" style="margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
             <div class="stat-item" style="flex: 1;">
-              <div class="stat-value" style="font-size: 1.2em; color: ${rateColor}">${successRate}%</div>
+              <div class="stat-value" style="font-size: 1.2em; color: ${rateColor}">${successRate}% ${peer.health_metadata?.conflict_count > 0 ? `<span style="font-size: 0.6em; color: #ff4444;">(${peer.health_metadata.conflict_count} ⚔)</span>` : ''}</div>
               <div class="stat-label" style="font-size: 0.7em;">Success Rate</div>
             </div>
             <div class="stat-item" style="flex: 1;">

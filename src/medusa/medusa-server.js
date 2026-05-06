@@ -65,7 +65,7 @@ function signA2ARequest(path, secret) {
     .digest('hex');
     
   return {
-    'X-Medusa-Secret': secret,
+    // 'X-Medusa-Secret': secret, // REMOVED: Redundant and insecure. HMACS are enough!
     'X-Medusa-Timestamp': timestamp,
     'X-Medusa-Signature': signature
   };

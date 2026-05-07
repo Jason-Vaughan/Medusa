@@ -41,6 +41,9 @@ class MedusaListener {
     this.healthCheckInterval = 30000; // Health check every 30 seconds
     this.serverRecoveryAttempts = 0;
     this.maxRecoveryAttempts = 2;
+    this.lastVersionRestartTime = 0;
+    this.versionRestartCooldown = 60000; // 1 minute cooldown for version restarts
+    this.isRestarting = false; // Flag to prevent concurrent or nested restarts
     
     // NEW v0.5.7: Reflection loop prevention
     this.conversationCounters = new Map(); // Track messages per conversation
@@ -76,7 +79,11 @@ class MedusaListener {
   /**
    * NEW: Health check for Medusa server with retries
    */
-  async performHealthCheck(retries = 3) {
+  async performHealthCheck(retries = 3, depth = 0) {
+    if (depth > 2) {
+      return { healthy: false, error: 'Maximum health check depth exceeded (potential loop)' };
+    }
+    
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch('http://localhost:3009/health');
@@ -88,18 +95,28 @@ class MedusaListener {
           // NEW: Version compatibility check
           const currentVersion = this.getCurrentMedusaVersion();
           if (health.version !== currentVersion) {
-            console.log(chalk.yellow(`🔄 Version mismatch detected!`));
-            console.log(chalk.gray(`   Server: v${health.version}`));
-            console.log(chalk.gray(`   Current: v${currentVersion}`));
-            console.log(chalk.cyan(`🔄 Restarting server with updated version...`));
-            
-            const restartSuccess = await this.restartServerForVersionUpdate();
-            if (restartSuccess) {
-              // Retry health check after restart
-              await this.delay(3000);
-              return await this.performHealthCheck(1);
+            // Only attempt version restart if not recently tried and not already in progress
+            const now = Date.now();
+            if (!this.isRestarting && (now - this.lastVersionRestartTime > this.versionRestartCooldown)) {
+              console.log(chalk.yellow(`🔄 Version mismatch detected!`));
+              console.log(chalk.gray(`   Server: v${health.version}`));
+              console.log(chalk.gray(`   Current: v${currentVersion}`));
+              console.log(chalk.cyan(`🔄 Restarting server with updated version...`));
+              
+              this.isRestarting = true;
+              this.lastVersionRestartTime = now;
+              const restartSuccess = await this.restartServerForVersionUpdate();
+              this.isRestarting = false;
+              
+              if (restartSuccess) {
+                // Retry health check after restart - ONLY ONCE
+                await this.delay(3000);
+                return await this.performHealthCheck(1, depth + 1);
+              } else {
+                return { healthy: false, error: `Version mismatch: server v${health.version}, current v${currentVersion}. Restart failed.` };
+              }
             } else {
-              return { healthy: false, error: `Version mismatch: server v${health.version}, current v${currentVersion}. Restart failed.` };
+              return { healthy: false, error: `Version mismatch: server v${health.version}, current v${currentVersion}. ${this.isRestarting ? 'Restart in progress' : 'Cooldown active'}.` };
             }
           }
           
@@ -667,7 +684,7 @@ class MedusaListener {
     if (currentCount >= this.maxMessagesPerConversation) {
       console.log(chalk.red(`🚨 Conversation limit reached (${this.maxMessagesPerConversation}) with ${message.from}`));
       console.log(chalk.yellow(`🎧 Ignoring message to prevent infinite loop`));
-      return;
+      return false;
     }
     
     // 6. Response cooldown check

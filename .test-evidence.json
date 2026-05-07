@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0.0",
+  "chunkId": "chunk-33",
+  "commit": "27392863e3aee697b50920fab087a4520204cc43",
+  "branch": "main",
+  "dirty": true,
+  "timestamp": "2026-05-07T00:17:45.512Z",
+  "tests": {
+    "passed": 175,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 711
+  },
+  "coverage": {
+    "lines": 61.36,
+    "branches": 53.04,
+    "functions": 62.73,
+    "statements": 61.01
+  },
+  "mutation": null,
+  "filesChanged": [
+    ".prawduct/artifacts/ISSUE_18_TEST_COVERAGE.md",
+    "package.json",
+    "src/ai/AIAgentHook.test.js",
+    "src/config/ConfigManager.js",
+    "src/config/ConfigManager.test.js",
+    "src/medusa/MedusaListener.js",
+    "src/medusa/issue-5-repro.test.js",
+    "src/medusa/issue-9-repro.test.js",
+    "src/medusa/mcp-server.js",
+    "src/medusa/medusa-server.js",
+    "src/utils/ErrorHandler.test.js",
+    "src/utils/HelpSystem.test.js",
+    "src/utils/MedusaNotifier.js",
+    "src/utils/MedusaNotifier.test.js",
+    "src/utils/PrawductManager.js",
+    "src/utils/PrawductManager.test.js",
+    "src/utils/ProcessLock.js",
+    "src/utils/ProcessLock.test.js",
+    "src/wizard/MedusaWizard.test.js",
+    "src/workspace/WorkspaceDetector.js",
+    "src/workspace/WorkspaceDetector.test.js"
+  ],
+  "modulesUnderTest": [
+    "medusa/medusa-server",
+    "medusa/mcp-server",
+    "wizard/MedusaWizard",
+    "config/ConfigManager",
+    "medusa/MedusaListener",
+    "utils/PrawductManager",
+    "utils/MedusaNotifier",
+    "workspace/WorkspaceDetector",
+    "utils/HelpSystem",
+    "ai/AIAgentHook",
+    "utils/ProcessLock",
+    "utils/ErrorHandler"
+  ]
+}

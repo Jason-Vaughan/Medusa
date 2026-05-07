@@ -119,6 +119,10 @@ logs
 # Temporary files
 tmp/
 temp/
+.tmp/
+
+# Test Evidence
+docs/test-evidence-history.jsonl
 
 # Build artifacts
 dist/

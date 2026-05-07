@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "jest --passWithNoTests",
+    "test:evidence": "mkdir -p .tmp && jest --json --outputFile=.tmp/test-results.json --coverage --coverageReporters=json-summary && node scripts/build-evidence.js",
     "medusa-test": "npm test -- --verbose",
     "verify-version": "node bin/verify-version.js",
     "prebuild": "echo 'Preparing Medusa...'",

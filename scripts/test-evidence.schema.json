@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["schemaVersion", "chunkId", "commit", "branch", "dirty", "timestamp", "tests", "coverage", "modulesUnderTest"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "chunkId": { "type": "string" },
+    "commit": { "type": "string" },
+    "branch": { "type": "string" },
+    "dirty": { "type": "boolean" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "tests": {
+      "type": "object",
+      "required": ["passed", "failed", "skipped", "durationMs"],
+      "properties": {
+        "passed": { "type": "number" },
+        "failed": { "type": "number" },
+        "skipped": { "type": "number" },
+        "durationMs": { "type": "number" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["lines", "branches", "functions", "statements"],
+      "properties": {
+        "lines": { "type": "number" },
+        "branches": { "type": "number" },
+        "functions": { "type": "number" },
+        "statements": { "type": "number" }
+      }
+    },
+    "mutation": {
+      "type": ["object", "null"],
+      "properties": {
+        "score": { "type": ["number", "null"] },
+        "killed": { "type": ["number", "null"] },
+        "survived": { "type": ["number", "null"] }
+      }
+    },
+    "filesChanged": { "type": "array", "items": { "type": "string" } },
+    "modulesUnderTest": { "type": "array", "items": { "type": "string" } }
+  }
+}

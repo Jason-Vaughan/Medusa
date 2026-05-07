@@ -53,9 +53,13 @@ async def test_load_balancing_heuristics():
     """
     Verifies that load affects bidding decisions.
     """
-    # Mock get_local_skills
-    with patch("app.core.heuristics.BiddingHeuristics.get_local_skills", new_callable=AsyncMock) as mock_skills:
+    # Mock get_local_skills and health
+    with patch("app.core.heuristics.BiddingHeuristics.get_local_skills", new_callable=AsyncMock) as mock_skills, \
+         patch("app.core.performance.PerformanceMonitor.get_swarm_health", new_callable=AsyncMock) as mock_swarm_health, \
+         patch("app.core.performance.PerformanceMonitor.get_resource_health", new_callable=AsyncMock) as mock_health:
         mock_skills.return_value = {"python_expert": 1.0}
+        mock_swarm_health.return_value = 1.0
+        mock_health.return_value = {"cpu_percent": 10, "memory_percent": 10}
         
         # Low load
         low_load_result = await BiddingHeuristics.evaluate_task("generic", "This is a long enough description to bid on, it has more than ten words now.", current_load=0)

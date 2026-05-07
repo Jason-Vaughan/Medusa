@@ -10,11 +10,16 @@
     "start": "node src/index.js",
     "test": "jest --passWithNoTests",
     "test:evidence": "mkdir -p .tmp && jest --json --outputFile=.tmp/test-results.json --coverage --coverageReporters=json-summary && node scripts/build-evidence.js",
+    "test:mutation": "stryker run",
+    "test:phase3": "npm run test:mutation && npm run test:evidence",
+    "validate:evidence": "node scripts/validate-evidence.js",
+    "test:python": "cd src/a2a_node && export PYTHONPATH=$PYTHONPATH:. && ./venv/bin/pytest --cov=app tests/",
     "medusa-test": "npm test -- --verbose",
     "verify-version": "node bin/verify-version.js",
     "prebuild": "echo 'Preparing Medusa...'",
     "build": "echo 'Medusa built and ready to coordinate!'",
-    "postinstall": "echo 'Medusa v0.6.0-beta installed! ZombieDust Protocol operational! Revolutionary AI-to-AI coordination with pure MCP integration.'"
+    "postinstall": "echo 'Medusa v0.6.0-beta installed! ZombieDust Protocol operational! Revolutionary AI-to-AI coordination with pure MCP integration.'",
+    "prepare": "husky install"
   },
   "keywords": [
     "medusa",
@@ -66,7 +71,12 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/jest-runner": "^9.6.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^8.55.0",
+    "husky": "^9.1.7",
     "jest": "^29.7.0"
   },
   "preferGlobal": false,

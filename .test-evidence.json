@@ -1,58 +1,57 @@
 {
   "schemaVersion": "1.0.0",
   "chunkId": "chunk-33",
-  "commit": "27392863e3aee697b50920fab087a4520204cc43",
+  "commit": "b51371b5f90cafd24679b134f686b25ed493d195",
   "branch": "main",
   "dirty": true,
-  "timestamp": "2026-05-07T00:17:45.512Z",
+  "timestamp": "2026-05-07T02:08:06.024Z",
   "tests": {
     "passed": 175,
     "failed": 0,
     "skipped": 0,
-    "durationMs": 711
+    "durationMs": 705
   },
   "coverage": {
-    "lines": 61.36,
-    "branches": 53.04,
-    "functions": 62.73,
-    "statements": 61.01
+    "lines": 38.72,
+    "branches": 32.83,
+    "functions": 40.74,
+    "statements": 38.57
   },
-  "mutation": null,
+  "mutation": {
+    "score": 33.69,
+    "killed": 1096,
+    "survived": 2157
+  },
   "filesChanged": [
-    ".prawduct/artifacts/ISSUE_18_TEST_COVERAGE.md",
+    ".gitignore",
+    ".prawduct/artifacts/SESSION_WRAP_ISSUE_18_PHASE_2.md",
+    ".test-evidence.json",
+    "package-lock.json",
     "package.json",
-    "src/ai/AIAgentHook.test.js",
-    "src/config/ConfigManager.js",
-    "src/config/ConfigManager.test.js",
+    "scripts/build-evidence.js",
+    "scripts/test-evidence.schema.json",
+    "src/a2a_node/tests/test_heuristics.py",
     "src/medusa/MedusaListener.js",
+    "src/medusa/MedusaListener.test.js",
     "src/medusa/issue-5-repro.test.js",
     "src/medusa/issue-9-repro.test.js",
     "src/medusa/mcp-server.js",
+    "src/medusa/mcp-server.test.js",
     "src/medusa/medusa-server.js",
-    "src/utils/ErrorHandler.test.js",
-    "src/utils/HelpSystem.test.js",
-    "src/utils/MedusaNotifier.js",
-    "src/utils/MedusaNotifier.test.js",
-    "src/utils/PrawductManager.js",
-    "src/utils/PrawductManager.test.js",
-    "src/utils/ProcessLock.js",
-    "src/utils/ProcessLock.test.js",
-    "src/wizard/MedusaWizard.test.js",
-    "src/workspace/WorkspaceDetector.js",
-    "src/workspace/WorkspaceDetector.test.js"
+    "src/medusa/medusa-server.test.js"
   ],
   "modulesUnderTest": [
     "medusa/medusa-server",
-    "medusa/mcp-server",
     "wizard/MedusaWizard",
     "config/ConfigManager",
     "medusa/MedusaListener",
+    "medusa/mcp-server",
     "utils/PrawductManager",
     "utils/MedusaNotifier",
     "workspace/WorkspaceDetector",
-    "utils/HelpSystem",
-    "ai/AIAgentHook",
     "utils/ProcessLock",
-    "utils/ErrorHandler"
+    "ai/AIAgentHook",
+    "utils/ErrorHandler",
+    "utils/HelpSystem"
   ]
 }

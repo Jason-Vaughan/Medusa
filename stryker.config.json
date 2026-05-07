@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.stryker-mutator.io/stryker-config.schema.json",
+  "packageManager": "npm",
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress",
+    "json"
+  ],
+  "testRunner": "jest",
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/medusa/mcp-server.js",
+    "src/medusa/MedusaListener.js",
+    "src/medusa/medusa-server.js",
+    "src/medusa/medusa-mcp-server.js",
+    "src/ai/AIAgentHook.js",
+    "src/config/ConfigManager.js"
+  ],
+  "ignorePatterns": [
+    "PORT_REGISTRY.md"
+  ],
+  "jest": {
+    "projectType": "custom",
+    "enableFindRelatedTests": true
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 0
+  }
+}

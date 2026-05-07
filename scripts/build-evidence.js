@@ -87,6 +87,33 @@ function tryReadMutationScore() {
   const path = 'reports/mutation/mutation.json';
   if (!fs.existsSync(path)) return null;
   const m = JSON.parse(fs.readFileSync(path, 'utf8'));
+  
+  // Handle Stryker 6+ (Mutation Testing Elements format)
+  if (m.files && (m.systemUnderTest === undefined && m.mutationScore === undefined)) {
+    let killed = 0;
+    let survived = 0;
+    let timeout = 0;
+    let noCoverage = 0;
+    
+    Object.values(m.files).forEach(file => {
+      file.mutants.forEach(mutant => {
+        if (mutant.status === 'Killed') killed++;
+        else if (mutant.status === 'Survived') survived++;
+        else if (mutant.status === 'Timeout') timeout++;
+        else if (mutant.status === 'NoCoverage') noCoverage++;
+      });
+    });
+    
+    const total = killed + survived + timeout + noCoverage;
+    const score = total > 0 ? ((killed + timeout) / total) * 100 : null;
+    
+    return {
+      score: score !== null ? parseFloat(score.toFixed(2)) : null,
+      killed: killed + timeout,
+      survived: survived + noCoverage
+    };
+  }
+
   const summary = m.systemUnderTest ?? m;
   return {
     score: summary.mutationScore ?? null,

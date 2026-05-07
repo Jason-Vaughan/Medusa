@@ -73,6 +73,45 @@ describe('MedusaMCPServer', () => {
       expect(mcpServer.activeProvider).toBe('cursor');
     });
 
+    test('initialization with Anthropic API key', () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      const server = new MedusaMCPServer({ stdin: mockStdin, stdout: mockStdout });
+      expect(server.aiClients.anthropic).toBeDefined();
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    test('initialization with OpenAI API key', () => {
+      process.env.OPENAI_API_KEY = 'test-key';
+      const server = new MedusaMCPServer({ stdin: mockStdin, stdout: mockStdout });
+      expect(server.aiClients.openai).toBeDefined();
+      delete process.env.OPENAI_API_KEY;
+    });
+
+    test('generateAIResponse tries multiple providers on failure', async () => {
+      mcpServer.aiClients = {
+        openai: { enabled: true },
+        cursor: { enabled: true }
+      };
+      mcpServer.activeProvider = 'openai';
+      
+      jest.spyOn(mcpServer, 'generateOpenAIResponse').mockRejectedValue(new Error('OpenAI Fail'));
+      jest.spyOn(mcpServer, 'generateCursorAIResponse').mockResolvedValue('Cursor Success');
+      
+      const resp = await mcpServer.generateAIResponse({ from: 'w1', message: 'hi' });
+      expect(resp).toBe('Cursor Success');
+      expect(mcpServer.activeProvider).toBe('cursor');
+    });
+
+    test('generateAIResponse uses fallback if all providers fail', async () => {
+      mcpServer.aiClients = { cursor: { enabled: true } };
+      mcpServer.activeProvider = 'cursor';
+      
+      jest.spyOn(mcpServer, 'generateCursorAIResponse').mockRejectedValue(new Error('All Fail'));
+      
+      const resp = await mcpServer.generateAIResponse({ from: 'w1', message: 'hi' });
+      expect(resp).toContain('Message received from w1');
+    });
+
     test('fallback routing', async () => {
       mcpServer.aiClients = {
         openai: { enabled: true, chat: { completions: { create: jest.fn().mockRejectedValue(new Error('fail')) } } },
@@ -106,10 +145,48 @@ describe('MedusaMCPServer', () => {
       expect(res.success).toBe(true);
     });
 
+    test('listWorkspaces filtering', async () => {
+      const now = Date.now();
+      mockMedusaClient.listWorkspaces.mockResolvedValue([
+        { id: 'recent', lastSeen: new Date(now - 1000).toISOString() },
+        { id: 'stale', lastSeen: new Date(now - 600000).toISOString() }
+      ]);
+      
+      const all = await mcpServer.listWorkspaces({ active_only: false });
+      expect(all.workspaces).toHaveLength(2);
+      
+      const active = await mcpServer.listWorkspaces({ active_only: true });
+      expect(active.workspaces).toHaveLength(1);
+      expect(active.workspaces[0].id).toBe('recent');
+    });
+
     test('handleGetContext', async () => {
       mockMedusaClient.listWorkspaces.mockResolvedValue([{ id: '1', lastSeen: new Date().toISOString() }]);
       const res = await mcpServer.handleGetContext();
       expect(res.content[0].text).toContain('Active workspaces: 1');
+    });
+
+    test('handleToolsCall routes all tools', async () => {
+      const tools = [
+        ['medusa_send_message', { target_workspace: 'w', message: 'm' }, 'sendMessage'],
+        ['medusa_get_messages', {}, 'getMessages'],
+        ['medusa_broadcast', { message: 'm' }, 'broadcast'],
+        ['medusa_list_workspaces', { active_only: true }, 'listWorkspaces'],
+        ['medusa_start_collaboration', { target_workspace: 'w', task_description: 't', initial_message: 'm' }, 'startCollaboration'],
+        ['medusa_share_context', { context: {} }, 'shareContext'],
+        ['medusa_get_context', {}, 'handleGetContext']
+      ];
+
+      for (const [name, args, method] of tools) {
+        const spy = jest.spyOn(mcpServer, method).mockResolvedValue({ success: true });
+        await mcpServer.handleToolsCall({ name, arguments: args });
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+      }
+    });
+
+    test('handleToolsCall throws for unknown tool', async () => {
+      await expect(mcpServer.handleToolsCall({ name: 'unknown' })).rejects.toThrow('Unknown tool: unknown');
     });
   });
 
@@ -152,6 +229,23 @@ describe('MedusaMCPServer', () => {
       mcpServer.handleSSE(mockReq, mockRes);
       expect(mockRes.write).toHaveBeenCalledWith(expect.stringContaining('ping'));
       if (closeHandler) closeHandler();
+    });
+
+    test('handleSSE cleanup on close', () => {
+      jest.useFakeTimers();
+      let closeHandler;
+      const mockRes = { writeHead: jest.fn(), write: jest.fn(), on: jest.fn(), writableEnded: false };
+      const mockReq = { on: jest.fn((e, cb) => { if (e === 'close') closeHandler = cb; }) };
+      
+      const spy = jest.spyOn(global, 'clearInterval');
+      
+      mcpServer.handleSSE(mockReq, mockRes);
+      
+      if (closeHandler) closeHandler();
+      
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+      jest.useRealTimers();
     });
 
     test('startStdioTransport attaches listeners', () => {

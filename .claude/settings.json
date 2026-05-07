@@ -1,1 +1,28 @@
-{}
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/product-hook\" clear",
+            "statusMessage": "Preparing session..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/product-hook\" stop",
+            "statusMessage": "Checking governance gates..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -56,11 +56,68 @@ describe('MedusaListener', () => {
       expect(listener.workspaceId).toBe(workspaceId);
     });
 
-    test('env overrides', () => {
+    test('env overrides for responseMode', () => {
       process.env.MEDUSA_RESPONSE_MODE = 'minimal';
       const s = new MedusaListener(workspaceId);
       expect(s.responseMode).toBe('minimal');
       delete process.env.MEDUSA_RESPONSE_MODE;
+    });
+
+    test('env overrides for maxResponseLength', () => {
+      process.env.MEDUSA_MAX_RESPONSE_LENGTH = '500';
+      const s = new MedusaListener(workspaceId);
+      expect(s.maxResponseLength).toBe('500');
+      delete process.env.MEDUSA_MAX_RESPONSE_LENGTH;
+    });
+
+    test('env overrides for enableChunking', () => {
+      process.env.MEDUSA_ENABLE_CHUNKING = 'true';
+      const s = new MedusaListener(workspaceId);
+      expect(s.enableMessageChunking).toBe(true);
+      delete process.env.MEDUSA_ENABLE_CHUNKING;
+    });
+
+    test('env overrides for websocketOptimized', () => {
+      process.env.MEDUSA_WEBSOCKET_OPTIMIZED = 'true';
+      const s = new MedusaListener(workspaceId);
+      expect(s.websocketOptimized).toBe(true);
+      delete process.env.MEDUSA_WEBSOCKET_OPTIMIZED;
+    });
+
+    test('options overrides env if env is missing', () => {
+      const s = new MedusaListener(workspaceId, {
+        pollInterval: 1000,
+        responseDelay: 500,
+        responseMode: 'compact',
+        maxResponseLength: 200,
+        enableMessageChunking: true,
+        chunkSize: 100,
+        chunkDelay: 200,
+        websocketOptimized: true,
+        deliveryConfirmation: true
+      });
+      expect(s.pollInterval).toBe(1000);
+      expect(s.responseDelay).toBe(500);
+      expect(s.responseMode).toBe('compact');
+      expect(s.maxResponseLength).toBe(200);
+      expect(s.enableMessageChunking).toBe(true);
+      expect(s.chunkSize).toBe(100);
+      expect(s.chunkDelay).toBe(200);
+      expect(s.websocketOptimized).toBe(true);
+      expect(s.deliveryConfirmation).toBe(true);
+    });
+
+    test('defaults are applied when no options or env provided', () => {
+      const s = new MedusaListener(workspaceId);
+      expect(s.pollInterval).toBe(5000);
+      expect(s.responseDelay).toBe(2000);
+      expect(s.responseMode).toBe('full');
+      expect(s.maxResponseLength).toBe(1000);
+      expect(s.enableMessageChunking).toBe(false);
+      expect(s.chunkSize).toBe(500);
+      expect(s.chunkDelay).toBe(1000);
+      expect(s.websocketOptimized).toBe(false);
+      expect(s.deliveryConfirmation).toBe(false);
     });
   });
 
@@ -70,6 +127,35 @@ describe('MedusaListener', () => {
       jest.spyOn(listener, 'getCurrentMedusaVersion').mockReturnValue('1.0.0');
       const r = await listener.performHealthCheck();
       expect(r.healthy).toBe(true);
+    });
+
+    test('performHealthCheck retries on failure', async () => {
+      global.fetch.mockRejectedValueOnce(new Error('Fail'))
+                  .mockResolvedValueOnce({ ok: true, json: jest.fn().mockResolvedValue({ status: 'ok', version: '1.0.0' }) });
+      jest.spyOn(listener, 'getCurrentMedusaVersion').mockReturnValue('1.0.0');
+      
+      const r = await listener.performHealthCheck(2);
+      expect(r.healthy).toBe(true);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    test('performHealthCheck fails after max retries', async () => {
+      global.fetch.mockRejectedValue(new Error('Persistent Fail'));
+      const r = await listener.performHealthCheck(2);
+      expect(r.healthy).toBe(false);
+      expect(r.error).toBe('Persistent Fail');
+    });
+
+    test('performHealthCheck detects version mismatch and restarts', async () => {
+      global.fetch.mockResolvedValueOnce({ ok: true, json: jest.fn().mockResolvedValue({ status: 'ok', version: 'old' }) })
+                  .mockResolvedValueOnce({ ok: true, json: jest.fn().mockResolvedValue({ status: 'ok', version: 'new' }) });
+      
+      jest.spyOn(listener, 'getCurrentMedusaVersion').mockReturnValue('new');
+      jest.spyOn(listener, 'restartServerForVersionUpdate').mockResolvedValue(true);
+      
+      const r = await listener.performHealthCheck();
+      expect(r.healthy).toBe(true);
+      expect(listener.restartServerForVersionUpdate).toHaveBeenCalled();
     });
 
     test('performHealthCheck loop cooldown', async () => {
@@ -82,6 +168,38 @@ describe('MedusaListener', () => {
       
       const r2 = await listener.performHealthCheck(1);
       expect(r2.error).toContain('Cooldown');
+    });
+  });
+
+  describe('Server Availability', () => {
+    test('checkServerAvailabilityForStartup returns available true when no server and no processes', async () => {
+      jest.spyOn(listener, 'performHealthCheck').mockResolvedValue({ healthy: false });
+      jest.spyOn(listener, 'checkServerOwnership').mockResolvedValue(false);
+      
+      const res = await listener.checkServerAvailabilityForStartup();
+      expect(res.available).toBe(true);
+    });
+
+    test('checkServerAvailabilityForStartup returns available false when server healthy', async () => {
+      jest.spyOn(listener, 'performHealthCheck').mockResolvedValue({ 
+        healthy: true, 
+        status: 'ok', 
+        version: '1.0.0', 
+        controllingWorkspace: 'other' 
+      });
+      
+      const res = await listener.checkServerAvailabilityForStartup();
+      expect(res.available).toBe(false);
+      expect(res.existing).toBe(true);
+    });
+
+    test('checkServerAvailabilityForStartup detects stale processes', async () => {
+      jest.spyOn(listener, 'performHealthCheck').mockResolvedValue({ healthy: false });
+      jest.spyOn(listener, 'checkServerOwnership').mockResolvedValue(true);
+      
+      const res = await listener.checkServerAvailabilityForStartup();
+      expect(res.available).toBe(false);
+      expect(res.stale).toBe(true);
     });
   });
 

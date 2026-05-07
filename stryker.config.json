@@ -7,8 +7,11 @@
     "progress",
     "json"
   ],
-  "testRunner": "jest",
-  "coverageAnalysis": "perTest",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "npm test"
+  },
+  "coverageAnalysis": "off",
   "mutate": [
     "src/medusa/mcp-server.js",
     "src/medusa/MedusaListener.js",
@@ -18,7 +21,11 @@
     "src/config/ConfigManager.js"
   ],
   "ignorePatterns": [
-    "PORT_REGISTRY.md"
+    "PORT_REGISTRY.md",
+    "src/a2a_node/venv/**",
+    "coverage/**",
+    "reports/**",
+    "node_modules/**"
   ],
   "jest": {
     "projectType": "custom",

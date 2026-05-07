@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [0.8.1-beta] - 2026-05-06
+### Added
+- **Issue #18 Phase 4: High-Density Mutation Cleanup.** Hardened core component tests to eliminate logic-based survived mutants.
+- **Enhanced MedusaListener Tests:** Comprehensive coverage for configuration defaults, environment variable overrides (`MEDUSA_RESPONSE_MODE`, etc.), and complex server availability/recovery logic.
+- **Hardened MCP Server Tests:** Added AI provider initialization verification and multi-provider fallback routing tests.
+- **A2A Communication Hardening:** Implemented edge-case handling for empty response bodies and non-2xx status codes in `medusa-server.js`.
+- **Mutation Tracking Utility:** Added `scripts/summarize-mutants.js` for session-to-session resilience monitoring.
+
+### Changed
+- **Stryker Configuration Optimization:** Switched to the `command` runner for improved reliability in the current environment and refined `ignorePatterns` to exclude non-JS assets and virtual environments.
+
+### Fixed
+- **ConfigManager Logic Branches:** Covered interactive setup and reconfiguration confirmation paths in `ConfigManager.test.js`.
+
 ## [0.8.0-beta] - 2026-05-06
 ### Added
 - **Chunk 32: Advanced Task Decomposition 2.0 (Recursive Splitting).** Tasks can now meet complexity thresholds and trigger their own decomposition recursively, up to a limit of 3 levels.

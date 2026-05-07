@@ -108,6 +108,36 @@ describe('ConfigManager', () => {
       expect(inquirer.prompt).toHaveBeenCalled();
     });
 
+    test('initializeConnection reconfigure existing connection', async () => {
+      fs.pathExists.mockResolvedValue(true);
+      fs.readJson.mockResolvedValue({ dev: 'OldD', beta: 'OldB' });
+      
+      inquirer.prompt.mockResolvedValueOnce({ reconfigure: true }) // Reconfigure? Yes
+                      .mockResolvedValueOnce({ dev: 'NewD', beta: 'NewB', confirm: true }); // New values
+      
+      const config = await configManager.initializeConnection({});
+      expect(config.dev).toBe('NewD');
+    });
+
+    test('initializeConnection keeps existing if reconfigure denied', async () => {
+      fs.pathExists.mockResolvedValue(true);
+      fs.readJson.mockResolvedValue({ dev: 'OldD', beta: 'OldB' });
+      
+      inquirer.prompt.mockResolvedValueOnce({ reconfigure: false }); // Reconfigure? No
+      
+      const config = await configManager.initializeConnection({});
+      expect(config.dev).toBe('OldD');
+    });
+
+    test('initializeConnection force reconfigure', async () => {
+      fs.pathExists.mockResolvedValue(true);
+      fs.readJson.mockResolvedValue({ dev: 'OldD', beta: 'OldB' });
+      
+      const config = await configManager.initializeConnection({ dev: 'ForceD', beta: 'ForceB', force: true });
+      expect(config.dev).toBe('ForceD');
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+    });
+
     test('initializeConnection throws error if dev and beta are same', async () => {
       fs.pathExists.mockResolvedValue(false);
       const options = { dev: 'Same', beta: 'Same' };

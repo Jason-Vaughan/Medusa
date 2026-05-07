@@ -66,12 +66,24 @@ describe('MedusaServer', () => {
       const defaultServer = new MedusaServer();
       expect(defaultServer.protocolPort).toBe(3009);
       expect(defaultServer.webPort).toBe(8181);
+      expect(defaultServer.a2aBaseUrl).toBe('http://localhost:3200');
+      expect(defaultServer.a2aSecret).toBe('medusa-please');
+      expect(defaultServer.workspaceRegistryFile).toContain('.medusa');
     });
 
     test('should initialize with custom options', () => {
       expect(server.protocolPort).toBe(testPort);
       expect(server.webPort).toBe(testWebPort);
       expect(server.workspaceRegistryFile).toBe(tempRegistryFile);
+      expect(server.a2aBaseUrl).toBe('http://localhost:3300');
+      expect(server.a2aSecret).toBe('test-secret');
+    });
+
+    test('env overrides for a2aSecret', () => {
+      process.env.A2A_SECRET = 'env-secret';
+      const s = new MedusaServer();
+      expect(s.a2aSecret).toBe('env-secret');
+      delete process.env.A2A_SECRET;
     });
 
     test('signA2ARequest should generate valid HMAC', () => {
@@ -114,6 +126,44 @@ describe('MedusaServer', () => {
       const result = await server.callA2A('GET', '/test');
       expect(result.ok).toBe(true);
       expect(result.data).toEqual({ success: true });
+    });
+
+    test('callA2A should handle empty body', async () => {
+      const mockRes = {
+        statusCode: 200,
+        on: jest.fn((event, cb) => {
+          if (event === 'data') return; // No data
+          if (event === 'end') cb();
+        })
+      };
+      const mockReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+      jest.spyOn(http, 'request').mockImplementation((url, opts, cb) => {
+        cb(mockRes);
+        return mockReq;
+      });
+
+      const result = await server.callA2A('GET', '/test');
+      expect(result.ok).toBe(true);
+      expect(result.data).toEqual({});
+    });
+
+    test('callA2A should handle non-2xx status codes', async () => {
+      const mockRes = {
+        statusCode: 404,
+        on: jest.fn((event, cb) => {
+          if (event === 'data') cb(JSON.stringify({ error: 'Not Found' }));
+          if (event === 'end') cb();
+        })
+      };
+      const mockReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+      jest.spyOn(http, 'request').mockImplementation((url, opts, cb) => {
+        cb(mockRes);
+        return mockReq;
+      });
+
+      const result = await server.callA2A('GET', '/test');
+      expect(result.ok).toBe(false);
+      expect(result.status).toBe(404);
     });
 
     test('callA2A should handle connection error', async () => {

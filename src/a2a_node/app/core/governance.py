@@ -9,12 +9,12 @@ class GovernanceEngine:
     """
     
     CRITICAL_KEYWORDS = [
-        "rm ", "delete ", "drop ", "truncate ", # Destructive
-        "publish", "deploy", "release", # Deployment
-        "push ", "commit ", "reset --hard", # Git destructive
-        "sudo ", "chmod ", "chown ", # System permissions
-        "kill ", "pkill ", # Process management
-        "api_key", "secret", "password", "token" # Sensitive data handling
+        r"\brm\b", r"\bdelete\b", r"\bdrop\b", r"\btruncate\b", # Destructive
+        r"\bpublish\b", r"\bdeploy\b", r"\brelease\b", # Deployment
+        r"\bpush\b", r"\bcommit\b", r"\breset\s+--hard\b", # Git destructive
+        r"\bsudo\b", r"\bchmod\b", r"\bchown\b", # System permissions
+        r"\bkill\b", r"\bpkill\b", # Process management
+        r"\bapi_key\b", r"\bsecret\b", r"\bpassword\b", r"\btoken\b" # Sensitive data handling
     ]
     
     @classmethod
@@ -30,15 +30,15 @@ class GovernanceEngine:
         reason = "Task appears safe for autonomous execution."
         
         # 1. Shell commands are inherently risky
-        if re.search(r"shell|command|bash|sh", task_type_lower):
+        if re.search(r"\b(shell|command|bash|sh)\b", task_type_lower):
             requires_approval = True
             reason = "Direct shell commands always require human oversight in this hive."
             
-        # 2. Check for critical keywords in description
-        for keyword in cls.CRITICAL_KEYWORDS:
-            if keyword in desc_lower:
+        # 2. Check for critical keywords in description (using word boundaries)
+        for pattern in cls.CRITICAL_KEYWORDS:
+            if re.search(pattern, desc_lower):
                 requires_approval = True
-                reason = f"Destructive or critical keyword '{keyword}' detected in task description."
+                reason = f"Destructive or critical keyword matching '{pattern}' detected in task description."
                 break
                 
         # 3. Explicit governance overrides

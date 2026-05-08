@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.ledger import PeerEntry, LedgerPeer, TaskEntry, MessageEntry, LedgerTask, LedgerMessage
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC, timedelta, timezone
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
@@ -22,21 +22,24 @@ class SyncResponse(BaseModel):
     timestamp: datetime
 
 @router.get("/ping")
-async def ping(node_id: str, address: str, capabilities: dict = None, strategies: str = None, health: str = None, db: AsyncSession = Depends(get_db)):
+async def ping(node_id: str, address: str, capabilities: str = None, strategies: str = None, health: str = None, db: AsyncSession = Depends(get_db)):
     """
     Endpoint for other nodes to announce themselves.
     Updates or creates a peer entry in the ledger.
     """
     result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
     peer = result.scalars().first()
-    
+
     health_data = json.loads(health) if health else None
-    
+    cap_data = json.loads(capabilities) if capabilities else None
+
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+
     if peer:
-        peer.last_seen = datetime.now(UTC)
+        peer.last_seen = now_naive
         peer.address = address
-        if capabilities:
-            peer.capabilities = capabilities
+        if cap_data:
+            peer.capabilities = cap_data
         if health_data:
             peer.health_metadata = health_data
         if strategies:
@@ -48,15 +51,16 @@ async def ping(node_id: str, address: str, capabilities: dict = None, strategies
         new_peer = PeerEntry(
             id=node_id,
             address=address,
-            capabilities=capabilities,
+            capabilities=cap_data,
             strategies=json.loads(strategies) if strategies else None,
             health_metadata=health_data,
-            status="active"
+            status="active",
+            last_seen=now_naive
         )
         db.add(new_peer)
-    
+
     await db.commit()
-    return {"status": "pong", "message": "I see you.", "node_id": settings.PROJECT_NAME}
+    return {"status": "pong", "message": "I see you.", "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}"}
 
 @router.get("/peers", response_model=list[LedgerPeer])
 async def list_peers(db: AsyncSession = Depends(get_db)):
@@ -75,6 +79,8 @@ async def sync_ledger(since: Optional[datetime] = None, db: AsyncSession = Depen
     # SQLite doesn't always handle datetime.min well with SQLAlchemy
     if not since:
         since = datetime(1970, 1, 1)
+    elif since.tzinfo is not None:
+        since = since.replace(tzinfo=None)
         
     tasks_result = await db.execute(
         select(TaskEntry).filter(TaskEntry.updated_at > since)
@@ -90,7 +96,7 @@ async def sync_ledger(since: Optional[datetime] = None, db: AsyncSession = Depen
         tasks=tasks_result.scalars().all(),
         messages=messages_result.scalars().all(),
         peers=peers_result.scalars().all(),
-        timestamp=datetime.now(UTC)
+        timestamp=datetime.now(UTC).replace(tzinfo=None)
     )
 
 _discovery_failed_last_time = False
@@ -107,59 +113,75 @@ async def run_gossip():
     while True:
         try:
             async with httpx.AsyncClient(verify=False) as client:
-                # 1. Discover potential peers from TangleClaw
+                # 1. Discover potential NEW peers from TangleClaw
+                new_peer_addresses = []
                 try:
                     tc_response = await client.get("https://localhost:3102/api/ports", timeout=2.0)
+                    if tc_response.status_code == 200:
+                        ports = tc_response.json().get('leases', [])
+                        for p in ports:
+                            if p.get('service') == 'a2a-node' and p.get('port') != settings.PORT:
+                                new_peer_addresses.append(f"http://localhost:{p['port']}")
+                        
+                        if _discovery_failed_last_time:
+                            print("✅ TangleClaw HTTPS connectivity restored.", flush=True)
+                            _discovery_failed_last_time = False
                 except Exception:
                     if not _discovery_failed_last_time:
-                        print("⚠️ TangleClaw HTTPS unreachable (Discovery muted).", flush=True)
+                        print("⚠️ TangleClaw HTTPS unreachable (Discovery using ledger).", flush=True)
                         _discovery_failed_last_time = True
-                    await asyncio.sleep(60)
-                    continue
-
-                if _discovery_failed_last_time:
-                    print("✅ TangleClaw HTTPS connectivity restored.", flush=True)
-                    _discovery_failed_last_time = False
-
-                if tc_response.status_code == 200:
-                    ports = tc_response.json().get('leases', [])
-                    for p in ports:
-                        if p.get('service') == 'a2a-node' and p.get('port') != settings.PORT:
-                            peer_address = f"http://localhost:{p['port']}"
-                            
-                            # 2. Ping and Sync
-                            try:
-                                # Ping
-                                from app.core.heuristics import BiddingHeuristics
-                                from app.core.performance import PerformanceMonitor
-                                ping_url = f"{peer_address}/a2a/gossip/ping"
-                                params = {
-                                    "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}",
-                                    "address": f"http://localhost:{settings.PORT}",
-                                    "strategies": json.dumps(await BiddingHeuristics.share_heuristic()),
-                                    "health": json.dumps(await PerformanceMonitor.get_resource_health())
-                                }
-                                headers = get_auth_headers("/a2a/gossip/ping")
-
-                                await client.get(ping_url, params=params, headers=headers, timeout=1.0)
-
-                                # Sync
-                                sync_url = f"{peer_address}/a2a/gossip/sync"
-                                sync_params = {"since": last_sync_check.isoformat()}
-                                headers = get_auth_headers("/a2a/gossip/sync")
-                                r = await client.get(sync_url, params=sync_params, headers=headers, timeout=5.0)
-                                if r.status_code == 200:
-                                    sync_data = r.json()
-                                    await merge_sync_data(sync_data)
-                                    
-                            except Exception:
-                                pass
-
-                    # 3. Swarm Self-Healing (Chunk 31)
-                    async with AsyncSessionLocal() as db:
-                        await cleanup_zombie_tasks(db)
                 
-                last_sync_check = datetime.now(UTC)
+                # 2. Get existing ACTIVE peers from ledger
+                active_peer_addresses = []
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
+                    peers = result.scalars().all()
+                    for peer in peers:
+                        if peer.address and peer.id != f"{settings.PROJECT_NAME}-{settings.PORT}":
+                            active_peer_addresses.append(peer.address)
+                
+                # 3. Combine and deduplicate
+                all_peers = list(set(new_peer_addresses + active_peer_addresses))
+
+                for peer_address in all_peers:
+                    # 4. Ping and Sync
+                    try:
+                        # Ping
+                        from app.core.heuristics import BiddingHeuristics
+                        from app.core.performance import PerformanceMonitor
+                        ping_url = f"{peer_address}/a2a/gossip/ping"
+                        
+                        params = {
+                            "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}",
+                            "address": f"http://localhost:{settings.PORT}",
+                            "strategies": json.dumps(await BiddingHeuristics.share_heuristic()),
+                            "health": json.dumps(await PerformanceMonitor.get_resource_health())
+                        }
+                        headers = get_auth_headers("/a2a/gossip/ping")
+
+                        await client.get(ping_url, params=params, headers=headers, timeout=1.0)
+
+                        # Sync
+                        sync_url = f"{peer_address}/a2a/gossip/sync"
+                        sync_params = {"since": last_sync_check.isoformat()}
+                        headers = get_auth_headers("/a2a/gossip/sync")
+                        
+                        r = await client.get(sync_url, params=sync_params, headers=headers, timeout=5.0)
+                        if r.status_code == 200:
+                            sync_data = r.json()
+                            await merge_sync_data(sync_data)
+                        else:
+                            # print(f"⚠️ Gossip: Node {settings.PORT} sync failed with {peer_address}: {r.status_code}", flush=True)
+                            pass
+                            
+                    except Exception:
+                        pass
+
+                # 5. Swarm Self-Healing (Chunk 31)
+                async with AsyncSessionLocal() as db:
+                    await cleanup_zombie_tasks(db)
+                
+                last_sync_check = datetime.now(UTC).replace(tzinfo=None)
             
         except Exception as e:
             print(f"❌ Gossip fatal error: {str(e)}", flush=True)
@@ -171,7 +193,6 @@ async def run_gossip():
 async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession = Depends(get_db)):
     """
     Attempts to claim a task for execution.
-    Implements optimistic locking/consensus via gossip.
     """
     result = await db.execute(select(TaskEntry).filter(TaskEntry.id == task_id))
     task = result.scalars().first()
@@ -182,10 +203,11 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
     if task.status == "claimed" or task.claimed_by:
         return {"status": "already_claimed", "claimed_by": task.claimed_by, "timestamp": task.claim_timestamp}
     
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
     task.status = "claimed"
     task.claimed_by = node_id
-    task.claim_timestamp = datetime.now(UTC)
-    task.updated_at = datetime.now(UTC)
+    task.claim_timestamp = now_naive
+    task.updated_at = now_naive
     
     await db.commit()
     return {"status": "claimed", "task_id": task_id, "claimed_by": node_id, "timestamp": task.claim_timestamp}
@@ -193,7 +215,6 @@ async def claim_task(task_id: str, node_id: str = Header(...), db: AsyncSession 
 async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     """
     Analyzes results_votes to reach consensus on a task result.
-    Implements Advanced Consensus 2.0: Reputation-Weighted Voting & Adaptive Quorums.
     """
     if not db:
         async with AsyncSessionLocal() as new_db:
@@ -208,7 +229,6 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     import json
     from app.core.reputation import ReputationEngine
     
-    # 1. Calculate Weights
     total_weight = 0.0
     result_weights = {} # res_json -> weight
     result_counts = Counter()
@@ -216,18 +236,16 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     node_reputations = {} # node_id -> reputation
     
     for node_id, res in votes.items():
-        # Check if node is quarantined (Chunk 31)
         res_peer = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
         peer_obj = res_peer.scalars().first()
         if peer_obj and peer_obj.status == "quarantined":
-            print(f"🚫 Skipping vote from quarantined node {node_id[:8]}", flush=True)
             continue
 
         res_json = json.dumps(res, sort_keys=True)
         reputation = await ReputationEngine.get_reputation_score(node_id)
         node_reputations[node_id] = reputation
         
-        weight = max(0.1, reputation) # Minimum weight to ensure even low-reputation nodes have some say
+        weight = max(0.1, reputation)
         total_weight += weight
         
         result_weights[res_json] = result_weights.get(res_json, 0.0) + weight
@@ -237,22 +255,15 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     if not result_counts:
         return
 
-    # Find the most weighted result
     sorted_results = sorted(result_weights.items(), key=lambda x: x[1], reverse=True)
     best_res_json, best_weight = sorted_results[0]
     
-    # Store metadata for visualization (Chunk 30)
     task.results_metadata = {
         "total_weight": round(total_weight, 2),
         "distribution": {res_json: {"weight": round(w, 2), "count": result_counts[res_json]} for res_json, w in result_weights.items()}
     }
 
-    print(f"🗳️ Consensus check for {task.id[:8]}: Strategy={task.consensus_strategy}, Quorum={len(votes)}/{task.min_votes}", flush=True)
-    print(f"   Weight: {best_weight:.2f}/{total_weight:.2f} ({(best_weight/total_weight)*100:.1f}%)", flush=True)
-    
-    # 2. Evaluate Strategy
     achieved = False
-    
     if len(votes) >= task.min_votes:
         if task.consensus_strategy == "unanimous":
             if len(result_counts) == 1:
@@ -263,92 +274,72 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
         else: # Default: majority
             if best_weight > (total_weight / 2):
                 achieved = True
-            # Tie-breaking Heuristic (Chunk 30)
             elif len(result_counts) > 1:
-                # If there's a tie or no clear majority, check if the most reputable node voted for the top result
                 most_reputable_node_id, most_reputable_score = max(node_reputations.items(), key=lambda x: x[1])
                 if most_reputable_score >= 0.9:
-                    # Does the top result match what the most reputable node voted?
                     rep_node_vote = json.dumps(votes[most_reputable_node_id], sort_keys=True)
                     if rep_node_vote == best_res_json:
-                        print(f"⚖️ Tie-break: Favoring result from highly reputable node {most_reputable_node_id[:8]}.", flush=True)
                         achieved = True
 
-    # 3. Handle Outcome
     if achieved:
-        # We have a winner!
         task.result = result_map[best_res_json]
         task.status = "completed"
         task.consensus_status = "achieved"
-        print(f"✅ Consensus ACHIEVED for task {task.id[:8]}. Weighted majority selected.", flush=True)
+        print(f"✅ Consensus ACHIEVED for task {task.id[:8]}.", flush=True)
 
-        # Update reputation for dissenters (Chunk 25)
         for node_id, res in votes.items():
             res_json = json.dumps(res, sort_keys=True)
             if res_json != best_res_json:
                 await ReputationEngine.update_reputation(node_id, "consensus_disagreement")
-                # Track conflict for isolation (Chunk 31)
                 await track_node_conflict(node_id, db)
-
     elif len(votes) >= task.min_votes:
-        # ... (keep existing conflict handling)
-
         metadata = task.execution_metadata or {}
         revote_count = metadata.get("revote_count", 0)
         last_conflict = metadata.get("last_conflict_ts")
         
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         
         if not last_conflict:
             metadata["last_conflict_ts"] = now.isoformat()
             task.execution_metadata = metadata
             task.consensus_status = "conflict"
-            print(f"❌ Consensus CONFLICT for task {task.id[:8]}. Starting 2-minute cool-down for re-vote.", flush=True)
         else:
-            last_conflict_dt = datetime.fromisoformat(last_conflict)
+            last_conflict_dt = datetime.fromisoformat(last_conflict).replace(tzinfo=None)
             if (now - last_conflict_dt).total_seconds() > 120:
                 if revote_count < 3:
-                    print(f"🔄 Consensus RE-VOTE: Cool-down finished for {task.id[:8]}. Round {revote_count + 2}.", flush=True)
                     task.results_votes = {}
                     task.consensus_status = "pending"
                     metadata["revote_count"] = revote_count + 1
                     metadata["last_conflict_ts"] = None
                     task.execution_metadata = metadata
                 else:
-                    print(f"🚨 Consensus DEADLOCK: Task {task.id[:8]} failed 3 re-votes. Escalating to HITL.", flush=True)
                     task.requires_approval = 1
                     task.approval_status = "pending"
                     task.consensus_status = "conflict"
             else:
                 task.consensus_status = "conflict"
-                print(f"⏳ Consensus CONFLICT: Waiting for cool-down.", flush=True)
     else:
         task.consensus_status = "pending"
 
 async def track_node_conflict(node_id: str, db: AsyncSession):
-    """Increments conflict count for a node and quarantines if threshold reached."""
     result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
     peer = result.scalars().first()
-    if not peer:
-        return
+    if not peer: return
 
     health = peer.health_metadata or {}
     conflicts = health.get("conflict_count", 0) + 1
     health["conflict_count"] = conflicts
     peer.health_metadata = health
     
-    # Isolation threshold: 5 conflicts
     if conflicts >= 5 and peer.status != "quarantined":
         peer.status = "quarantined"
-        print(f"⚠️ NODE QUARANTINED: {node_id[:8]} isolated due to repeated conflicts.", flush=True)
+        print(f"⚠️ NODE QUARANTINED: {node_id[:8]} isolated.", flush=True)
     
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(peer, "health_metadata")
 
 async def cleanup_zombie_tasks(db: AsyncSession):
-    """Resets tasks claimed by nodes that have gone offline."""
-    now = datetime.now(UTC)
-    # Find active tasks
+    now = datetime.now(UTC).replace(tzinfo=None)
     result = await db.execute(
         select(TaskEntry).filter(
             TaskEntry.status.in_(["claimed", "processing", "running"]),
@@ -358,19 +349,19 @@ async def cleanup_zombie_tasks(db: AsyncSession):
     tasks = result.scalars().all()
     
     for task in tasks:
-        # Check if the claiming node is still active
         peer_res = await db.execute(select(PeerEntry).filter(PeerEntry.id == task.claimed_by))
         peer = peer_res.scalars().first()
         
-        # If peer hasn't been seen for 5 minutes, it's a zombie
         is_zombie = False
         if not peer:
             is_zombie = True
-        elif peer.last_seen < (now - timedelta(minutes=5)):
-            is_zombie = True
+        else:
+            last_seen = peer.last_seen.replace(tzinfo=None) if peer.last_seen.tzinfo else peer.last_seen
+            if last_seen < (now - timedelta(minutes=5)):
+                is_zombie = True
             
         if is_zombie:
-            print(f"🧟 Zombie Task Recovery: Resetting {task.id[:8]} (Claimed by dead node {task.claimed_by[:8]})", flush=True)
+            print(f"🧟 Zombie Task Recovery: Resetting {task.id[:8]}", flush=True)
             task.status = "pending"
             task.claimed_by = None
             task.claim_timestamp = None
@@ -380,15 +371,9 @@ async def cleanup_zombie_tasks(db: AsyncSession):
     await db.commit()
 
 async def merge_sync_data(data: dict):
-    """
-    Merges synchronized data from a peer into the local ledger.
-    Includes work stealing conflict resolution and distributed consensus.
-    """
     async with AsyncSessionLocal() as db:
         try:
-            # Merge Tasks
             for t_data in data.get('tasks', []):
-                # Check if task already exists
                 result = await db.execute(select(TaskEntry).filter(TaskEntry.id == t_data['id']))
                 existing = result.scalars().first()
                 if not existing:
@@ -402,14 +387,14 @@ async def merge_sync_data(data: dict):
                         assigned_to=t_data['assigned_to'],
                         assigned_by=t_data.get('assigned_by'),
                         claimed_by=t_data.get('claimed_by'),
-                        claim_timestamp=datetime.fromisoformat(t_data['claim_timestamp'].replace('Z', '+00:00')) if t_data.get('claim_timestamp') else None,
+                        claim_timestamp=datetime.fromisoformat(t_data['claim_timestamp'].replace('Z', '+00:00')).replace(tzinfo=None) if t_data.get('claim_timestamp') else None,
                         result=t_data.get('result'),
                         execution_metadata=t_data.get('execution_metadata'),
                         requires_approval=t_data.get('requires_approval', 0),
                         approval_status=t_data.get('approval_status', 'none'),
                         retry_count=t_data.get('retry_count', 0),
                         max_retries=t_data.get('max_retries', 3),
-                        next_retry_at=datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')) if t_data.get('next_retry_at') else None,
+                        next_retry_at=datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')).replace(tzinfo=None) if t_data.get('next_retry_at') else None,
                         requires_consensus=t_data.get('requires_consensus', 0),
                         min_votes=t_data.get('min_votes', 1),
                         results_votes=t_data.get('results_votes'),
@@ -417,68 +402,54 @@ async def merge_sync_data(data: dict):
                         consensus_strategy=t_data.get('consensus_strategy', 'majority'),
                         quorum_threshold=t_data.get('quorum_threshold', 0.5),
                         results_metadata=t_data.get('results_metadata'),
-                        created_at=datetime.fromisoformat(t_data['created_at'].replace('Z', '+00:00')),
-                        updated_at=datetime.fromisoformat(t_data['updated_at'].replace('Z', '+00:00'))
+                        created_at=datetime.fromisoformat(t_data['created_at'].replace('Z', '+00:00')).replace(tzinfo=None),
+                        updated_at=datetime.fromisoformat(t_data['updated_at'].replace('Z', '+00:00')).replace(tzinfo=None)
                     )
                     db.add(new_task)
                 else:
-                    # Conflict resolution and Consensus logic
-                    remote_updated = datetime.fromisoformat(t_data['updated_at'].replace('Z', '+00:00'))
+                    remote_updated = datetime.fromisoformat(t_data['updated_at'].replace('Z', '+00:00')).replace(tzinfo=None)
                     remote_claimed_by = t_data.get('claimed_by')
-                    remote_claim_ts = datetime.fromisoformat(t_data['claim_timestamp'].replace('Z', '+00:00')) if t_data.get('claim_timestamp') else None
+                    remote_claim_ts = datetime.fromisoformat(t_data['claim_timestamp'].replace('Z', '+00:00')).replace(tzinfo=None) if t_data.get('claim_timestamp') else None
                     
                     should_update = False
-                    
-                    # 1. Distributed Consensus Logic (Phase 12)
                     if existing.requires_consensus:
                         remote_votes = t_data.get('results_votes') or {}
                         local_votes = existing.results_votes or {}
-                        
-                        # Merge votes
                         votes_changed = False
                         for node_id, res in remote_votes.items():
                             if node_id not in local_votes:
                                 local_votes[node_id] = res
                                 votes_changed = True
-                                
                         if votes_changed:
                             existing.results_votes = local_votes
                             from sqlalchemy.orm.attributes import flag_modified
                             flag_modified(existing, "results_votes")
-                            
-                            # Reach Consensus
                             await reach_consensus(existing, db)
-                            should_update = True # To ensure it's saved
+                            should_update = True
 
-                    # 2. Regular LWW for other fields
-                    if remote_updated > existing.updated_at:
+                    existing_updated = existing.updated_at.replace(tzinfo=None) if existing.updated_at.tzinfo else existing.updated_at
+                    if remote_updated > existing_updated:
                         should_update = True
                         
-                    # 3. Conflict resolution for claims
                     if remote_claimed_by and existing.claimed_by and remote_claimed_by != existing.claimed_by:
-                        # Both claimed it! Apply deterministic selection.
-                        if remote_claim_ts < existing.claim_timestamp:
+                        existing_claim_ts = existing.claim_timestamp.replace(tzinfo=None) if existing.claim_timestamp and existing.claim_timestamp.tzinfo else existing.claim_timestamp
+                        if not existing_claim_ts or (remote_claim_ts and remote_claim_ts < existing_claim_ts):
                             should_update = True
-                        elif remote_claim_ts == existing.claim_timestamp:
+                        elif remote_claim_ts == existing_claim_ts:
                             if remote_claimed_by < existing.claimed_by:
                                 should_update = True
                         else:
-                            should_update = False # Keep our claim
+                            should_update = False
                     
                     if should_update:
-                        # Update core fields if remote is actually "better" or newer
-                        if remote_updated > existing.updated_at or not existing.requires_consensus:
-                            # Reputation Updates (Chunk 25)
-                            # If status changed from claimed/processing to completed
+                        if remote_updated > existing_updated or not existing.requires_consensus:
                             if existing.status in ["claimed", "processing", "running"] and t_data['status'] == "completed" and remote_claimed_by:
                                 from app.core.reputation import ReputationEngine
-                                # Calculate latency if possible
                                 latency = 0.0
-                                if existing.claim_timestamp:
-                                    latency = (remote_updated - existing.claim_timestamp).total_seconds()
+                                existing_claim_ts = existing.claim_timestamp.replace(tzinfo=None) if existing.claim_timestamp and existing.claim_timestamp.tzinfo else existing.claim_timestamp
+                                if existing_claim_ts:
+                                    latency = (remote_updated - existing_claim_ts).total_seconds()
                                 await ReputationEngine.update_reputation(remote_claimed_by, "completed", {"latency": latency})
-                            
-                            # If status changed to failed
                             elif existing.status in ["claimed", "processing", "running"] and t_data['status'] == "failed" and remote_claimed_by:
                                 from app.core.reputation import ReputationEngine
                                 await ReputationEngine.update_reputation(remote_claimed_by, "failed")
@@ -490,19 +461,17 @@ async def merge_sync_data(data: dict):
                             existing.claim_timestamp = remote_claim_ts
                             existing.updated_at = remote_updated
                         
-                        # Always sync governance and consensus settings
                         existing.requires_approval = t_data.get('requires_approval', existing.requires_approval)
                         existing.approval_status = t_data.get('approval_status', existing.approval_status)
                         existing.retry_count = t_data.get('retry_count', existing.retry_count)
                         existing.max_retries = t_data.get('max_retries', existing.max_retries)
-                        existing.next_retry_at = datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')) if t_data.get('next_retry_at') else None
+                        existing.next_retry_at = datetime.fromisoformat(t_data['next_retry_at'].replace('Z', '+00:00')).replace(tzinfo=None) if t_data.get('next_retry_at') else None
                         existing.requires_consensus = t_data.get('requires_consensus', existing.requires_consensus)
                         existing.min_votes = t_data.get('min_votes', existing.min_votes)
                         existing.consensus_strategy = t_data.get('consensus_strategy', existing.consensus_strategy)
                         existing.quorum_threshold = t_data.get('quorum_threshold', existing.quorum_threshold)
                         existing.results_metadata = t_data.get('results_metadata', existing.results_metadata)
 
-            # Merge Messages
             for m_data in data.get('messages', []):
                 result = await db.execute(select(MessageEntry).filter(MessageEntry.id == m_data['id']))
                 if not result.scalars().first():
@@ -511,11 +480,10 @@ async def merge_sync_data(data: dict):
                         sender_id=m_data['sender_id'],
                         content=m_data['content'],
                         message_type=m_data['message_type'],
-                        received_at=datetime.fromisoformat(m_data['received_at'].replace('Z', '+00:00'))
+                        received_at=datetime.fromisoformat(m_data['received_at'].replace('Z', '+00:00')).replace(tzinfo=None)
                     )
                     db.add(new_msg)
 
-            # Merge Peers
             for p_data in data.get('peers', []):
                 result = await db.execute(select(PeerEntry).filter(PeerEntry.id == p_data['id']))
                 existing = result.scalars().first()
@@ -528,21 +496,17 @@ async def merge_sync_data(data: dict):
                         performance=p_data.get('performance'),
                         health_metadata=p_data.get('health_metadata'),
                         status=p_data.get('status', 'active'),
-                        last_seen=datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00'))
+                        last_seen=datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00')).replace(tzinfo=None)
                     )
                     db.add(new_peer)
                 else:
                     existing.address = p_data['address']
                     existing.status = p_data.get('status', 'active')
-                    existing.last_seen = datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00'))
-                    if p_data.get('capabilities'):
-                        existing.capabilities = p_data['capabilities']
-                    if p_data.get('strategies'):
-                        existing.strategies = p_data['strategies']
-                    if p_data.get('performance'):
-                        existing.performance = p_data['performance']
-                    if p_data.get('health_metadata'):
-                        existing.health_metadata = p_data['health_metadata']
+                    existing.last_seen = datetime.fromisoformat(p_data['last_seen'].replace('Z', '+00:00')).replace(tzinfo=None)
+                    if p_data.get('capabilities'): existing.capabilities = p_data['capabilities']
+                    if p_data.get('strategies'): existing.strategies = p_data['strategies']
+                    if p_data.get('performance'): existing.performance = p_data['performance']
+                    if p_data.get('health_metadata'): existing.health_metadata = p_data['health_metadata']
 
             await db.commit()
         except Exception as e:

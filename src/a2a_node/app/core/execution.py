@@ -12,6 +12,7 @@ from app.core.governance import GovernanceEngine
 from app.core.reputation import ReputationEngine
 from datetime import datetime, UTC
 import json
+from typing import Optional
 
 class TaskExecutor:
     """
@@ -34,7 +35,7 @@ class TaskExecutor:
             return {
                 "outcome": "Success (Simulated)",
                 "processed_by": f"{settings.PROJECT_NAME}-{settings.PORT}",
-                "timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 "output": f"Processed '{task.description}' with extreme efficiency and moderate sass."
             }
 
@@ -57,13 +58,13 @@ class TaskExecutor:
                 "exit_code": process.returncode,
                 "stdout": stdout.decode().strip(),
                 "stderr": stderr.decode().strip(),
-                "timestamp": datetime.now(UTC).isoformat()
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
         except Exception as e:
             return {
                 "outcome": "failed",
                 "error": str(e),
-                "timestamp": datetime.now(UTC).isoformat()
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
 
     @staticmethod
@@ -73,7 +74,6 @@ class TaskExecutor:
         """
         try:
             # Construct command: medusa medusa send ...
-            # This bridges A2A tasks back to our CLI tools
             cmd = f"medusa {tool_name.replace('medusa_', 'medusa ')} \"{description}\""
             
             process = await asyncio.create_subprocess_shell(
@@ -88,17 +88,17 @@ class TaskExecutor:
                 "tool": tool_name,
                 "stdout": stdout.decode().strip(),
                 "stderr": stderr.decode().strip(),
-                "timestamp": datetime.now(UTC).isoformat()
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
         except Exception as e:
             return {
                 "outcome": "failed",
                 "tool": tool_name,
                 "error": str(e),
-                "timestamp": datetime.now(UTC).isoformat()
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
 
-async def sync_parent_status(db: Optional[AsyncSession] = None):
+async def sync_parent_status(db: Optional[AsyncSessionLocal] = None):
     """
     Checks on 'waiting' parent tasks and completes them if all children are done.
     """
@@ -108,7 +108,7 @@ async def sync_parent_status(db: Optional[AsyncSession] = None):
     else:
         await _sync_parent_status_with_session(db)
 
-async def _sync_parent_status_with_session(db: AsyncSession):
+async def _sync_parent_status_with_session(db):
     """
     Internal implementation of parent status sync using a provided session.
     """
@@ -150,10 +150,8 @@ async def _sync_parent_status_with_session(db: AsyncSession):
             parent.result = {
                 "outcome": "One or more sub-tasks failed" if any_failed else "Sub-tasks completed",
                 "subtask_results": aggregated_results,
-                "timestamp": datetime.now(UTC).isoformat()
+                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
-            # We don't commit here if session is provided, caller handles it.
-            # Actually, for safety with this specific background logic, we should commit.
             await db.commit()
 
 async def check_dependencies(db, task):
@@ -164,18 +162,14 @@ async def check_dependencies(db, task):
     if not task.depends_on:
         return True
     
-    # Check status of all dependency IDs
     result = await db.execute(
         select(TaskEntry).filter(TaskEntry.id.in_(task.depends_on))
     )
     deps = result.scalars().all()
     
-    # If some dependencies are missing from DB, we assume they're not done
     if len(deps) < len(task.depends_on):
         return False
         
-    # We allow 'failed' dependencies to unblock the chain, otherwise the system stalls forever.
-    # The dependent task itself will decide how to handle the failure in its execution logic if needed.
     return all(d.status in ["completed", "failed"] for d in deps)
 
 async def run_execution_engine():
@@ -192,10 +186,8 @@ async def run_execution_engine():
 
             async with AsyncSessionLocal() as db:
                 # 1. Fetch pending tasks assigned to local or claimed by local
-                # Or tasks that require consensus and haven't achieved it yet
-                # Filter by next_retry_at (Chunk 28)
                 node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
-                now = datetime.now(UTC)
+                now = datetime.now(UTC).replace(tzinfo=None)
                 result = await db.execute(
                     select(TaskEntry)
                     .filter(
@@ -213,71 +205,55 @@ async def run_execution_engine():
                     )
                     .order_by(TaskEntry.priority.desc(), TaskEntry.created_at.asc())
                 )
-
+                tasks = result.scalars().all()
 
                 for task in tasks:
-                    # Governance Check: Skip tasks requiring approval
                     if task.status == "pending_approval":
                         continue
 
-                    # Consensus Check: Skip if we already voted
                     if task.requires_consensus:
                         votes = task.results_votes or {}
                         if node_id in votes:
                             continue
-                        # If it achieved consensus while we were waiting, skip
                         if task.consensus_status == "achieved":
                             continue
 
-                    # Yield Logic: If someone else claimed it better/earlier (and not consensus-required)
-                    # We check the DB state again to be sure (gossip might have updated it)
                     if not task.requires_consensus and task.claimed_by and task.claimed_by != node_id:
-                        # Someone else claimed it. Yield.
                         continue
 
-                    # NEW: Dependency Check for Swarm Coordination
                     if not await check_dependencies(db, task):
-                        # print(f"⏳ Task {task.id} waiting for dependencies: {task.depends_on}", flush=True)
                         continue
 
-                    # Load Check (Chunk 20)
                     from app.core.performance import PerformanceMonitor
                     load_info = await PerformanceMonitor.get_current_load()
                     current_load = load_info.get("total_load", 0)
 
-                    # NEW: Autonomous Decomposition Check
                     decomp_eval = BiddingHeuristics.evaluate_decomposition(task.task_type, task.description, current_load=current_load)
                     if decomp_eval["should_decompose"] and task.subtask_count == 0:
                         print(f"🐝 Swarm Intelligence: Task {task.id[:8]} is complex. Decomposing...", flush=True)
                         decomp_result = await DecompositionEngine.decompose_task(task.id, db=db)
                         if "error" not in decomp_result:
                             print(f"✅ Successfully decomposed into {decomp_result.get('subtask_count')} sub-tasks.", flush=True)
-                            continue # Parent is now 'waiting', move to next task
+                            continue 
                         else:
                             print(f"⚠️ Decomposition failed: {decomp_result.get('error')}. Executing atomically.", flush=True)
 
                     print(f"🚀 Executing task: {task.id} ({task.task_type})", flush=True)
                     
-                    # Mark as running
                     task.status = "running"
                     await db.commit()
                     
-                    # 2. Real Execution with latency tracking
                     start_time = time.time()
                     result = await TaskExecutor.execute(task)
                     latency = time.time() - start_time
                     
-                    # 3. Update Status and Result with Retry Logic
                     outcome = result.get("outcome")
-                    
-                    # Record performance metrics
                     await PerformanceMonitor.record_execution(
                         task.task_type, 
                         outcome != "failed", 
                         latency
                     )
 
-                    # Trigger Reputation and Skill Evolution (Chunk 27)
                     rep_event = "completed"
                     if outcome == "failed":
                         rep_event = "failed" if task.retry_count >= task.max_retries else "retried"
@@ -290,20 +266,18 @@ async def run_execution_engine():
                     
                     if outcome == "failed" and task.retry_count < task.max_retries:
                         task.retry_count += 1
-                        task.status = "pending" # Put it back in queue
+                        task.status = "pending"
                         
-                        # Exponential Backoff (Chunk 28)
                         import random
                         from datetime import timedelta
                         base_delay = 10
                         delay = base_delay * (2 ** task.retry_count)
                         jitter = delay * 0.2
                         final_delay = delay + random.uniform(-jitter, jitter)
-                        task.next_retry_at = datetime.now(UTC) + timedelta(seconds=final_delay)
+                        task.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=final_delay)
                         
                         print(f"🔄 Task {task.id[:8]} failed. Retrying in {final_delay:.1f}s ({task.retry_count}/{task.max_retries})...", flush=True)
                         
-                        # Add failure info to metadata
                         if not task.execution_metadata:
                             task.execution_metadata = {}
                         
@@ -311,18 +285,16 @@ async def run_execution_engine():
                         retries.append({
                             "retry": task.retry_count,
                             "error": result.get("error") or result.get("stderr"),
-                            "timestamp": datetime.now(UTC).isoformat()
+                            "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
                         })
                         task.execution_metadata["retries"] = retries
                         
                         from sqlalchemy.orm.attributes import flag_modified
                         flag_modified(task, "execution_metadata")
                     else:
-                        # SUCCESS or FINAL FAILURE
                         task.status = "completed" if outcome != "failed" else "failed"
                         task.result = result
                         
-                        # Phase 12: Consensus Update
                         if task.requires_consensus:
                             votes = task.results_votes or {}
                             votes[node_id] = result
@@ -332,7 +304,6 @@ async def run_execution_engine():
                             from sqlalchemy.orm.attributes import flag_modified
                             flag_modified(task, "results_votes")
                             
-                            # Locally attempt to reach consensus
                             from app.api.gossip import reach_consensus
                             await reach_consensus(task)
                         
@@ -342,5 +313,7 @@ async def run_execution_engine():
                     
         except Exception as e:
             print(f"⚠️ Execution engine error: {str(e)}", flush=True)
+            import traceback
+            traceback.print_exc()
             
-        await asyncio.sleep(5) # Poll every 5 seconds
+        await asyncio.sleep(5)

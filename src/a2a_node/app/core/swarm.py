@@ -30,9 +30,7 @@ async def run_swarm_intelligence():
                 current_load = load_info.get("total_load", 0)
 
                 # 2. Fetch 'pending' tasks that haven't been claimed yet
-                # Or tasks that require consensus and we haven't voted on yet
-                # Filter by next_retry_at (Chunk 28)
-                now = datetime.now(UTC)
+                now = datetime.now(UTC).replace(tzinfo=None)
                 result = await db.execute(
                     select(TaskEntry).filter(
                         and_(
@@ -50,13 +48,11 @@ async def run_swarm_intelligence():
                 tasks = result.scalars().all()
 
                 for task in tasks:
-                    # Skip if we already voted on this consensus task
                     if task.requires_consensus:
                         votes = task.results_votes or {}
                         if node_id in votes:
                             continue
 
-                    # 3. Evaluate task using heuristics and swarm-wide strategy
                     eval_result = await BiddingHeuristics.evaluate_with_swarm_intelligence(
                         task.task_type, 
                         task.description,
@@ -65,9 +61,8 @@ async def run_swarm_intelligence():
                     )
                     
                     if eval_result["should_bid"]:
-                        print(f"🐝 Node {node_id} wants to claim task {task.id[:8]} ({task.task_type}) - Confidence: {eval_result['confidence']}", flush=True)
+                        print(f"🐝 Node {node_id} wants to claim task {task.id[:8]} ({task.task_type}) - Confidence: {eval_result['confidence']:.2f}", flush=True)
                         
-                        # 3. Call local claim endpoint (which handles persistence and gossip)
                         async with httpx.AsyncClient() as client:
                             claim_path = f"/a2a/gossip/claim/{task.id}"
                             claim_url = f"http://localhost:{settings.PORT}{claim_path}"
@@ -88,15 +83,13 @@ async def run_swarm_intelligence():
         except Exception as e:
             logger.error(f"⚠️ Swarm intelligence error: {str(e)}")
             
-        await asyncio.sleep(10) # Poll every 10 seconds
+        await asyncio.sleep(10)
 
 async def run_task_janitor():
     """
     Background task that monitors for stalled tasks and releases them back to the swarm.
-    Implementation of 'Work Stealing' via reset-to-pending (Chunk 24).
     """
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
-    # STALL_TIMEOUT = 300 # 5 minutes in seconds
     STALL_TIMEOUT = settings.STALL_TIMEOUT if hasattr(settings, "STALL_TIMEOUT") else 300
     
     print(f"🧹 Task Janitor started for node {node_id} (Timeout: {STALL_TIMEOUT}s)", flush=True)
@@ -104,9 +97,9 @@ async def run_task_janitor():
     while True:
         try:
             async with AsyncSessionLocal() as db:
-                stall_threshold = datetime.now(UTC) - timedelta(seconds=STALL_TIMEOUT)
+                now_naive = datetime.now(UTC).replace(tzinfo=None)
+                stall_threshold = now_naive - timedelta(seconds=STALL_TIMEOUT)
                 
-                # Find tasks in 'claimed', 'processing', or 'running' status that haven't been updated
                 result = await db.execute(
                     select(TaskEntry).filter(
                         and_(
@@ -124,10 +117,9 @@ async def run_task_janitor():
                     task.status = "pending"
                     task.claimed_by = None
                     task.claim_timestamp = None
-                    task.updated_at = datetime.now(UTC)
+                    task.updated_at = now_naive
                     task.retry_count += 1
                     
-                    # Log event and update reputation
                     print(f"🏴‍☠️ Work Stealing: Node {old_owner} was too slow. Releasing task {task.id[:8]} back to the wild.", flush=True)
                     if old_owner:
                         from app.core.reputation import ReputationEngine
@@ -139,4 +131,4 @@ async def run_task_janitor():
         except Exception as e:
             logger.error(f"⚠️ Task Janitor error: {str(e)}")
             
-        await asyncio.sleep(60) # Run every minute
+        await asyncio.sleep(60)

@@ -365,7 +365,7 @@ async def issue_grant(workspace_id: str, grant: GrantCreate, db: AsyncSession = 
         profile_version=profile.version,
         granted_by=grant.granted_by,
         scope=grant.scope,
-        expires_at=grant.expires_at,
+        expires_at=grant.expires_at.replace(tzinfo=None) if grant.expires_at.tzinfo else grant.expires_at,
         revoked=0
     )
     db.add(new_grant)

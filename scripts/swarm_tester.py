@@ -114,6 +114,35 @@ def main():
                 return
 
         print("DEBUG: All nodes operational", flush=True)
+        time.sleep(2)
+
+        # 1.5 SEED PEERS: Tell every node about every other node
+        print("SEEDING peers...", flush=True)
+        for node in nodes:
+            for peer in nodes:
+                if node["port"] == peer["port"]: continue
+                
+                path = "/a2a/gossip/ping"
+                url = f"http://localhost:{node['port']}{path}"
+                ts = str(int(time.time()))
+                sig = hhmac_signature(path, SECRET, ts)
+                headers = {
+                    "X-Medusa-Timestamp": ts,
+                    "X-Medusa-Signature": sig
+                }
+                params = {
+                    "node_id": f"Medusa-A2A-{peer['port']}",
+                    "address": f"http://localhost:{peer['port']}",
+                    "strategies": "{}" # Empty strategies for now
+                }
+                try:
+                    r = requests.get(url, params=params, headers=headers, timeout=2)
+                    if r.status_code != 200:
+                        print(f"   WARNING: Failed to seed peer {peer['port']} on node {node['port']}: {r.status_code}", flush=True)
+                except Exception as e:
+                    print(f"   WARNING: Error seeding peer {peer['port']} on node {node['port']}: {e}", flush=True)
+        
+        print("SUCCESS: Peers seeded.", flush=True)
         time.sleep(5)
         
         # 2. Create a COMPLEX task that triggers DECOMPOSITION

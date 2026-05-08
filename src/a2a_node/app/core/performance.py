@@ -20,11 +20,12 @@ class PerformanceMonitor:
         """
         Gathers real-time resource health metrics (CPU, Memory).
         """
+        now_naive = datetime.now(UTC).replace(tzinfo=None)
         health = {
             "cpu_percent": 0.0,
             "memory_percent": 0.0,
             "load_avg": [0.0, 0.0, 0.0],
-            "timestamp": datetime.now(UTC).isoformat()
+            "timestamp": now_naive.isoformat()
         }
         try:
             import psutil
@@ -34,7 +35,6 @@ class PerformanceMonitor:
             if hasattr(os, "getloadavg"):
                 health["load_avg"] = list(os.getloadavg())
         except ImportError:
-            # Fallback to os if psutil is not available
             import os
             if hasattr(os, "getloadavg"):
                 health["load_avg"] = list(os.getloadavg())
@@ -49,13 +49,11 @@ class PerformanceMonitor:
         """
         node_id = cls.get_local_node_id()
         async with AsyncSessionLocal() as db:
-            # Count running tasks
             running_result = await db.execute(
                 select(TaskEntry).filter(TaskEntry.status == "running")
             )
             running_count = len(running_result.scalars().all())
             
-            # Count pending tasks assigned to this node
             pending_result = await db.execute(
                 select(TaskEntry).filter(
                     and_(
@@ -85,14 +83,13 @@ class PerformanceMonitor:
             if peer and peer.performance:
                 return peer.performance
             
-            # Default empty metrics
             return {
                 "total_tasks": 0,
                 "success_count": 0,
                 "failure_count": 0,
                 "total_latency": 0.0,
                 "task_types": {},
-                "last_updated": datetime.now(UTC).isoformat()
+                "last_updated": datetime.now(UTC).replace(tzinfo=None).isoformat()
             }
 
     @classmethod
@@ -106,7 +103,6 @@ class PerformanceMonitor:
             peer = result.scalars().first()
             
             if not peer:
-                # Create local peer entry if it doesn't exist
                 peer = PeerEntry(
                     id=node_id,
                     address=f"http://localhost:{settings.PORT}",
@@ -123,7 +119,6 @@ class PerformanceMonitor:
                 "task_types": {},
             }
             
-            # Global updates
             perf["total_tasks"] = perf.get("total_tasks", 0) + 1
             if success:
                 perf["success_count"] = perf.get("success_count", 0) + 1
@@ -131,9 +126,8 @@ class PerformanceMonitor:
                 perf["failure_count"] = perf.get("failure_count", 0) + 1
             
             perf["total_latency"] = perf.get("total_latency", 0.0) + latency
-            perf["last_updated"] = datetime.now(UTC).isoformat()
+            perf["last_updated"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
             
-            # Task-type specific updates
             tt = perf.get("task_types", {})
             if task_type not in tt:
                 tt[task_type] = {"count": 0, "success": 0, "latency": 0.0}
@@ -146,12 +140,10 @@ class PerformanceMonitor:
             perf["task_types"] = tt
             peer.performance = perf
             
-            # SQLAlchemy needs to know the JSON field changed
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(peer, "performance")
             
             await db.commit()
-            # print(f"📊 Performance recorded for {task_type}: {'Success' if success else 'Failure'} in {latency:.2f}s", flush=True)
 
     @classmethod
     async def record_snapshot(cls):
@@ -159,34 +151,28 @@ class PerformanceMonitor:
         Creates a point-in-time snapshot of performance for the node and mesh.
         """
         node_id = cls.get_local_node_id()
-        # print(f"📊 Recording snapshot for {node_id}...", flush=True)
         async with AsyncSessionLocal() as db:
-            # Update local peer health metadata
             health = await cls.get_resource_health()
             peer_result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
             local_peer = peer_result.scalars().first()
             if local_peer:
-                # print(f"   ✅ Updating health for {node_id}: {health['cpu_percent']}% CPU", flush=True)
                 local_peer.health_metadata = health
                 from sqlalchemy.orm.attributes import flag_modified
                 flag_modified(local_peer, "health_metadata")
-            else:
-                # print(f"   ⚠️ Local peer {node_id} not found in ledger yet.", flush=True)
-                pass
 
-            # 1. Local metrics
             result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
             peer = result.scalars().first()
             
             if peer and peer.performance:
                 perf = peer.performance
-                success_rate = (perf.get("success_count", 0) / max(perf.get("total_tasks", 1), 1)) * 100
-                avg_latency = perf.get("total_latency", 0) / max(perf.get("total_tasks", 1), 1)
+                total = perf.get("total_tasks", 0)
+                success_rate = (perf.get("success_count", 0) / max(total, 1)) * 100 if total > 0 else 100.0
+                avg_latency = perf.get("total_latency", 0) / max(total, 1)
                 
                 snapshot = PerformanceSnapshot(
                     node_id=node_id,
                     metrics={
-                        "total_tasks": perf.get("total_tasks", 0),
+                        "total_tasks": total,
                         "success_rate": success_rate,
                         "avg_latency": avg_latency,
                         "load": (await cls.get_current_load()).get("total_load", 0)
@@ -194,7 +180,6 @@ class PerformanceMonitor:
                 )
                 db.add(snapshot)
             
-            # 2. Global (Mesh) metrics
             peers_result = await db.execute(select(PeerEntry))
             all_peers = peers_result.scalars().all()
             
@@ -211,7 +196,7 @@ class PerformanceMonitor:
                     total_success += p.performance.get("success_count", 0)
                     total_latency += p.performance.get("total_latency", 0)
             
-            global_success_rate = (total_success / max(total_tasks, 1)) * 100
+            global_success_rate = (total_success / max(total_tasks, 1)) * 100 if total_tasks > 0 else 100.0
             global_avg_latency = total_latency / max(total_tasks, 1)
             
             global_snapshot = PerformanceSnapshot(
@@ -231,7 +216,6 @@ class PerformanceMonitor:
     async def get_swarm_health(cls) -> float:
         """
         Returns a swarm health index (0.0 to 1.0) based on recent global success rates.
-        Used for dynamic bidding thresholds (Chunk 25).
         """
         async with AsyncSessionLocal() as db:
             try:
@@ -243,31 +227,24 @@ class PerformanceMonitor:
                 )
                 snapshots = result.scalars().all()
                 if not snapshots:
-                    print("DEBUG: get_swarm_health: No snapshots found, returning 1.0", flush=True)
-                    return 1.0 # Assume healthy if no data
+                    return 1.0
                 
                 avg_success = sum(s.metrics.get("success_rate", 100.0) for s in snapshots) / len(snapshots)
-                health = avg_success / 100.0
-                print(f"DEBUG: get_swarm_health: Found {len(snapshots)} snapshots, avg_success={avg_success}, health={health}", flush=True)
-                return health
-            except Exception as e:
-                print(f"DEBUG: get_swarm_health: Exception {e}, returning 1.0", flush=True)
-                return 1.0 # Fallback for test environments without migrations
+                return avg_success / 100.0
+            except Exception:
+                return 1.0
 
     @classmethod
     async def prune_snapshots(cls):
         """
         Prunes performance snapshots older than RETENTION_DAYS.
         """
-        threshold = datetime.now(UTC) - timedelta(days=settings.RETENTION_DAYS)
+        threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=settings.RETENTION_DAYS)
         async with AsyncSessionLocal() as db:
             try:
                 stmt = delete(PerformanceSnapshot).where(PerformanceSnapshot.timestamp < threshold)
                 result = await db.execute(stmt)
                 await db.commit()
-                count = result.rowcount
-                if count > 0:
-                    print(f"🧹 Janitor: Pruned {count} old performance snapshots.", flush=True)
             except Exception as e:
                 print(f"❌ Error pruning snapshots: {e}", flush=True)
 
@@ -289,7 +266,7 @@ class PerformanceMonitor:
                     "timestamp": s.timestamp.isoformat(),
                     "metrics": s.metrics
                 }
-                for s in reversed(snapshots) # Return in chronological order
+                for s in reversed(snapshots)
             ]
 
 async def run_performance_monitor():
@@ -297,19 +274,18 @@ async def run_performance_monitor():
     Background loop to periodically record performance snapshots.
     """
     print("📊 Performance Monitoring loop started.", flush=True)
-    last_prune = datetime.now(UTC)
+    last_prune = datetime.now(UTC).replace(tzinfo=None)
     
     while True:
         try:
             await PerformanceMonitor.record_snapshot()
             
-            # Prune once per hour
-            if datetime.now(UTC) - last_prune > timedelta(hours=1):
+            now_naive = datetime.now(UTC).replace(tzinfo=None)
+            if now_naive - last_prune > timedelta(hours=1):
                 await PerformanceMonitor.prune_snapshots()
-                last_prune = datetime.now(UTC)
+                last_prune = now_naive
                 
         except Exception as e:
             print(f"❌ Error recording performance snapshot: {e}", flush=True)
         
-        # Record every 60 seconds
         await asyncio.sleep(60)

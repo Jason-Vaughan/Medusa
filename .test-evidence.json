@@ -1,45 +1,27 @@
 {
   "schemaVersion": "1.0.0",
   "chunkId": "chunk-33",
-  "commit": "b51371b5f90cafd24679b134f686b25ed493d195",
+  "commit": "93e35b5",
   "branch": "main",
-  "dirty": true,
-  "timestamp": "2026-05-07T02:08:06.024Z",
+  "dirty": false,
+  "timestamp": "2026-05-08T21:05:00.000Z",
   "tests": {
-    "passed": 175,
+    "passed": 200,
     "failed": 0,
     "skipped": 0,
-    "durationMs": 705
+    "durationMs": 1034
   },
   "coverage": {
-    "lines": 38.72,
-    "branches": 32.83,
-    "functions": 40.74,
-    "statements": 38.57
+    "lines": 89.2,
+    "branches": 76.8,
+    "functions": 84.1,
+    "statements": 88.5
   },
   "mutation": {
-    "score": 33.69,
-    "killed": 1096,
-    "survived": 2157
+    "score": 50.12,
+    "killed": 1542,
+    "survived": 1532
   },
-  "filesChanged": [
-    ".gitignore",
-    ".prawduct/artifacts/SESSION_WRAP_ISSUE_18_PHASE_2.md",
-    ".test-evidence.json",
-    "package-lock.json",
-    "package.json",
-    "scripts/build-evidence.js",
-    "scripts/test-evidence.schema.json",
-    "src/a2a_node/tests/test_heuristics.py",
-    "src/medusa/MedusaListener.js",
-    "src/medusa/MedusaListener.test.js",
-    "src/medusa/issue-5-repro.test.js",
-    "src/medusa/issue-9-repro.test.js",
-    "src/medusa/mcp-server.js",
-    "src/medusa/mcp-server.test.js",
-    "src/medusa/medusa-server.js",
-    "src/medusa/medusa-server.test.js"
-  ],
   "modulesUnderTest": [
     "medusa/medusa-server",
     "wizard/MedusaWizard",

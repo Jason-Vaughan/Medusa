@@ -44,8 +44,8 @@ class TaskEntry(Base):
     results_metadata = Column(JSON, nullable=True) # Metadata about the voting process
     last_health_check = Column(DateTime, nullable=True) # For zombie recovery (Chunk 31)
     
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None), onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 class MessageEntry(Base):
     __tablename__ = "messages"
@@ -54,7 +54,7 @@ class MessageEntry(Base):
     sender_id = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     message_type = Column(String, default="chat")
-    received_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    received_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 class PeerEntry(Base):
     __tablename__ = "peers"
@@ -62,7 +62,7 @@ class PeerEntry(Base):
     id = Column(String, primary_key=True, index=True)
     address = Column(String, nullable=False) # e.g. "http://localhost:3201"
     status = Column(String, default="active")
-    last_seen = Column(DateTime, default=lambda: datetime.now(UTC))
+    last_seen = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     capabilities = Column(JSON, nullable=True)
     strategies = Column(JSON, nullable=True)
     performance = Column(JSON, nullable=True)
@@ -75,13 +75,13 @@ class LocalState(Base):
     
     key = Column(String, primary_key=True, index=True)
     value = Column(JSON, nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None), onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
     
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True)
     node_id = Column(String, index=True) # "global" for mesh-wide, or specific node_id
     metrics = Column(JSON, nullable=False) # {success_rate, avg_latency, total_tasks, active_nodes, etc.}
 
@@ -95,7 +95,7 @@ class CapabilityProfile(Base):
     denied_patterns = Column(JSON, nullable=True) # List of {tool, commandPattern}
     path_scope = Column(JSON, nullable=True) # {read: [], write: []}
     approval_routing = Column(JSON, nullable=True) # {targetWorkspace, timeout, onTimeout}
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 class WorkspaceGrant(Base):
     __tablename__ = "workspace_grants"
@@ -108,7 +108,7 @@ class WorkspaceGrant(Base):
     scope = Column(String, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Integer, default=0) # 0 for False, 1 for True
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 # Pydantic Models for API validation and serialization
 class LedgerTask(BaseModel):

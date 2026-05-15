@@ -53,11 +53,13 @@ async def test_load_based_yield():
 @pytest.mark.asyncio
 async def test_local_evaluation_no_yield():
     """Verify local evaluation when no superior peers exist."""
+    from app.core.performance import PerformanceMonitor
     task_type = "python_fix"
     description = "Fix a bug in the python script"
     peers = []
     
     BiddingHeuristics.get_local_skills = AsyncMock(return_value={"python_expert": 1.0})
+    PerformanceMonitor.get_resource_health = AsyncMock(return_value={"cpu_percent": 10.0, "memory_percent": 20.0})
     
     # Assuming MEDUSA_SKILLS contains 'python'
     result = await BiddingHeuristics.evaluate_with_swarm_intelligence(task_type, description, peers)

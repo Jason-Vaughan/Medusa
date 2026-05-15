@@ -10,7 +10,11 @@ class Settings:
     A2A_SECRET: str = os.getenv("A2A_SECRET", "medusa-please")
     MEDUSA_SKILLS: str = os.getenv("MEDUSA_SKILLS", "python_expert,security_auditor,sass_master")
     GOSSIP_INTERVAL: int = int(os.getenv("GOSSIP_INTERVAL", 10))
-    RETENTION_DAYS: int = int(os.getenv("RETENTION_DAYS", 7))
+    # Default 7 days provides a sufficient window for post-mortem debugging of routine tasks 
+    # while keeping the SQLite file size manageable for local development environments.
+    RETENTION_DAYS_ROUTINE: int = int(os.getenv("RETENTION_DAYS_ROUTINE", 7))
+    # Default 30 days for HITL and pre-approved tasks to ensure a durable audit trail for critical actions.
+    RETENTION_DAYS_AUDIT: int = int(os.getenv("RETENTION_DAYS_AUDIT", 30))
     STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
     BIDDING_CONFIDENCE_THRESHOLD: float = 0.6
     

@@ -95,8 +95,70 @@ class TaskExecutor:
                 "outcome": "failed",
                 "tool": tool_name,
                 "error": str(e),
-                "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat()
+                "timestamp": datetime.now(UTC).isoformat()
             }
+
+    @staticmethod
+    async def prune_tasks(days_routine: int = None, days_audit: int = None, dry_run: bool = False, limit: int = 1000) -> int:
+        """
+        Prunes old tasks from the ledger to prevent database bloat.
+        Respects two retention windows: routine vs audit-heavy tasks.
+        """
+        from sqlalchemy import delete, and_, or_, select
+        from app.core.database import AsyncSessionLocal
+        from datetime import timedelta
+        
+        if days_routine is None: days_routine = settings.RETENTION_DAYS_ROUTINE
+        if days_audit is None: days_audit = settings.RETENTION_DAYS_AUDIT
+        
+        now = datetime.now(UTC).replace(tzinfo=None)
+        routine_threshold = now - timedelta(days=days_routine)
+        audit_threshold = now - timedelta(days=days_audit)
+        
+        async with AsyncSessionLocal() as db:
+            try:
+                # Identify candidates for pruning
+                # Case 1: Routine tasks older than routine_threshold
+                routine_stmt = select(TaskEntry.id).filter(
+                    and_(
+                        TaskEntry.status.in_(["completed", "failed", "rejected"]),
+                        TaskEntry.approval_status != "pre_approved",
+                        TaskEntry.requires_approval == 0,
+                        TaskEntry.updated_at < routine_threshold
+                    )
+                ).limit(limit)
+                
+                # Case 2: Audit-heavy tasks older than audit_threshold
+                audit_stmt = select(TaskEntry.id).filter(
+                    and_(
+                        TaskEntry.status.in_(["completed", "failed", "rejected"]),
+                        or_(TaskEntry.approval_status == "pre_approved", TaskEntry.requires_approval == 1),
+                        TaskEntry.updated_at < audit_threshold
+                    )
+                ).limit(limit)
+                
+                res1 = await db.execute(routine_stmt)
+                res2 = await db.execute(audit_stmt)
+                
+                ids_to_prune = [r[0] for r in res1.all()] + [r[0] for r in res2.all()]
+                ids_to_prune = list(set(ids_to_prune))[:limit] # Global limit + dedupe
+                
+                if not ids_to_prune:
+                    return 0
+                
+                if not dry_run:
+                    delete_stmt = delete(TaskEntry).where(TaskEntry.id.in_(ids_to_prune))
+                    await db.execute(delete_stmt)
+                    await db.commit()
+                    print(f"🧹 TaskExecutor: Pruned {len(ids_to_prune)} tasks.", flush=True)
+                else:
+                    print(f"🔍 TaskExecutor [DRY-RUN]: Would prune {len(ids_to_prune)} tasks.", flush=True)
+                    
+                return len(ids_to_prune)
+            except Exception as e:
+                print(f"❌ Error pruning tasks: {e}", flush=True)
+                await db.rollback()
+                return 0
 
 async def sync_parent_status(db: Optional[AsyncSessionLocal] = None):
     """

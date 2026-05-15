@@ -16,7 +16,7 @@ class BiddingHeuristics:
         return await LearningEngine.get_local_skills()
 
     @classmethod
-    def calculate_raw_confidence(cls, task_type: str, description: str, skills: dict, load: int, health: dict) -> float:
+    def calculate_raw_confidence(cls, task_type: str, description: str, skills: dict, load: int, health: dict) -> Dict[str, Any]:
         """
         Shared logic for calculating confidence score.
         Multiplicative model for better sensitivity to overlapping factors.
@@ -26,6 +26,7 @@ class BiddingHeuristics:
         
         # 1. Base confidence
         confidence = 0.5
+        matched_skills = []
         
         # 2. Skill Match Bonus
         skill_weight_bonus = 0.0
@@ -47,6 +48,7 @@ class BiddingHeuristics:
             
             if match_found:
                 skill_weight_bonus += (0.1 * weight)
+                matched_skills.append(skill)
         
         confidence += skill_weight_bonus
         
@@ -64,7 +66,12 @@ class BiddingHeuristics:
         if mem > 90: health_multiplier *= 0.6
         
         confidence *= health_multiplier
-        return min(max(confidence, 0.1), 1.0)
+        
+        final_confidence = min(max(confidence, 0.1), 1.0)
+        return {
+            "confidence": final_confidence,
+            "matched_skills": matched_skills
+        }
 
     @classmethod
     async def evaluate_task(cls, task_type: str, description: str, current_load: int = 0) -> Dict[str, Any]:
@@ -74,7 +81,9 @@ class BiddingHeuristics:
         local_skills = await cls.get_local_skills()
         local_health = await PerformanceMonitor.get_resource_health()
         
-        confidence = cls.calculate_raw_confidence(task_type, description, local_skills, current_load, local_health)
+        conf_data = cls.calculate_raw_confidence(task_type, description, local_skills, current_load, local_health)
+        confidence = conf_data["confidence"]
+        matched_skills = conf_data["matched_skills"]
             
         # Resource health critical check
         cpu = local_health.get("cpu_percent", 0)
@@ -92,9 +101,21 @@ class BiddingHeuristics:
         word_count = len(description.split())
         should_bid = (confidence >= min_confidence or (word_count > 10 and current_load < 3)) and not critical_condition
         
+        # bid_value: Lower is better. Scale 1.0 - confidence.
+        bid_value = round(1.0 - confidence, 2)
+
+        sass = "I'm on it. My skills are a perfect match." if matched_skills else "I can do this, but I'm not exactly a specialist."
+        if critical_condition:
+            sass = "I'm literally melting. CPU is at critical levels. Someone else take this!"
+        elif current_load > 4:
+            sass = "I'm a bit swamped, but I'll squeeze it in if I have to."
+
         return {
             "should_bid": should_bid,
             "confidence": confidence,
+            "bid_value": bid_value,
+            "matched_skills": matched_skills,
+            "sass": sass,
             "min_confidence": min_confidence,
             "swarm_health": swarm_health,
             "current_load": current_load,
@@ -181,26 +202,37 @@ class BiddingHeuristics:
             peer_skills = peer_skills_raw if isinstance(peer_skills_raw, dict) else {s: 1.0 for s in peer_skills_raw}
 
             # A. Peer Confidence (Using the same core logic)
-            peer_confidence = cls.calculate_raw_confidence(task_type, description, peer_skills, peer_load, peer_health)
+            peer_conf_data = cls.calculate_raw_confidence(task_type, description, peer_skills, peer_load, peer_health)
+            peer_confidence = peer_conf_data["confidence"]
 
             # B. Apply Peer-Specific Multipliers (Reputation & Performance)
             reputation_score = peer_perf.get("reputation_score", 1.0)
             rep_multiplier = 1.0
             if reputation_score < settings.REPUTATION_THRESHOLD_MIN: rep_multiplier = 0.1
             elif reputation_score < 0.7: rep_multiplier = 0.5
-            
+
             peer_confidence *= rep_multiplier
-            
+
             # Performance Multiplier
             task_perf = peer_perf.get("task_types", {}).get(task_type)
             if task_perf:
                 success_rate = task_perf["success"] / task_perf["count"] if task_perf["count"] > 0 else 1.0
                 if success_rate < 0.8: peer_confidence *= 0.8
-                if success_rate > 0.95: peer_confidence *= 1.1
+                if success_rate > 0.95: peer_confidence *= 1.2
+            
+            # Latency Bonus (Chunk 24)
+            avg_latency = peer_perf.get("total_latency", 0) / peer_perf.get("total_tasks", 1) if peer_perf.get("total_tasks", 0) > 0 else 0
+            if 0 < avg_latency < 1.0: # Sub-second average
+                peer_confidence *= 1.1
 
+            # Load Balance Multiplier (Strategic Yield)
+            # If we are busy and peer is idle, give peer a bonus to encourage yielding (Chunk 20)
+            if current_load > 2 and peer_load < current_load:
+                load_bonus = 1.0 + (0.1 * (current_load - peer_load))
+                peer_confidence *= load_bonus
+            
             # C. Yield Decision with Stability Bias (0.1 threshold to break loops)
-            if peer_confidence > (local_eval["confidence"] + 0.1) and reputation_score >= settings.REPUTATION_THRESHOLD_MIN:
-                better_peers.append({
+            if peer_confidence > (local_eval["confidence"] + 0.1) and reputation_score >= settings.REPUTATION_THRESHOLD_MIN:                better_peers.append({
                     "id": peer.id,
                     "confidence": peer_confidence,
                     "reputation": reputation_score
@@ -213,6 +245,7 @@ class BiddingHeuristics:
             
             local_eval["should_bid"] = False
             local_eval["yielded_to"] = best_peer["id"]
+            local_eval["sass"] = f"Yielding to peer {best_peer['id']} due to superior performance or lower load."
             
             print(f"🧠 Strategic Yield: Yielding task {task_type} to peer {best_peer['id']} (PeerConf: {best_peer['confidence']:.2f} >> LocalConf: {local_eval['confidence']:.2f})", flush=True)
 

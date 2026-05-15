@@ -611,6 +611,376 @@ a2a
     }
   });
 
+// Capability Profile management
+const profile = a2a
+  .command('profile')
+  .description('🛡️  Capability Profile management');
+
+profile
+  .command('list')
+  .description('📋 List all capability profiles')
+  .action(async () => {
+    try {
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = '/a2a/capabilities/profiles';
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+      
+      const profiles = await response.json();
+      
+      if (profiles.length === 0) {
+        console.log(chalk.yellow('🤷 No capability profiles found.'));
+        return;
+      }
+      
+      console.log(chalk.cyan('🛡️  A2A Capability Profiles\n'));
+      profiles.forEach((p) => {
+        console.log(`${chalk.bold(p.id)} [v${p.version}]`);
+        console.log(`   ${chalk.gray(p.description || 'No description')}`);
+        console.log('');
+      });
+    } catch (error) {
+      console.error(chalk.red('Failed to list profiles:'), error.message);
+    }
+  });
+
+profile
+  .command('create')
+  .description('➕ Create a new capability profile')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (options) => {
+    try {
+      const inquirer = require('inquirer');
+      const questions = [
+        { type: 'input', name: 'id', message: 'Profile ID (e.g., shell-safe):' },
+        { type: 'input', name: 'description', message: 'Description:' },
+        { 
+          type: 'input', 
+          name: 'allowed', 
+          message: 'Allowed Patterns (JSON list of {tool, commandPattern}, or empty):',
+          default: '[]'
+        },
+        { 
+          type: 'input', 
+          name: 'denied', 
+          message: 'Denied Patterns (JSON list of {tool, commandPattern}, or empty):',
+          default: '[]'
+        }
+      ];
+
+      const answers = await inquirer.prompt(questions);
+      
+      if (!options.yes) {
+        const confirm = await inquirer.prompt([
+          { type: 'confirm', name: 'ok', message: `Create profile '${answers.id}'?`, default: true }
+        ]);
+        if (!confirm.ok) return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = '/a2a/capabilities/profiles';
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...signA2ARequest(endpoint, a2aSecret)
+        },
+        body: JSON.stringify({
+          id: answers.id,
+          description: answers.description,
+          allowed_patterns: JSON.parse(answers.allowed),
+          denied_patterns: JSON.parse(answers.denied)
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log(chalk.green(`✅ Profile '${result.id}' v${result.version} created successfully!`));
+    } catch (error) {
+      console.error(chalk.red('Failed to create profile:'), error.message);
+    }
+  });
+
+profile
+  .command('show <id>')
+  .description('🔍 Show details of a capability profile')
+  .action(async (id) => {
+    try {
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/capabilities/profiles/${id}`;
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+      
+      const versions = await response.json();
+      if (versions.length === 0) {
+        console.log(chalk.yellow(`🤷 Profile '${id}' not found.`));
+        return;
+      }
+
+      console.log(chalk.cyan(`🛡️  Profile: ${chalk.bold(id)}\n`));
+      versions.forEach((p) => {
+        console.log(chalk.yellow(`--- Version ${p.version} ---`));
+        console.log(`Description: ${p.description || 'N/A'}`);
+        console.log(`Allowed Patterns: ${JSON.stringify(p.allowed_patterns, null, 2)}`);
+        console.log(`Denied Patterns: ${JSON.stringify(p.denied_patterns, null, 2)}`);
+        console.log(`Created At: ${p.created_at}`);
+        console.log('');
+      });
+    } catch (error) {
+      console.error(chalk.red('Failed to show profile:'), error.message);
+    }
+  });
+
+// Workspace Grant management
+const grant = a2a
+  .command('grant')
+  .description('🔑 Workspace Grant management');
+
+grant
+  .command('list [workspace_id]')
+  .description('📋 List active grants for a workspace')
+  .action(async (workspaceId) => {
+    try {
+      if (!workspaceId) {
+        console.log(chalk.yellow('Usage: medusa a2a grant list <workspace_id>'));
+        return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/workspaces/${workspaceId}/grants`;
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+      
+      const grants = await response.json();
+      
+      if (grants.length === 0) {
+        console.log(chalk.yellow(`🤷 No active grants found for workspace '${workspaceId}'.`));
+        return;
+      }
+      
+      console.log(chalk.cyan(`🔑 Active Grants for ${chalk.bold(workspaceId)}\n`));
+      grants.forEach((g) => {
+        console.log(`${chalk.bold(g.id)} [Profile: ${g.profile_id} v${g.profile_version}]`);
+        console.log(`   Expires: ${g.expires_at}`);
+        console.log(`   Granted By: ${g.granted_by}`);
+        console.log('');
+      });
+    } catch (error) {
+      console.error(chalk.red('Failed to list grants:'), error.message);
+    }
+  });
+
+grant
+  .command('create <workspace_id> <profile_id> [hours]')
+  .description('➕ Issue a new grant to a workspace')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (workspaceId, profileId, hours, options) => {
+    try {
+      const inquirer = require('inquirer');
+      const duration = hours ? parseInt(hours) : 1;
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + duration);
+
+      if (!options.yes) {
+        const confirm = await inquirer.prompt([
+          { 
+            type: 'confirm', 
+            name: 'ok', 
+            message: `Issue grant to '${workspaceId}' using profile '${profileId}' for ${duration} hour(s)?`, 
+            default: true 
+          }
+        ]);
+        if (!confirm.ok) return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/workspaces/${workspaceId}/grants`;
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...signA2ARequest(endpoint, a2aSecret)
+        },
+        body: JSON.stringify({
+          profile_id: profileId,
+          granted_by: 'CLI-Operator',
+          expires_at: expiresAt.toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log(chalk.green(`✅ Grant '${result.id}' issued successfully!`));
+      console.log(chalk.gray(`   Expires at: ${result.expires_at}`));
+    } catch (error) {
+      console.error(chalk.red('Failed to issue grant:'), error.message);
+    }
+  });
+
+grant
+  .command('revoke <grant_id>')
+  .description('🚫 Revoke an active grant')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (grantId, options) => {
+    try {
+      const inquirer = require('inquirer');
+      if (!options.yes) {
+        const confirm = await inquirer.prompt([
+          { type: 'confirm', name: 'ok', message: `Revoke grant '${grantId}'?`, default: false }
+        ]);
+        if (!confirm.ok) return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/grants/${grantId}`;
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        method: 'DELETE',
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+
+      console.log(chalk.green(`✅ Grant '${grantId}' revoked successfully.`));
+    } catch (error) {
+      console.error(chalk.red('Failed to revoke grant:'), error.message);
+    }
+  });
+
+// Mesh Peer management
+const peer = a2a
+  .command('peer')
+  .description('🌐  Mesh Peer management');
+
+peer
+  .command('list')
+  .description('📋 List all known peers in the mesh')
+  .action(async () => {
+    try {
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = '/a2a/gossip/peers';
+      const response = await fetch(`http://localhost:3200${endpoint}`, {
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+      
+      const peers = await response.json();
+      
+      if (peers.length === 0) {
+        console.log(chalk.yellow('🤷 No peers found in mesh ledger.'));
+        return;
+      }
+      
+      console.log(chalk.cyan('🌐  A2A Mesh Peers\n'));
+      peers.forEach((p) => {
+        let statusColor = p.status === 'active' ? chalk.green : chalk.red;
+        console.log(`${chalk.bold(p.id)} [${statusColor(p.status)}]`);
+        console.log(`   Address: ${p.address}`);
+        console.log(`   Last Seen: ${p.last_seen}`);
+        
+        if (p.health_metadata && p.health_metadata.conflict_count) {
+          console.log(`   Conflicts: ${chalk.yellow(p.health_metadata.conflict_count)} ⚔️`);
+        }
+        
+        if (p.status === 'quarantined') {
+          console.log(`   ${chalk.red('🚫 QUARANTINED')}`);
+        }
+        console.log('');
+      });
+    } catch (error) {
+      console.error(chalk.red('Failed to list peers:'), error.message);
+    }
+  });
+
+peer
+  .command('quarantine <node_id>')
+  .description('🚫 Manually quarantine a peer')
+  .requiredOption('-r, --reason <text>', 'Reason for quarantine')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (nodeId, options) => {
+    try {
+      const inquirer = require('inquirer');
+      if (!options.yes) {
+        const confirm = await inquirer.prompt([
+          { type: 'confirm', name: 'ok', message: `Quarantine node '${nodeId}' for: ${options.reason}?`, default: false }
+        ]);
+        if (!confirm.ok) return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/gossip/peers/${nodeId}/quarantine`;
+      const response = await fetch(`http://localhost:3200${endpoint}?reason=${encodeURIComponent(options.reason)}`, {
+        method: 'POST',
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+
+      console.log(chalk.green(`✅ Node '${nodeId}' has been quarantined.`));
+    } catch (error) {
+      console.error(chalk.red('Failed to quarantine node:'), error.message);
+    }
+  });
+
+peer
+  .command('unquarantine <node_id>')
+  .description('✅ Remove a peer from quarantine')
+  .requiredOption('-r, --reason <text>', 'Reason for unquarantine')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (nodeId, options) => {
+    try {
+      const inquirer = require('inquirer');
+      if (!options.yes) {
+        const confirm = await inquirer.prompt([
+          { type: 'confirm', name: 'ok', message: `Unquarantine node '${nodeId}' for: ${options.reason}?`, default: true }
+        ]);
+        if (!confirm.ok) return;
+      }
+
+      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const endpoint = `/a2a/gossip/peers/${nodeId}/unquarantine`;
+      const response = await fetch(`http://localhost:3200${endpoint}?reason=${encodeURIComponent(options.reason)}`, {
+        method: 'POST',
+        headers: signA2ARequest(endpoint, a2aSecret)
+      });
+
+      if (!response.ok) {
+        throw new Error(`A2A Node responded with ${response.status}`);
+      }
+
+      console.log(chalk.green(`✅ Node '${nodeId}' has been unquarantined.`));
+    } catch (error) {
+      console.error(chalk.red('Failed to unquarantine node:'), error.message);
+    }
+  });
+
 medusa
   .command('start')
   .description('Start the Medusa Protocol server')

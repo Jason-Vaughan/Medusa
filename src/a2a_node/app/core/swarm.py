@@ -87,15 +87,17 @@ async def run_swarm_intelligence():
 
 async def run_task_janitor():
     """
-    Background task that monitors for stalled tasks and releases them back to the swarm.
+    Background task that monitors for stalled tasks and performs daily ledger pruning.
     """
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
     STALL_TIMEOUT = settings.STALL_TIMEOUT if hasattr(settings, "STALL_TIMEOUT") else 300
     
     print(f"🧹 Task Janitor started for node {node_id} (Timeout: {STALL_TIMEOUT}s)", flush=True)
+    last_prune = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=23) # Trigger soon after start
 
     while True:
         try:
+            # 1. Stalled Task Recovery
             async with AsyncSessionLocal() as db:
                 now_naive = datetime.now(UTC).replace(tzinfo=None)
                 stall_threshold = now_naive - timedelta(seconds=STALL_TIMEOUT)
@@ -127,7 +129,24 @@ async def run_task_janitor():
                     
                 if stalled_tasks:
                     await db.commit()
-                    
+            
+            # 2. Daily Ledger Pruning (Hygiene)
+            now_naive = datetime.now(UTC).replace(tzinfo=None)
+            if now_naive - last_prune > timedelta(hours=24):
+                print("🧹 Janitor: Starting daily ledger hygiene pass...", flush=True)
+                
+                # Order matters: Messages -> Tasks -> PerformanceSnapshots
+                from app.core.messages import MessageManager
+                from app.core.execution import TaskExecutor
+                from app.core.performance import PerformanceMonitor
+                
+                await MessageManager.prune_messages()
+                await TaskExecutor.prune_tasks()
+                await PerformanceMonitor.prune_snapshots()
+                
+                last_prune = now_naive
+                print("✨ Janitor: Ledger hygiene pass complete.", flush=True)
+
         except Exception as e:
             logger.error(f"⚠️ Task Janitor error: {str(e)}")
             

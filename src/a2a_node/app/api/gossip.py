@@ -70,6 +70,81 @@ async def list_peers(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PeerEntry))
     return result.scalars().all()
 
+@router.post("/peers/{node_id}/quarantine")
+async def quarantine_peer(node_id: str, reason: str, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
+    """
+    Manually quarantines a peer with a required reason and audit trail.
+    """
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+    peer = result.scalars().first()
+    if not peer:
+        raise HTTPException(status_code=404, detail="Peer not found in ledger.")
+    
+    old_status = peer.status
+    peer.status = "quarantined"
+    
+    # Audit trail
+    health = peer.health_metadata or {}
+    audit_log = health.get("audit_log", [])
+    
+    import getpass
+    import time
+    entry = {
+        "action": "quarantine",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "reason": reason,
+        "operator": operator or getpass.getuser(),
+        "previous_status": old_status
+    }
+    audit_log.append(entry)
+    health["audit_log"] = audit_log
+    peer.health_metadata = health
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(peer, "health_metadata")
+    
+    await db.commit()
+    return {"status": "quarantined", "node_id": node_id, "audit": entry}
+
+@router.post("/peers/{node_id}/unquarantine")
+async def unquarantine_peer(node_id: str, reason: str, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
+    """
+    Removes a peer from quarantine with a required reason and audit trail.
+    """
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+    peer = result.scalars().first()
+    if not peer:
+        raise HTTPException(status_code=404, detail="Peer not found in ledger.")
+    
+    old_status = peer.status
+    peer.status = "active"
+    
+    # Audit trail
+    health = peer.health_metadata or {}
+    audit_log = health.get("audit_log", [])
+    
+    import getpass
+    entry = {
+        "action": "unquarantine",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "reason": reason,
+        "operator": operator or getpass.getuser(),
+        "previous_status": old_status
+    }
+    audit_log.append(entry)
+    health["audit_log"] = audit_log
+    
+    # Also reset conflict count if unquarantining manually
+    health["conflict_count"] = 0
+    
+    peer.health_metadata = health
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(peer, "health_metadata")
+    
+    await db.commit()
+    return {"status": "active", "node_id": node_id, "audit": entry}
+
 @router.get("/sync", response_model=SyncResponse)
 async def sync_ledger(since: Optional[datetime] = None, db: AsyncSession = Depends(get_db)):
     """

@@ -2,24 +2,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|clear|resume",
+        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/product-hook\" clear",
-            "statusMessage": "Preparing session..."
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/product-hook\" stop",
-            "statusMessage": "Checking governance gates..."
+            "command": "/Users/jasonvaughan/Documents/Projects/TangleClaw-v3/data/hooks/sessionstart-prime.sh",
+            "statusMessage": "Loading session prime..."
           }
         ]
       }

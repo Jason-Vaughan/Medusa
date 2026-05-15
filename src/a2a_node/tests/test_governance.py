@@ -125,8 +125,7 @@ async def test_governance_evaluation():
     # Risky keyword task
     rm_eval = await GovernanceEngine.evaluate_task("other", "please rm -rf /")
     assert rm_eval["requires_approval"] is True
-    assert "rm " in rm_eval["reason"]
-
+    assert "\\brm\\b" in rm_eval["reason"]
 @pytest.mark.asyncio
 async def test_task_retry_logic():
     """

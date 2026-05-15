@@ -2,11 +2,13 @@ work_in_progress:
   description: 'Phase 16: Snapshot Pruning & Mesh Security'
   size: Small
   type: Feature
-  status: Discovery
-  chunk: 23
+  status: Planning
+  chunk: 24
 discovery_complete: false
 planning_complete: false
 current_phase: Discovery
-next_step: Research efficient snapshot pruning strategies for the SQLite ledger to prevent database bloat.
-last_completed_chunk: 22
+next_step: >-
+  Research efficient snapshot pruning strategies for the SQLite ledger to
+  prevent database bloat.
+last_completed_chunk: 23
 last_chunk_status: Complete

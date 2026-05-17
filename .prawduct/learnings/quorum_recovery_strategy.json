@@ -1,0 +1,6 @@
+{
+  "learning": "Hybrid Quorum Recovery (Expand-then-Downgrade) significantly reduces task stagnation in dynamic swarms. By implementing a 60s expansion timeout followed by a 120s dynamic downgrade timeout, the swarm can maintain high confidence when possible but ensure progress when capacity is genuinely constrained.",
+  "context": "Issue #22 Swarm Self-Healing",
+  "tags": ["swarm", "consensus", "resilience"],
+  "timestamp": "2026-05-16T12:00:00Z"
+}

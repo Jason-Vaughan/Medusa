@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import httpx
+import sys
+import os
 from datetime import datetime, UTC, timedelta
 from sqlalchemy import select, or_, and_
 from app.core.database import AsyncSessionLocal
@@ -10,6 +12,10 @@ from app.core.heuristics import BiddingHeuristics
 
 logger = logging.getLogger("a2a_swarm")
 
+_start_time = datetime.now(UTC)
+_last_active_time = datetime.now(UTC)
+_is_shutting_down = False
+
 async def run_swarm_intelligence():
     """
     Background task that scans for tasks to claim based on skills and swarm logic.
@@ -18,6 +24,10 @@ async def run_swarm_intelligence():
     print(f"🐝 Swarm Intelligence started for node {node_id}", flush=True)
 
     while True:
+        if _is_shutting_down:
+            await asyncio.sleep(5)
+            continue
+
         try:
             async with AsyncSessionLocal() as db:
                 # 0. Fetch active peers and their strategies
@@ -75,6 +85,8 @@ async def run_swarm_intelligence():
                                     res = r.json()
                                     if res.get("status") == "claimed":
                                         print(f"✅ Node {node_id} successfully claimed task {task.id[:8]}", flush=True)
+                                        global _last_active_time
+                                        _last_active_time = datetime.now(UTC)
                                     else:
                                         print(f"⚠️ Node {node_id} failed to claim task {task.id[:8]}: {res.get('status')}", flush=True)
                             except Exception as e:
@@ -84,6 +96,70 @@ async def run_swarm_intelligence():
             logger.error(f"⚠️ Swarm intelligence error: {str(e)}")
             
         await asyncio.sleep(10)
+
+async def perform_graceful_shutdown():
+    """
+    Executes the 5-step graceful shutdown protocol for spawned nodes.
+    """
+    global _is_shutting_down
+    _is_shutting_down = True
+    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    
+    print(f"🛑 Initiating graceful shutdown for spawned node {node_id}...", flush=True)
+    
+    # 1. Flip bidding flag off (Already handled by _is_shutting_down check in run_swarm_intelligence)
+    
+    # 2. Drain currently-claimed tasks
+    MAX_DRAIN = 60 # seconds
+    drain_start = datetime.now(UTC)
+    while True:
+        from app.core.performance import PerformanceMonitor
+        load = await PerformanceMonitor.get_current_load()
+        if load.get("total_load", 0) == 0:
+            print("🚿 All tasks drained successfully.", flush=True)
+            break
+        
+        if (datetime.now(UTC) - drain_start).total_seconds() > MAX_DRAIN:
+            print(f"⚠️ Drain timeout hit ({MAX_DRAIN}s). Abandoning remaining tasks.", flush=True)
+            break
+        
+        await asyncio.sleep(5)
+
+    # 3. Fire POST /mesh/contract to Medusa Server
+    endpoint = "/mesh/contract"
+    url = f"{settings.MEDUSA_SERVER_URL}{endpoint}"
+    from app.core.auth_utils import get_auth_headers
+    headers = get_auth_headers(endpoint)
+    payload = {"node_id": node_id, "kind": "self_terminate_idle"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(url, headers=headers, json=payload, timeout=5.0)
+            print("📉 Medusa Server notified of contraction.", flush=True)
+    except Exception as e:
+        print(f"⚠️ Failed to notify Medusa Server of contraction: {e}", flush=True)
+
+    # 4. Release TangleClaw port
+    from app.core.tangleclaw import release_port
+    release_port()
+    
+    # 5. Exit process
+    print("👋 Shutdown complete. Goodbye, world.", flush=True)
+    os._exit(0) # Use os._exit to force exit from thread/task
+
+async def check_auto_termination():
+    """
+    Checks if the node should autonomously scale down.
+    """
+    if settings.A2A_NODE_TYPE != "seed" and not _is_shutting_down:
+        now = datetime.now(UTC)
+        uptime = (now - _start_time).total_seconds()
+        idle_time = (now - _last_active_time).total_seconds()
+        
+        # Min 15m uptime + 10m idle
+        if uptime > 900 and idle_time > 600:
+            print(f"❄️ Node idle for {idle_time/60:.1f}m. Triggering auto-termination.", flush=True)
+            asyncio.create_task(perform_graceful_shutdown())
 
 async def run_task_janitor():
     """
@@ -97,6 +173,9 @@ async def run_task_janitor():
 
     while True:
         try:
+            # 0. Check for auto-termination
+            await check_auto_termination()
+
             # 1. Stalled Task Recovery
             async with AsyncSessionLocal() as db:
                 now_naive = datetime.now(UTC).replace(tzinfo=None)
@@ -124,8 +203,13 @@ async def run_task_janitor():
                     
                     print(f"🏴‍☠️ Work Stealing: Node {old_owner} was too slow. Releasing task {task.id[:8]} back to the wild.", flush=True)
                     if old_owner:
-                        from app.core.reputation import ReputationEngine
-                        await ReputationEngine.update_reputation(old_owner, "stalled")
+                        owner_result = await db.execute(select(PeerEntry).filter(PeerEntry.id == old_owner))
+                        owner = owner_result.scalars().first()
+                        if owner and owner.status == "terminated":
+                            print(f"🕊️ Janitor: Node {old_owner} terminated cleanly. Skipping reputation penalty.", flush=True)
+                        else:
+                            from app.core.reputation import ReputationEngine
+                            await ReputationEngine.update_reputation(old_owner, "stalled")
                     
                 if stalled_tasks:
                     await db.commit()

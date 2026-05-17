@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [0.8.2-beta] - 2026-05-14
+### Added
+- **Issue #19: Advanced Capabilities & Profiles (Dynamic Trust).**
+- **Administrative CLI:** Added `medusa a2a profile/grant/peer` for mesh-wide governance.
+- **Scoped Pre-approval:** Pattern-based grants for bypassing HITL prompts in trusted workspaces.
+- **Ledger Hygiene:** Implemented dual-threshold pruning (7d routine, 30d audit) for tasks and messages.
+- **Peer Quarantine:** Manual and automatic isolation of rogue nodes with audit trail preservation.
+
+### Fixed
+- **Issue #18 Phase 5:** Resolved critical mesh synchronization hangs by standardizing on timezone-naive UTC for SQLite stability.
+- **Governance Accuracy:** Implemented word-bounded regex for critical keyword detection to prevent 'Scunthorpe Problem' false positives.
+
 ## [0.8.1-beta] - 2026-05-06
 ### Added
 - **Issue #18 Phase 4: High-Density Mutation Cleanup.** Hardened core component tests to eliminate logic-based survived mutants.

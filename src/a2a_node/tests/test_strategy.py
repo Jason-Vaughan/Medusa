@@ -30,6 +30,10 @@ async def test_strategy_sharing():
 @pytest.mark.asyncio
 async def test_load_based_yield():
     """Verify that node yields to a peer when swamped."""
+    from app.core.performance import PerformanceMonitor
+    PerformanceMonitor.get_resource_health = AsyncMock(return_value={"cpu_percent": 10, "memory_percent": 10})
+    PerformanceMonitor.get_swarm_health = AsyncMock(return_value=1.0)
+    
     task_type = "python_fix_debug_senior"
     description = "Fix a bug in the python script with senior oversight"
     

@@ -11,6 +11,7 @@ import json
 from app.core.config import settings
 from app.core.security import verify_medusa_handshake, verify_medusa_secret
 from app.core.auth_utils import get_auth_headers
+from app.core.performance import PerformanceMonitor
 import asyncio
 
 router = APIRouter(dependencies=[Depends(verify_medusa_handshake)])
@@ -69,12 +70,16 @@ async def list_peers(db: AsyncSession = Depends(get_db)):
     """
     result = await db.execute(select(PeerEntry))
     return result.scalars().all()
+class PeerStatusAction(BaseModel):
+    reason: str
 
 @router.post("/peers/{node_id}/quarantine")
-async def quarantine_peer(node_id: str, reason: str, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
+async def quarantine_peer(node_id: str, action: PeerStatusAction, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
     """
     Manually quarantines a peer with a required reason and audit trail.
     """
+    reason = action.reason
+
     result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
     peer = result.scalars().first()
     if not peer:
@@ -105,12 +110,13 @@ async def quarantine_peer(node_id: str, reason: str, operator: Optional[str] = H
     
     await db.commit()
     return {"status": "quarantined", "node_id": node_id, "audit": entry}
-
 @router.post("/peers/{node_id}/unquarantine")
-async def unquarantine_peer(node_id: str, reason: str, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
+async def unquarantine_peer(node_id: str, action: PeerStatusAction, operator: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
     """
     Removes a peer from quarantine with a required reason and audit trail.
     """
+    reason = action.reason
+
     result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
     peer = result.scalars().first()
     if not peer:
@@ -144,6 +150,22 @@ async def unquarantine_peer(node_id: str, reason: str, operator: Optional[str] =
     
     await db.commit()
     return {"status": "active", "node_id": node_id, "audit": entry}
+
+@router.post("/peers/{node_id}/terminate")
+async def terminate_peer(node_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Marks a peer as terminated (clean exit) to avoid reputation penalties.
+    """
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == node_id))
+    peer = result.scalars().first()
+    if not peer:
+        raise HTTPException(status_code=404, detail="Peer not found in ledger.")
+    
+    peer.status = "terminated"
+    peer.last_seen = datetime.now(UTC).replace(tzinfo=None)
+    
+    await db.commit()
+    return {"status": "terminated", "node_id": node_id}
 
 @router.get("/sync", response_model=SyncResponse)
 async def sync_ledger(since: Optional[datetime] = None, db: AsyncSession = Depends(get_db)):
@@ -255,6 +277,7 @@ async def run_gossip():
                 # 5. Swarm Self-Healing (Chunk 31)
                 async with AsyncSessionLocal() as db:
                     await cleanup_zombie_tasks(db)
+                    await recover_stalled_consensus(db)
                 
                 last_sync_check = datetime.now(UTC).replace(tzinfo=None)
             
@@ -333,10 +356,14 @@ async def reach_consensus(task: TaskEntry, db: Optional[AsyncSession] = None):
     sorted_results = sorted(result_weights.items(), key=lambda x: x[1], reverse=True)
     best_res_json, best_weight = sorted_results[0]
     
-    task.results_metadata = {
+    metadata = task.results_metadata or {}
+    metadata.update({
         "total_weight": round(total_weight, 2),
         "distribution": {res_json: {"weight": round(w, 2), "count": result_counts[res_json]} for res_json, w in result_weights.items()}
-    }
+    })
+    task.results_metadata = metadata
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(task, "results_metadata")
 
     achieved = False
     if len(votes) >= task.min_votes:
@@ -443,6 +470,75 @@ async def cleanup_zombie_tasks(db: AsyncSession):
             task.retry_count += 1
             task.last_health_check = now
             
+    await db.commit()
+
+async def recover_stalled_consensus(db: AsyncSession):
+    """
+    Identifies tasks stalled due to insufficient active nodes and triggers recovery.
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    result = await db.execute(
+        select(TaskEntry).filter(
+            TaskEntry.requires_consensus == 1,
+            TaskEntry.consensus_status == "pending"
+        )
+    )
+    tasks = result.scalars().all()
+    
+    if not tasks:
+        return
+
+    # Count active peers (including self)
+    peer_result = await db.execute(
+        select(PeerEntry).filter(
+            PeerEntry.status == "active",
+            PeerEntry.last_seen >= (now - timedelta(minutes=5))
+        )
+    )
+    active_peers = peer_result.scalars().all()
+    active_count = len(active_peers)
+    
+    # Ensure current node is counted if not in the list (e.g. if it hasn't pinged itself)
+    # Most implementations include self in the peers table, but let's be safe.
+    # If active_count is 0, we assume at least 1 (self) is active if this is running.
+    if active_count == 0:
+        active_count = 1
+
+    for task in tasks:
+        if active_count < task.min_votes:
+            # Stalled!
+            updated_at = task.updated_at.replace(tzinfo=None) if task.updated_at.tzinfo else task.updated_at
+            pending_duration = (now - updated_at).total_seconds()
+            
+            metadata = task.execution_metadata or {}
+            
+            # Phase 1: Expand (60s - 120s)
+            if 60 <= pending_duration < 120:
+                if not metadata.get("last_expansion_request"):
+                    print(f"📈 Quorum Recovery: Task {task.id[:8]} stalled. Requesting expansion.", flush=True)
+                    await PerformanceMonitor.request_mesh_expansion()
+                    metadata["last_expansion_request"] = now.isoformat()
+                    task.execution_metadata = metadata
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(task, "execution_metadata")
+            
+            # Phase 2: Downgrade (> 120s)
+            elif pending_duration >= 120:
+                print(f"⚠️ Quorum Recovery: Task {task.id[:8]} downgraded from {task.min_votes} to {active_count}.", flush=True)
+                
+                res_metadata = task.results_metadata or {}
+                res_metadata["quorum_downgraded"] = True
+                res_metadata["original_min_votes"] = task.min_votes
+                task.results_metadata = res_metadata
+                
+                task.min_votes = active_count
+                
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(task, "results_metadata")
+                
+                # Immediately re-evaluate consensus
+                await reach_consensus(task, db)
+                    
     await db.commit()
 
 async def merge_sync_data(data: dict):

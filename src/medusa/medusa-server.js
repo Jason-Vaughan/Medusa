@@ -14,6 +14,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const os = require('os');
 const WebSocket = require('ws');
+const { spawn } = require('child_process');
 const ProcessLock = require('../utils/ProcessLock');
 
 // Load version from package.json dynamically
@@ -54,6 +55,14 @@ class MedusaServer {
     this.wsClients = new Map(); // WebSocket connections by workspace ID
     this.listenerStatus = new Map(); // Track listener heartbeats
     this.messageCache = new Map(); // Cache to prevent message loops
+
+    // Swarm Management State (Chunk 34)
+    this.lastSpawnTime = 0;
+    this.spawnApprovalCount = 0;
+    this.spawnApprovalGateLiftsAt = 5;
+    this.pendingSpawnRequests = []; // HITL queue
+    this.spawnPortRange = { min: 4220, max: 4239 };
+    this.lastContractTime = 0;
 
     // Server instances
     this.protocolServer = null;
@@ -152,6 +161,139 @@ class MedusaServer {
     });
   }
 
+  /**
+   * Verifies an A2A request signature using HMAC-SHA256
+   */
+  verifyA2ASignature(headers, pathname) {
+    const timestamp = headers['x-medusa-timestamp'];
+    const signature = headers['x-medusa-signature'];
+    
+    if (!timestamp || !signature) return false;
+    
+    // Replay protection: 5 minute window
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - parseInt(timestamp)) > 300) return false;
+    
+    const payload = `${timestamp}${pathname}`;
+    const expectedSignature = crypto.createHmac('sha256', this.a2aSecret)
+      .update(payload)
+      .digest('hex');
+      
+    try {
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Finds an available port in the dedicated range using TangleClaw PortHub
+   */
+  async getAvailablePortFromTangleClaw() {
+    const tangleClawUrl = 'https://localhost:3102/api/ports';
+    const https = require('https');
+    
+    return new Promise((resolve, reject) => {
+      const url = new URL(tangleClawUrl);
+      const options = {
+        method: 'GET',
+        rejectUnauthorized: false // TangleClaw often uses self-signed mkcert
+      };
+      
+      const req = https.request(url, options, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            const takenPorts = new Set(data.leases.map(l => l.port));
+            
+            for (let port = this.spawnPortRange.min; port <= this.spawnPortRange.max; port++) {
+              if (!takenPorts.has(port)) {
+                resolve(port);
+                return;
+              }
+            }
+            reject(new Error(`No available ports in dedicated range ${this.spawnPortRange.min}-${this.spawnPortRange.max}`));
+          } catch (e) {
+            reject(new Error(`Failed to parse TangleClaw response: ${e.message}`));
+          }
+        });
+      });
+      
+      req.on('error', (e) => reject(new Error(`TangleClaw connection failed: ${e.message}`)));
+      req.end();
+    });
+  }
+
+  /**
+   * Spawns a new A2A Node child process
+   */
+  async spawnA2ANode(port) {
+    const a2aPath = path.join(__dirname, '..', 'a2a_node', 'main.py');
+    const venvPython = path.join(__dirname, '..', 'a2a_node', 'venv', 'bin', 'python');
+    const pythonCmd = require('fs').existsSync(venvPython) ? venvPython : 'python3';
+    
+    const nodeId = `${this.serverMetadata.controllingWorkspace}-spawned-${port}`;
+    console.log(`🚀 Spawning A2A Node: ${nodeId} on port ${port}`);
+    
+    const a2aProcess = spawn(pythonCmd, [a2aPath], {
+      detached: true,
+      stdio: 'ignore',
+      env: { 
+        ...process.env, 
+        A2A_PORT: port,
+        A2A_PROJECT_NAME: `${this.serverMetadata.controllingWorkspace}-spawned`,
+        A2A_NODE_TYPE: 'spawned',
+        A2A_SECRET: this.a2aSecret
+      }
+    });
+    
+    a2aProcess.unref();
+    this.lastSpawnTime = Date.now();
+    
+    // Log telemetry
+    this.messageHistory.push({
+      id: `sys-${Date.now()}`,
+      from: 'system',
+      to: 'dashboard',
+      message: `mesh.expand.executed: ${nodeId} on port ${port}`,
+      timestamp: new Date().toISOString(),
+      type: 'telemetry'
+    });
+
+    // Monitor for success to lift HITL gate
+    if (this.spawnApprovalCount < this.spawnApprovalGateLiftsAt) {
+      this.pollForSpawnSuccess(nodeId);
+    }
+    
+    return nodeId;
+  }
+
+  /**
+   * Polls the gossip mesh until the new node is active
+   */
+  async pollForSpawnSuccess(nodeId, attempts = 0) {
+    if (attempts > 12) return; // 1 minute timeout (5s * 12)
+    
+    try {
+      const result = await this.callA2A('GET', '/a2a/gossip/peers');
+      if (result.ok && Array.isArray(result.data)) {
+        const node = result.data.find(p => p.id === nodeId && p.status === 'active');
+        if (node) {
+          console.log(`✅ Spawned node ${nodeId} is now active. Incrementing approval count.`);
+          this.spawnApprovalCount++;
+          await this.saveRegistry();
+          return;
+        }
+      }
+    } catch (e) {
+      // Ignore polling errors
+    }
+    
+    setTimeout(() => this.pollForSpawnSuccess(nodeId, attempts + 1), 5000);
+  }
+
   // Update listener heartbeat
   updateListenerHeartbeat(workspaceId, status = 'active') {
     this.listenerStatus.set(workspaceId, {
@@ -169,15 +311,20 @@ class MedusaServer {
       const data = await fs.readFile(this.workspaceRegistryFile, 'utf8');
       const parsed = JSON.parse(data);
       
-      for (const [id, workspace] of Object.entries(parsed)) {
+      // Handle both old format (direct map) and new format (nested)
+      const workspaces = parsed.workspaces || parsed;
+      for (const [id, workspace] of Object.entries(workspaces)) {
+        if (id === 'spawnApprovalCount') continue;
         this.workspaceRegistry.set(id, {
           ...workspace,
           lastSeen: new Date(workspace.lastSeen),
           registeredAt: new Date(workspace.registeredAt)
         });
       }
+
+      this.spawnApprovalCount = parsed.spawnApprovalCount || 0;
       
-      console.log(`🐍 Loaded ${this.workspaceRegistry.size} workspaces from registry`);
+      console.log(`🐍 Loaded ${this.workspaceRegistry.size} workspaces from registry (Spawn count: ${this.spawnApprovalCount})`);
     } catch (error) {
       if (error.code !== 'ENOENT') {
         console.error('Error loading registry:', error);
@@ -190,12 +337,12 @@ class MedusaServer {
   // Save workspace registry to disk
   async saveRegistry() {
     try {
-      const data = {};
-      for (const [id, workspace] of this.workspaceRegistry) {
-        data[id] = workspace;
-      }
+      const registry = {
+        workspaces: Object.fromEntries(this.workspaceRegistry),
+        spawnApprovalCount: this.spawnApprovalCount
+      };
       
-      await fs.writeFile(this.workspaceRegistryFile, JSON.stringify(data, null, 2));
+      await fs.writeFile(this.workspaceRegistryFile, JSON.stringify(registry, null, 2));
     } catch (error) {
       console.error('Error saving registry:', error);
     }
@@ -713,6 +860,281 @@ class MedusaServer {
           res.statusCode = result.status;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(result.data));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // --- GOVERNANCE BRIDGE (Issue #20) ---
+
+      // Quarantine peer
+      if (pathname.startsWith('/peers/') && pathname.endsWith('/quarantine') && req.method === 'POST') {
+        try {
+          const nodeId = pathname.split('/')[2];
+          const data = await this.readRequestBody(req);
+          const result = await this.callA2A('POST', `/a2a/gossip/peers/${nodeId}/quarantine`, data);
+          res.statusCode = result.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result.data));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Unquarantine peer
+      if (pathname.startsWith('/peers/') && pathname.endsWith('/unquarantine') && req.method === 'POST') {
+        try {
+          const nodeId = pathname.split('/')[2];
+          const data = await this.readRequestBody(req);
+          const result = await this.callA2A('POST', `/a2a/gossip/peers/${nodeId}/unquarantine`, data);
+          res.statusCode = result.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result.data));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // List all capability profiles
+      if (pathname === '/capabilities/profiles' && req.method === 'GET') {
+        try {
+          const result = await this.callA2A('GET', '/a2a/capabilities/profiles');
+          res.statusCode = result.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ profiles: result.data }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // List grants for a workspace
+      if (pathname.startsWith('/workspaces/') && pathname.endsWith('/grants') && req.method === 'GET') {
+        try {
+          const workspaceId = pathname.split('/')[2];
+          const result = await this.callA2A('GET', `/a2a/workspaces/${workspaceId}/grants`);
+          res.statusCode = result.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ grants: result.data }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Revoke a grant
+      if (pathname.startsWith('/grants/') && req.method === 'DELETE') {
+        try {
+          const grantId = pathname.split('/')[2];
+          const result = await this.callA2A('DELETE', `/a2a/grants/${grantId}`);
+          res.statusCode = result.status;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result.data));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // --- SWARM MANAGEMENT (Issue #21) ---
+
+      // Expand mesh capacity
+      if (pathname === '/mesh/expand' && req.method === 'POST') {
+        try {
+          // 1. Authentication
+          if (!this.verifyA2ASignature(req.headers, pathname)) {
+            res.statusCode = 401;
+            res.end(JSON.stringify({ error: 'Unauthorized: Invalid HMAC signature' }));
+            return;
+          }
+
+          // 2. Spawn Rate Limit (Max 1 per 60s)
+          const now = Date.now();
+          if (now - this.lastSpawnTime < 60000) {
+            console.log('⚠️ Mesh expansion rate limited (60s cooldown)');
+            res.statusCode = 429;
+            res.end(JSON.stringify({ error: 'Rate limited: 60s cooldown between spawns' }));
+            return;
+          }
+
+          // 3. Hard Cap & Reconciliation (Max 4 children)
+          const peersResult = await this.callA2A('GET', '/a2a/gossip/peers');
+          let liveChildren = 0;
+          if (peersResult.ok && Array.isArray(peersResult.data)) {
+            liveChildren = peersResult.data.filter(p => p.status === 'active' && p.id.includes('-spawned-')).length;
+          }
+          
+          if (liveChildren >= 4) {
+            console.log(`❌ Mesh expansion cap hit (${liveChildren} children)`);
+            res.statusCode = 403;
+            res.end(JSON.stringify({ error: 'Capacity cap hit: max 4 spawned children' }));
+            return;
+          }
+
+          // 4. HITL Gate (First 5 successful spawns)
+          if (this.spawnApprovalCount < this.spawnApprovalGateLiftsAt) {
+            const requestId = `spawn-${Date.now()}`;
+            this.pendingSpawnRequests.push({
+              id: requestId,
+              requestedAt: new Date().toISOString(),
+              status: 'pending'
+            });
+            
+            console.log(`🛡️ HITL Gate: Spawn request ${requestId} queued for operator approval`);
+            
+            // Emit telemetry for Discord/Dashboard
+            this.messageHistory.push({
+              id: `sys-${Date.now()}`,
+              from: 'system',
+              to: 'dashboard',
+              message: `mesh.expand.requested: Approval required (Queue depth: ${this.pendingSpawnRequests.length})`,
+              timestamp: new Date().toISOString(),
+              type: 'telemetry'
+            });
+
+            res.statusCode = 202; // Accepted
+            res.end(JSON.stringify({ 
+              status: 'awaiting_approval', 
+              requestId,
+              message: 'First 5 spawns require manual approval. Check the dashboard.'
+            }));
+            return;
+          }
+
+          // 5. Execute Spawn
+          const port = await this.getAvailablePortFromTangleClaw();
+          const nodeId = await this.spawnA2ANode(port);
+
+          res.statusCode = 200;
+          res.end(JSON.stringify({ status: 'spawning', nodeId, port }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Contract mesh capacity
+      if (pathname === '/mesh/contract' && req.method === 'POST') {
+        try {
+          // Authentication (Same as expand)
+          if (!this.verifyA2ASignature(req.headers, pathname)) {
+            res.statusCode = 401;
+            res.end(JSON.stringify({ error: 'Unauthorized: Invalid HMAC signature' }));
+            return;
+          }
+
+          const data = await this.readRequestBody(req);
+          const { node_id, kind } = data;
+          
+          if (kind === 'self_terminate_idle') {
+            await this.callA2A('POST', `/a2a/gossip/peers/${node_id}/terminate`);
+          }
+
+          this.lastContractTime = Date.now();
+          console.log(`📉 Mesh contraction: Node ${node_id} reported ${kind}`);
+          
+          this.messageHistory.push({
+            id: `sys-${Date.now()}`,
+            from: 'system',
+            to: 'dashboard',
+            message: `mesh.contract.received: ${node_id} (${kind})`,
+            timestamp: new Date().toISOString(),
+            type: 'telemetry'
+          });
+
+          res.statusCode = 200;
+          res.end(JSON.stringify({ status: 'acknowledged' }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Approve pending spawn request (HITL)
+      if (pathname.startsWith('/mesh/approve/') && req.method === 'POST') {
+        try {
+          const requestId = pathname.split('/')[3];
+          const reqIndex = this.pendingSpawnRequests.findIndex(r => r.id === requestId);
+          
+          if (reqIndex === -1) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'Request not found' }));
+            return;
+          }
+          
+          this.pendingSpawnRequests.splice(reqIndex, 1);
+          
+          const port = await this.getAvailablePortFromTangleClaw();
+          const nodeId = await this.spawnA2ANode(port);
+          
+          console.log(`✅ Operator approved spawn request ${requestId}`);
+          
+          res.statusCode = 200;
+          res.end(JSON.stringify({ status: 'approved', nodeId, port }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Deny pending spawn request (HITL)
+      if (pathname.startsWith('/mesh/deny/') && req.method === 'POST') {
+        try {
+          const requestId = pathname.split('/')[3];
+          const reqIndex = this.pendingSpawnRequests.findIndex(r => r.id === requestId);
+          
+          if (reqIndex === -1) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'Request not found' }));
+            return;
+          }
+          
+          this.pendingSpawnRequests.splice(reqIndex, 1);
+          console.log(`❌ Operator denied spawn request ${requestId}`);
+          
+          res.statusCode = 200;
+          res.end(JSON.stringify({ status: 'denied' }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Get swarm status (for dashboard)
+      if (pathname === '/mesh/status' && req.method === 'GET') {
+        try {
+          const peersResult = await this.callA2A('GET', '/a2a/gossip/peers');
+          let liveChildren = 0;
+          if (peersResult.ok && Array.isArray(peersResult.data)) {
+            liveChildren = peersResult.data.filter(p => p.status === 'active' && p.id.includes('-spawned-')).length;
+          }
+
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({
+            liveChildren,
+            maxChildren: 4,
+            spawnApprovalCount: this.spawnApprovalCount,
+            spawnApprovalGateLiftsAt: this.spawnApprovalGateLiftsAt,
+            lastSpawnTime: this.lastSpawnTime,
+            lastContractTime: this.lastContractTime,
+            pendingRequests: this.pendingSpawnRequests
+          }));
         } catch (error) {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: error.message }));

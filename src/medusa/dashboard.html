@@ -443,6 +443,33 @@
       padding: 5px;
       border-radius: 4px;
     }
+
+    /* CHUNK 34: SWARM MANAGER */
+    .approve-btn {
+      background: var(--success);
+      color: var(--bg);
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.8em;
+      transition: opacity 0.2s;
+    }
+    .approve-btn:hover { opacity: 0.8; }
+
+    .deny-btn {
+      background: var(--danger);
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.8em;
+      transition: opacity 0.2s;
+    }
+    .deny-btn:hover { opacity: 0.8; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -451,6 +478,17 @@
     <h1>
       Switchboard — AI Coordination Hub
     </h1>
+
+    <div class="card" style="margin-bottom: 30px; position: relative; overflow: hidden; height: 320px; padding: 0;">
+      <div style="position: absolute; top: 15px; left: 20px; z-index: 2; pointer-events: none;">
+        <h2 style="margin: 0; font-size: 1.1em; text-transform: uppercase; letter-spacing: 0.1em; color: var(--primary);">Swarm Topology Map</h2>
+        <div id="topology-stats" style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">Nodes: 0 | Edges: 0</div>
+      </div>
+      <canvas id="swarmTopology" style="width: 100%; height: 100%; cursor: crosshair;"></canvas>
+      <div style="position: absolute; bottom: 15px; right: 20px; font-size: 0.7em; color: var(--text-muted); pointer-events: none;">
+        Real-time Mesh Visualization
+      </div>
+    </div>
     
     <div class="grid">
       <div class="card">
@@ -491,6 +529,38 @@
           <p>Loading...</p>
         </div>
         <button onclick="loadTelemetry()" style="margin-top: 15px;">Refresh</button>
+      </div>
+
+      <div class="card">
+        <h2>🐝 Swarm Manager</h2>
+        <div id="swarm-summary" style="margin-bottom: 15px; display: flex; gap: 20px; flex-wrap: wrap;">
+          <div>
+            <span style="color: var(--text-muted); font-size: 0.85em;">Mesh Capacity:</span>
+            <div id="swarm-nodes-count" style="font-weight: bold; font-size: 1.2em; color: var(--success);">1 / 5</div>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); font-size: 0.85em;">HITL Progress:</span>
+            <div id="swarm-approvals" style="font-weight: bold; font-size: 1.2em; color: var(--primary);">0 / 5</div>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); font-size: 0.85em;">Last Event:</span>
+            <div id="swarm-last-event" style="font-size: 0.85em; margin-top: 4px;">--</div>
+          </div>
+        </div>
+        
+        <div id="hitl-queue-container" style="display: none; background: rgba(255,170,0,0.05); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,170,0,0.2);">
+          <h3 style="font-size: 0.9em; color: var(--warning); margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">
+            🛡️ PENDING SPAWN REQUESTS
+          </h3>
+          <div id="hitl-queue" class="workspace-list" style="margin: 0;">
+            <!-- Requests populated here -->
+          </div>
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button onclick="loadSwarmStatus()" style="font-size: 0.85em; padding: 6px 12px;">Refresh Swarm</button>
+          <button onclick="toggleSwarmPolling()" id="swarm-polling-btn" style="background: var(--text-muted); font-size: 0.85em; padding: 6px 12px;">Auto-poll: OFF</button>
+        </div>
       </div>
       
       <div class="card">
@@ -536,6 +606,27 @@
             <strong>Active Strategies:</strong> <span id="active-strategies">Analyzing...</span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 30px;">
+      <h2>Mesh Governance (Issue #20)</h2>
+      <div class="grid">
+        <div>
+          <h3 style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px;">ACTIVE WORKSPACE GRANTS</h3>
+          <div id="active-grants" style="max-height: 250px; overflow-y: auto;">
+            <p style="color: var(--text-muted); font-size: 0.85em;">Select a workspace to view grants.</p>
+          </div>
+        </div>
+        <div>
+          <h3 style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px;">CAPABILITY PROFILES</h3>
+          <div id="available-profiles" style="max-height: 250px; overflow-y: auto;">
+            <p style="color: var(--text-muted); font-size: 0.85em;">Loading profiles...</p>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 15px; display: flex; gap: 10px;">
+        <button onclick="loadGovernance()" style="font-size: 0.85em; padding: 6px 12px;">Refresh Governance</button>
       </div>
     </div>
 

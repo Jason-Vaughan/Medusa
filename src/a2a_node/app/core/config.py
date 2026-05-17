@@ -18,6 +18,12 @@ class Settings:
     STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
     BIDDING_CONFIDENCE_THRESHOLD: float = 0.6
     
+    # Swarm Scaling Settings (Chunk 34)
+    A2A_NODE_TYPE: str = os.getenv("A2A_NODE_TYPE", "seed") # 'seed' or 'spawned'
+    LOAD_THRESHOLD: int = 5
+    EXPANSION_WINDOW: int = 60 # seconds
+    MEDUSA_SERVER_URL: str = os.getenv("MEDUSA_SERVER_URL", "http://localhost:3009")
+    
     # Reputation Settings
     REPUTATION_WEIGHT_COMPLETED: float = 0.1
     REPUTATION_PENALTY_FAILED: float = 0.2

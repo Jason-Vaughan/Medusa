@@ -41,8 +41,9 @@ This backlog tracks out-of-scope items, future enhancements, and deferred tasks 
 | **Exponential Backoff** | Chunk 14 Critic | Low | ✅ Done | Improved retry logic with jittered exponential backoff (Chunk 28). |
 | **Mesh Visualization 2.0** | Chunk 29 Plan | High | ✅ Done | Surfaced skills, reputation, health, and retry countdowns on the dashboard. |
 | **Advanced Consensus** | Phase 3 Plan | High | ✅ Done | Reputation-weighted voting, adaptive quorums, and tie-breaking (Chunk 30). |
+| **Swarm Scaling (Issue #21)** | Chunk 34 Plan | High | ✅ Done | Autonomous capacity expansion and graceful auto-termination for A2A nodes. |
+| **Swarm Self-Healing** | Phase 3 Plan | High | ✅ Done | Auto-isolation of rogue nodes and quorum recovery (Chunk 31). |
+| **Advanced Task Decomposition** | Chunk 32 Plan | High | ✅ Done | Recursive task splitting and dependency mesh (Issue #23). |
 
 ## 📥 Pending Items
-| Item | Origin | Priority | Status | Description |
-|------|--------|----------|--------|-------------|
-| **Swarm Self-Healing** | Phase 3 Plan | High | 📥 Pending | Auto-isolation of rogue nodes and quorum recovery (Chunk 31). |
+*No pending items. The core Phase 3 roadmap is complete.*

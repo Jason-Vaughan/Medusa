@@ -5,6 +5,10 @@ from app.core.database import AsyncSessionLocal
 from app.models.ledger import PeerEntry, TaskEntry, PerformanceSnapshot
 from app.core.config import settings
 import asyncio
+import httpx
+from app.core.auth_utils import get_auth_headers
+
+_load_breach_start: Optional[datetime] = None
 
 class PerformanceMonitor:
     """
@@ -269,6 +273,51 @@ class PerformanceMonitor:
                 for s in reversed(snapshots)
             ]
 
+    @classmethod
+    async def check_for_expansion_need(cls):
+        """
+        Checks if sustained high load requires mesh expansion.
+        """
+        global _load_breach_start
+        
+        load_info = await cls.get_current_load()
+        pending = load_info.get("pending_tasks", 0)
+        
+        if pending > settings.LOAD_THRESHOLD:
+            now = datetime.now(UTC)
+            if _load_breach_start is None:
+                _load_breach_start = now
+                print(f"📈 Load threshold breached ({pending} pending). Starting expansion window...", flush=True)
+            else:
+                duration = (now - _load_breach_start).total_seconds()
+                if duration >= settings.EXPANSION_WINDOW:
+                    print(f"🔥 Sustained load detected ({duration:.1f}s). Requesting mesh expansion!", flush=True)
+                    _load_breach_start = None # Reset after trigger
+                    await cls.request_mesh_expansion()
+        else:
+            if _load_breach_start is not None:
+                print("📉 Load normalized. Resetting expansion window.", flush=True)
+                _load_breach_start = None
+
+    @classmethod
+    async def request_mesh_expansion(cls):
+        """
+        Sends an authenticated request to Medusa Server to spawn a new node.
+        """
+        endpoint = "/mesh/expand"
+        url = f"{settings.MEDUSA_SERVER_URL}{endpoint}"
+        headers = get_auth_headers(endpoint)
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(url, headers=headers, timeout=10.0)
+                if r.status_code in [200, 202]:
+                    print(f"✅ Mesh expansion requested successfully: {r.json()}", flush=True)
+                else:
+                    print(f"⚠️ Mesh expansion request rejected: {r.status_code} - {r.text}", flush=True)
+        except Exception as e:
+            print(f"❌ Failed to connect to Medusa Server for expansion: {e}", flush=True)
+
 async def run_performance_monitor():
     """
     Background loop to periodically record performance snapshots.
@@ -279,6 +328,7 @@ async def run_performance_monitor():
     while True:
         try:
             await PerformanceMonitor.record_snapshot()
+            await PerformanceMonitor.check_for_expansion_need()
             
             now_naive = datetime.now(UTC).replace(tzinfo=None)
             if now_naive - last_prune > timedelta(hours=1):

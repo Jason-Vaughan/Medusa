@@ -97,6 +97,7 @@ async function loadWorkspaces() {
             <div style="color: ${ws.autonomousConversationReady ? '#00ff88' : '#ff6b6b'}; margin-top: 2px; font-weight: 500;">
               ${ws.autonomousConversationReady ? '✅ AI Ready' : '⏳ Preparing'}
             </div>
+            <button onclick="loadGrantsForWorkspace('${ws.id}')" style="margin-top: 8px; padding: 2px 6px; font-size: 0.75em; background: rgba(145, 70, 255, 0.2); border: 1px solid var(--primary);">View Grants</button>
           </div>
         </li>
       `;
@@ -535,6 +536,7 @@ setInterval(() => {
   loadTelemetry();
   refreshMessages();
   loadAuctions();
+  loadSwarmStatus();
 }, 5000); // Refresh every 5 seconds - smooth updates without visual disruption
 
 // Fast refresh for MCP live timer (every 1 second)
@@ -806,11 +808,23 @@ async function rejectTask(taskId) {
 
 // Registry for backoff timers to enable live countdowns
 const backoffTimers = new Map();
+const collapsedTasks = new Set();
+
+function toggleTaskExpansion(taskId) {
+  if (collapsedTasks.has(taskId)) {
+    collapsedTasks.delete(taskId);
+  } else {
+    collapsedTasks.add(taskId);
+  }
+  loadTaskTree(); // Re-render
+}
 
 function renderTaskTree(tasks, level = 0) {
   return tasks.map(task => {
     const indent = level * 20;
     const isPendingApproval = task.status === 'pending_approval';
+    const isCollapsed = collapsedTasks.has(task.id);
+    const hasChildren = task.children && task.children.length > 0;
     
     // Chunk 28: Handle backoff state
     const now = new Date();
@@ -863,10 +877,21 @@ function renderTaskTree(tasks, level = 0) {
       const consensusStatusLabel = task.consensus_status === 'achieved' ? '✅' : (task.consensus_status === 'conflict' ? '❌' : '⏳');
       
       consensusHtml = `
-        <div class="consensus-progress" title="Consensus: ${task.consensus_status} via ${task.consensus_strategy}">
+        <div class="consensus-progress" title="Consensus: ${task.consensus_status} via ${task.consensus_strategy}" onclick="toggleConsensusDetails('${task.id}')" style="cursor: pointer;">
           <span style="font-size: 0.9em; margin-right: 5px;">${consensusStatusLabel}</span>
           <span style="font-size: 0.75em; font-weight: bold; color: #4A90E2; letter-spacing: 0.05em;">CONSENSUS</span>
           ${weightInfo}
+        </div>
+        <div id="consensus-details-${task.id}" class="consensus-dist-container" style="display: none; margin-top: 5px;">
+           ${Object.entries(distribution).map(([val, d]) => `
+             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+               <span style="color: var(--text-muted); font-size: 0.85em;">"${val.substring(0, 20)}..."</span>
+               <span style="color: var(--success); font-weight: bold;">${((d.weight / totalWeight) * 100).toFixed(0)}%</span>
+             </div>
+           `).join('')}
+           <div style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px;">
+             <button onclick="forceResolveConsensus('${task.id}')" style="padding: 2px 6px; font-size: 0.7em; background: var(--warning); color: var(--bg);">Force Resolve</button>
+           </div>
         </div>
       `;
     }
@@ -898,6 +923,7 @@ function renderTaskTree(tasks, level = 0) {
     let html = `
       <div style="margin-left: ${indent}px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 10px; margin-bottom: 12px; position: relative;">
         <div style="display: flex; gap: 8px; align-items: center;">
+          ${hasChildren ? `<span onclick="toggleTaskExpansion('${task.id}')" style="cursor: pointer; width: 12px; display: inline-block;">${isCollapsed ? '▶' : '▼'}</span>` : '<span style="width: 12px;"></span>'}
           <span style="color: ${statusInfo.color}; font-weight: bold; font-size: 0.75em; letter-spacing: 0.05em;">[${statusInfo.label}]</span>
           <strong style="color: var(--text);">${task.task_type}</strong>
           <span style="font-size: 0.8em; color: var(--text-muted);">@ ${nodeInfo.split('-')[0]}</span>
@@ -919,7 +945,7 @@ function renderTaskTree(tasks, level = 0) {
       </div>
     `;
 
-    if (task.children && task.children.length > 0) {
+    if (hasChildren && !isCollapsed) {
       html += renderTaskTree(task.children, level + 1);
     }
 
@@ -1139,8 +1165,11 @@ async function loadPeers() {
           
           ${getVitalityIndicator(peer.health_metadata)}
           
-          <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 12px;">
-            Last Seen: ${formatTimeAgo(peer.last_seen)}
+          <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Last Seen: ${formatTimeAgo(peer.last_seen)}</span>
+            <button onclick="toggleQuarantine('${peer.id}', '${peer.status}')" style="padding: 2px 8px; font-size: 0.9em; background: ${peer.status === 'quarantined' ? 'var(--success)' : 'var(--danger)'}; color: ${peer.status === 'quarantined' ? 'var(--bg)' : 'white'}; border-radius: 4px;">
+              ${peer.status === 'quarantined' ? '🔓 Unquarantine' : '🚫 Quarantine'}
+            </button>
           </div>
         </div>
       `;
@@ -1157,6 +1186,9 @@ async function loadPeers() {
     globalLatencyEl.style.color = parseFloat(globalAvgLatency) <= 1.0 ? 'var(--success)' : 'var(--warning)';
     
     activeStrategiesEl.textContent = Array.from(strategies).join(', ') || 'Standard Collective Intelligence';
+
+    // Issue #20: Update Topology Map
+    updateTopology(data.peers);
 
   } catch (error) {
     container.innerHTML = `<p style="color: var(--danger);">Error: ${error.message}</p>`;
@@ -1295,6 +1327,146 @@ function togglePerformancePolling() {
   }
 }
 
+// --- SWARM TOPOLOGY VISUALIZATION (Issue #20) ---
+
+let nodes = [];
+let links = [];
+const canvas = document.getElementById('swarmTopology');
+let ctx_topo = null;
+if (canvas) ctx_topo = canvas.getContext('2d');
+
+function updateTopology(peers) {
+  if (!canvas) return;
+  
+  // Update nodes based on peers
+  const newNodes = peers.map(p => {
+    const existing = nodes.find(n => n.id === p.id);
+    return {
+      id: p.id,
+      name: p.id.split('-')[0],
+      status: p.status,
+      reputation: p.performance?.reputation_score || 1.0,
+      x: existing ? existing.x : Math.random() * canvas.width,
+      y: existing ? existing.y : Math.random() * canvas.height,
+      vx: existing ? existing.vx : 0,
+      vy: existing ? existing.vy : 0
+    };
+  });
+  
+  nodes = newNodes;
+  
+  // Create links (fully connected mesh for now to represent gossip potential)
+  links = [];
+  if (nodes.length > 1) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        links.push({ source: nodes[i], target: nodes[j] });
+      }
+    }
+  }
+  
+  document.getElementById('topology-stats').textContent = `Nodes: ${nodes.length} | Edges: ${links.length}`;
+}
+
+function runTopologySimulation() {
+  if (!canvas || !ctx_topo) return;
+  
+  // Simple force-directed layout
+  const width = canvas.width = canvas.offsetWidth;
+  const height = canvas.height = canvas.offsetHeight;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  // Simulation parameters
+  const k = Math.sqrt((width * height) / (nodes.length || 1)) * 0.5;
+  const repulsion = 200;
+  const attraction = 0.05;
+  const friction = 0.9;
+  
+  nodes.forEach((n1, i) => {
+    // Center gravity
+    n1.vx += (centerX - n1.x) * 0.01;
+    n1.vy += (centerY - n1.y) * 0.01;
+    
+    nodes.forEach((n2, j) => {
+      if (i === j) return;
+      const dx = n2.x - n1.x;
+      const dy = n2.y - n1.y;
+      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+      
+      // Repulsion
+      const force = repulsion / (distance * distance);
+      n1.vx -= dx * force;
+      n1.vy -= dy * force;
+    });
+  });
+  
+  links.forEach(link => {
+    const dx = link.target.x - link.source.x;
+    const dy = link.target.y - link.source.y;
+    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+    
+    // Attraction
+    const force = distance * attraction;
+    link.source.vx += (dx / distance) * force;
+    link.source.vy += (dy / distance) * force;
+    link.target.vx -= (dx / distance) * force;
+    link.target.vy -= (dy / distance) * force;
+  });
+  
+  nodes.forEach(node => {
+    node.x += node.vx;
+    node.y += node.vy;
+    node.vx *= friction;
+    node.vy *= friction;
+    
+    // Boundary check
+    node.x = Math.max(20, Math.min(width - 20, node.x));
+    node.y = Math.max(20, Math.min(height - 20, node.y));
+  });
+  
+  // Draw
+  ctx_topo.clearRect(0, 0, width, height);
+  
+  // Draw links
+  ctx_topo.strokeStyle = 'rgba(145, 70, 255, 0.15)';
+  ctx_topo.lineWidth = 1;
+  links.forEach(link => {
+    ctx_topo.beginPath();
+    ctx_topo.moveTo(link.source.x, link.source.y);
+    ctx_topo.lineTo(link.target.x, link.target.y);
+    ctx_topo.stroke();
+  });
+  
+  // Draw nodes
+  nodes.forEach(node => {
+    const radius = 8 + (node.reputation * 5);
+    const color = node.status === 'quarantined' ? '#ff4444' : (node.status === 'active' ? '#00ff88' : '#adadb8');
+    
+    // Glow
+    ctx_topo.shadowBlur = 10;
+    ctx_topo.shadowColor = color;
+    
+    ctx_topo.fillStyle = color;
+    ctx_topo.beginPath();
+    ctx_topo.arc(node.x, node.y, radius, 0, Math.PI * 2);
+    ctx_topo.fill();
+    
+    ctx_topo.shadowBlur = 0;
+    
+    // Label
+    ctx_topo.fillStyle = '#efeff1';
+    ctx_topo.font = '10px Inter';
+    ctx_topo.textAlign = 'center';
+    ctx_topo.fillText(node.name, node.x, node.y + radius + 12);
+  });
+  
+  requestAnimationFrame(runTopologySimulation);
+}
+
+// Start simulation loop
+if (canvas) requestAnimationFrame(runTopologySimulation);
+
 // Initial load
 document.addEventListener('DOMContentLoaded', () => {
   console.log('Medusa Dashboard JavaScript loaded and executing!');
@@ -1318,4 +1490,247 @@ setInterval(() => {
   loadTaskTree();
   loadPeers();
   if (isPerfPolling) loadPerformanceHistory();
-}, 5000);
+  }, 5000);
+
+  // --- GOVERNANCE UI IMPLEMENTATION (Issue #20) ---
+
+  async function loadGovernance() {
+  await loadProfiles();
+  const activeWs = document.querySelector('.workspace-item[style*="border-left-color: var(--primary)"]');
+  if (activeWs) {
+    // Re-load grants if a workspace is currently selected
+  }
+  }
+
+  async function loadProfiles() {
+  const container = document.getElementById('available-profiles');
+  try {
+    const response = await fetch(PROTOCOL_URL + '/capabilities/profiles');
+    const data = await response.json();
+
+    if (!data.profiles || data.profiles.length === 0) {
+      container.innerHTML = '<p style="color: var(--text-muted);">No capability profiles defined.</p>';
+      return;
+    }
+
+    container.innerHTML = data.profiles.map(p => `
+      <div style="background: rgba(255,255,255,0.05); padding: 8px; margin-bottom: 8px; border-radius: 4px; font-size: 0.85em;">
+        <div style="display: flex; justify-content: space-between;">
+          <strong style="color: var(--primary);">${p.id} (v${p.version})</strong>
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 2px;">${p.description}</div>
+      </div>
+    `).join('');
+  } catch (error) {
+    container.innerHTML = `<p style="color: var(--danger);">Error: ${error.message}</p>`;
+  }
+  }
+
+  async function loadGrantsForWorkspace(workspaceId) {
+  // Highlight the selected workspace
+  const items = document.querySelectorAll('.workspace-item');
+  items.forEach(item => {
+    if (item.innerHTML.includes(workspaceId)) {
+      item.style.borderLeftColor = 'var(--primary)';
+      item.style.background = 'rgba(145, 70, 255, 0.05)';
+    } else {
+      item.style.borderLeftColor = 'transparent';
+      item.style.background = 'rgba(255,255,255,0.05)';
+    }
+  });
+
+  const container = document.getElementById('active-grants');
+  container.innerHTML = '<p style="color: var(--text-muted);">Fetching grants...</p>';
+
+  try {
+    const response = await fetch(PROTOCOL_URL + `/workspaces/${workspaceId}/grants`);
+    const data = await response.json();
+
+    if (!data.grants || data.grants.length === 0) {
+      container.innerHTML = `<p style="color: var(--text-muted);">No active grants for <strong>${workspaceId.split('-')[0]}</strong>.</p>`;
+      return;
+    }
+
+    container.innerHTML = data.grants.map(g => `
+      <div style="background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.2); padding: 8px; margin-bottom: 8px; border-radius: 4px; font-size: 0.85em;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <strong style="color: var(--success);">${g.profile_id}</strong>
+            <div style="font-size: 0.8em; color: var(--text-muted);">By: ${g.granted_by}</div>
+          </div>
+          <button onclick="revokeGrant('${g.id}', '${workspaceId}')" style="padding: 2px 6px; font-size: 0.7em; background: var(--danger);">Revoke</button>
+        </div>
+        <div style="font-size: 0.8em; margin-top: 4px; color: var(--text-muted);">
+          Expires: ${new Date(g.expires_at).toLocaleString()}
+        </div>
+      </div>
+    `).join('');
+  } catch (error) {
+    container.innerHTML = `<p style="color: var(--danger);">Error: ${error.message}</p>`;
+  }
+  }
+
+  async function revokeGrant(grantId, workspaceId) {
+  if (!confirm('Revoke this grant immediately? The AI will lose autonomous access for these patterns.')) return;
+
+  try {
+    const response = await fetch(PROTOCOL_URL + `/grants/${grantId}`, { method: 'DELETE' });
+    const data = await response.json();
+    if (data.status === 'revoked') {
+      loadGrantsForWorkspace(workspaceId);
+    } else {
+      alert(`Failed: ${data.message || 'Unknown error'}`);
+    }
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+  }
+
+  async function toggleQuarantine(nodeId, currentStatus) {
+  const isQuarantined = currentStatus === 'quarantined';
+  const action = isQuarantined ? 'unquarantine' : 'quarantine';
+  const reason = prompt(`Reason for ${action} of node ${nodeId}:`, isQuarantined ? 'Manual recovery' : 'Suspicious behavior detected via dashboard');
+
+  if (!reason) return;
+
+  try {
+    const response = await fetch(PROTOCOL_URL + `/peers/${nodeId}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+
+    const data = await response.json();
+    if (data.status === action || data.status === 'active') {
+      loadPeers();
+    } else {
+      alert(`Failed: ${data.message || 'Unknown error'}`);
+    }
+    } catch (error) {
+    alert(`Error: ${error.message}`);
+    }
+    }
+
+    function toggleConsensusDetails(taskId) {
+    const el = document.getElementById(`consensus-details-${taskId}`);
+    if (el) {
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+    }
+
+    async function forceResolveConsensus(taskId) {
+    if (!confirm('Force resolve consensus for this task? This will bypass the voting cooldown.')) return;
+
+    try {
+    const response = await fetch(PROTOCOL_URL + `/auctions/${taskId}/resolve`, { method: 'POST' });
+    const data = await response.json();
+    if (data.status === 'auction_resolved' || data.winner) {
+      alert(`Consensus forced! Winner: ${data.winner}`);
+      loadTaskTree();
+    } else {
+      alert(`Failed: ${data.message || 'Unknown error'}`);
+    }
+    } catch (error) {
+    alert(`Error: ${error.message}`);
+    }
+    }
+
+// --- SWARM MANAGEMENT (Issue #21) ---
+
+let swarmPollingInterval = null;
+
+async function loadSwarmStatus() {
+  const nodesCount = document.getElementById('swarm-nodes-count');
+  const approvals = document.getElementById('swarm-approvals');
+  const lastEvent = document.getElementById('swarm-last-event');
+  const hitlQueueContainer = document.getElementById('hitl-queue-container');
+  const hitlQueue = document.getElementById('hitl-queue');
+
+  if (!nodesCount) return; // Dashboard might not be fully loaded or element missing
+
+  try {
+    const response = await fetch(PROTOCOL_URL + '/mesh/status');
+    const data = await response.json();
+
+    nodesCount.textContent = `${data.liveChildren + 1} / 5`;
+    approvals.textContent = `${data.spawnApprovalCount} / ${data.spawnApprovalGateLiftsAt}`;
+    
+    // Highlight if we reached the gate
+    if (data.spawnApprovalCount >= data.spawnApprovalGateLiftsAt) {
+      approvals.style.color = 'var(--success)';
+      approvals.innerHTML += ' <span style="font-size: 0.7em;">(Gate Lifted)</span>';
+    } else {
+      approvals.style.color = 'var(--primary)';
+    }
+
+    const lastEventTime = data.lastSpawnTime > data.lastContractTime ? data.lastSpawnTime : data.lastContractTime;
+    lastEvent.textContent = lastEventTime ? formatTimeAgo(new Date(lastEventTime)) : '--';
+
+    if (data.pendingRequests && data.pendingRequests.length > 0) {
+      hitlQueueContainer.style.display = 'block';
+      hitlQueue.innerHTML = data.pendingRequests.map(req => `
+        <div class="workspace-item" style="padding: 8px; margin: 5px 0; background: rgba(255,255,255,0.03);">
+          <div style="font-size: 0.85em;">
+            <strong>Expansion Requested</strong><br>
+            <span style="color: var(--text-muted); font-size: 0.8em;">${formatTimeAgo(new Date(req.requestedAt))}</span>
+          </div>
+          <div style="display: flex; gap: 5px;">
+            <button class="approve-btn" onclick="approveSpawn('${req.id}')">Approve</button>
+            <button class="deny-btn" onclick="denySpawn('${req.id}')">Deny</button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      hitlQueueContainer.style.display = 'none';
+      hitlQueue.innerHTML = '';
+    }
+  } catch (error) {
+    console.error('Error loading swarm status:', error);
+  }
+}
+
+async function approveSpawn(requestId) {
+  try {
+    const response = await fetch(`${PROTOCOL_URL}/mesh/approve/${requestId}`, { method: 'POST' });
+    if (response.ok) {
+      loadSwarmStatus();
+    } else {
+      const data = await response.json();
+      alert('Approval failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    alert('Failed to approve spawn: ' + error.message);
+  }
+}
+
+async function denySpawn(requestId) {
+  try {
+    const response = await fetch(`${PROTOCOL_URL}/mesh/deny/${requestId}`, { method: 'POST' });
+    if (response.ok) {
+      loadSwarmStatus();
+    } else {
+      const data = await response.json();
+      alert('Denial failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    alert('Failed to deny spawn: ' + error.message);
+  }
+}
+
+function toggleSwarmPolling() {
+  const btn = document.getElementById('swarm-polling-btn');
+  if (swarmPollingInterval) {
+    clearInterval(swarmPollingInterval);
+    swarmPollingInterval = null;
+    btn.textContent = 'Auto-poll: OFF';
+    btn.style.background = 'var(--text-muted)';
+  } else {
+    loadSwarmStatus();
+    swarmPollingInterval = setInterval(loadSwarmStatus, 5000);
+    btn.textContent = 'Auto-poll: ON';
+    btn.style.background = 'var(--primary)';
+  }
+}
+
+// Initial load for swarm status
+loadSwarmStatus();

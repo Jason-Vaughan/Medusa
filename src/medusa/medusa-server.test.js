@@ -221,7 +221,8 @@ describe('MedusaServer', () => {
 
       const content = await fs.readFile(tempRegistryFile, 'utf8');
       const parsed = JSON.parse(content);
-      expect(parsed['test-id'].name).toBe('Test');
+      expect(parsed.workspaces['test-id'].name).toBe('Test');
+      expect(parsed.spawnApprovalCount).toBe(0);
     });
 
     test('loadRegistry should log error on invalid JSON', async () => {

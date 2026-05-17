@@ -1,10 +1,11 @@
 import pytest
 import asyncio
 from datetime import datetime, UTC, timedelta
-from app.api.gossip import reach_consensus, cleanup_zombie_tasks, track_node_conflict
+from app.api.gossip import reach_consensus, cleanup_zombie_tasks, track_node_conflict, recover_stalled_consensus
 from app.models.ledger import TaskEntry, PeerEntry
 from app.core.database import AsyncSessionLocal
 from sqlalchemy import delete, select
+from unittest.mock import patch, AsyncMock
 
 @pytest.mark.asyncio
 async def test_node_quarantine_isolation():
@@ -97,3 +98,94 @@ async def test_zombie_task_recovery():
         assert recovered_task.claimed_by is None
         assert recovered_task.retry_count == 1
         print("✅ Zombie task recovery verified.")
+
+@pytest.mark.asyncio
+async def test_quorum_recovery_downgrade():
+    """Verify that a stalled task eventually downgrades its quorum requirement."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(TaskEntry))
+        await db.execute(delete(PeerEntry))
+        
+        # 1. Setup: Task requiring 3 votes, but only 1 node active
+        now = datetime.now(UTC).replace(tzinfo=None)
+        
+        # Active node (self)
+        self_node = PeerEntry(
+            id="self-node", 
+            address="http://loc:1", 
+            status="active", 
+            last_seen=now
+        )
+        db.add(self_node)
+        
+        # Task stalled for 150 seconds (past 120s downgrade threshold)
+        task = TaskEntry(
+            id="stalled-task",
+            task_type="test",
+            description="stalled test",
+            status="pending",
+            requires_consensus=1,
+            min_votes=3,
+            consensus_status="pending",
+            updated_at=now - timedelta(seconds=150),
+            results_votes={
+                "self-node": {"result": "OK"}
+            }
+        )
+        db.add(task)
+        await db.commit()
+        
+        # 2. Run recovery
+        await recover_stalled_consensus(db)
+        
+        # 3. Verify
+        result = await db.execute(select(TaskEntry).filter(TaskEntry.id == "stalled-task"))
+        recovered_task = result.scalars().first()
+        
+        # Should have downgraded min_votes to 1 (active nodes)
+        assert recovered_task.min_votes == 1
+        # Should have achieved consensus because 1/1 votes are OK
+        assert recovered_task.consensus_status == "achieved"
+        assert recovered_task.status == "completed"
+        assert recovered_task.results_metadata["quorum_downgraded"] is True
+        assert recovered_task.results_metadata["original_min_votes"] == 3
+        
+        print("✅ Quorum recovery downgrade verified.")
+
+@pytest.mark.asyncio
+async def test_quorum_recovery_expansion_request():
+    """Verify that a stalled task requests expansion before downgrading."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(TaskEntry))
+        await db.execute(delete(PeerEntry))
+        
+        now = datetime.now(UTC).replace(tzinfo=None)
+        
+        # 1 Active node, task needs 3
+        self_node = PeerEntry(id="self-node", address="http://loc:1", status="active", last_seen=now)
+        db.add(self_node)
+        
+        # Stalled for 70 seconds (within 60-120 range for expansion)
+        task = TaskEntry(
+            id="stalled-expand",
+            task_type="test",
+            description="stalled expand",
+            status="pending",
+            requires_consensus=1,
+            min_votes=3,
+            consensus_status="pending",
+            updated_at=now - timedelta(seconds=70)
+        )
+        db.add(task)
+        await db.commit()
+        
+        with patch("app.api.gossip.PerformanceMonitor.request_mesh_expansion", new_callable=AsyncMock) as mock_expand:
+            await recover_stalled_consensus(db)
+            mock_expand.assert_called_once()
+            
+        # Verify metadata flag to avoid spam
+        result = await db.execute(select(TaskEntry).filter(TaskEntry.id == "stalled-expand"))
+        updated_task = result.scalars().first()
+        assert "last_expansion_request" in updated_task.execution_metadata
+        
+        print("✅ Quorum recovery expansion request verified.")

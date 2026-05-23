@@ -63,6 +63,8 @@ class MedusaServer {
     this.pendingSpawnRequests = []; // HITL queue
     this.spawnPortRange = { min: 4220, max: 4239 };
     this.lastContractTime = 0;
+    this.spawnedChildrenExpected = new Set(); // node_ids we have spawned and expect to be alive
+    this.spawnReconcilerInterval = null;
 
     // Server instances
     this.protocolServer = null;
@@ -251,6 +253,7 @@ class MedusaServer {
     
     a2aProcess.unref();
     this.lastSpawnTime = Date.now();
+    this.spawnedChildrenExpected.add(nodeId);
     
     // Log telemetry
     this.messageHistory.push({
@@ -292,6 +295,41 @@ class MedusaServer {
     }
     
     setTimeout(() => this.pollForSpawnSuccess(nodeId, attempts + 1), 5000);
+  }
+
+  /**
+   * Diffs spawnedChildrenExpected against the live gossip mesh; emits
+   * mesh.contract.crashed for any expected child that no longer appears
+   * in gossip with an active status. Major #5 fix.
+   */
+  async reconcileSpawnedChildren() {
+    try {
+      const result = await this.callA2A('GET', '/a2a/gossip/peers');
+      if (!result.ok || !Array.isArray(result.data)) return;
+      
+      const liveIds = new Set(
+        result.data
+          .filter(p => p.status === 'active' && p.id.includes('-spawned-'))
+          .map(p => p.id)
+      );
+      
+      for (const expectedId of [...this.spawnedChildrenExpected]) {
+        if (!liveIds.has(expectedId)) {
+          console.log(`📉 Detected crashed spawned child: ${expectedId}`);
+          this.messageHistory.push({
+            id: `sys-${Date.now()}`,
+            from: 'system',
+            to: 'dashboard',
+            message: `mesh.contract.crashed: ${expectedId}`,
+            timestamp: new Date().toISOString(),
+            type: 'telemetry',
+          });
+          this.spawnedChildrenExpected.delete(expectedId);
+        }
+      }
+    } catch (e) {
+      console.error('reconcileSpawnedChildren error:', e.message);
+    }
   }
 
   // Update listener heartbeat
@@ -963,6 +1001,13 @@ class MedusaServer {
           const now = Date.now();
           if (now - this.lastSpawnTime < 60000) {
             console.log('⚠️ Mesh expansion rate limited (60s cooldown)');
+            this.messageHistory.push({
+              id: `sys-${Date.now()}`,
+              from: 'system', to: 'dashboard',
+              message: `mesh.expand.rate_limited: cooldown ${Math.round((60000 - (now - this.lastSpawnTime))/1000)}s remaining`,
+              timestamp: new Date().toISOString(),
+              type: 'telemetry',
+            });
             res.statusCode = 429;
             res.end(JSON.stringify({ error: 'Rate limited: 60s cooldown between spawns' }));
             return;
@@ -977,6 +1022,13 @@ class MedusaServer {
           
           if (liveChildren >= 4) {
             console.log(`❌ Mesh expansion cap hit (${liveChildren} children)`);
+            this.messageHistory.push({
+              id: `sys-${Date.now()}`,
+              from: 'system', to: 'dashboard',
+              message: `mesh.expand.cap_hit: ${liveChildren} children active`,
+              timestamp: new Date().toISOString(),
+              type: 'telemetry',
+            });
             res.statusCode = 403;
             res.end(JSON.stringify({ error: 'Capacity cap hit: max 4 spawned children' }));
             return;
@@ -1042,6 +1094,7 @@ class MedusaServer {
             await this.callA2A('POST', `/a2a/gossip/peers/${node_id}/terminate`);
           }
 
+          this.spawnedChildrenExpected.delete(node_id);
           this.lastContractTime = Date.now();
           console.log(`📉 Mesh contraction: Node ${node_id} reported ${kind}`);
           
@@ -1080,6 +1133,14 @@ class MedusaServer {
           const port = await this.getAvailablePortFromTangleClaw();
           const nodeId = await this.spawnA2ANode(port);
           
+          this.messageHistory.push({
+            id: `sys-${Date.now()}`,
+            from: 'system', to: 'dashboard',
+            message: `mesh.expand.approved: ${requestId} _ ${nodeId} on port ${port}`,
+            timestamp: new Date().toISOString(),
+            type: 'telemetry',
+          });
+
           console.log(`✅ Operator approved spawn request ${requestId}`);
           
           res.statusCode = 200;
@@ -1373,6 +1434,10 @@ class MedusaServer {
       console.log(`🔌 WebSocket Server running at ws://localhost:${this.protocolPort + 1}`);
       console.log('\nThe two medusas are ready to hiss properly! 🐍🔥🐍');
       
+      this.spawnReconcilerInterval = setInterval(() => {
+        this.reconcileSpawnedChildren().catch(() => {});
+      }, 30000); // every 30s
+
       return true;
     } catch (error) {
       console.error(`❌ Failed to start Medusa server: ${error.message}`);
@@ -1387,6 +1452,11 @@ class MedusaServer {
     if (this.processLock) await this.processLock.release();
     await this.saveRegistry();
     
+    if (this.spawnReconcilerInterval) {
+      clearInterval(this.spawnReconcilerInterval);
+      this.spawnReconcilerInterval = null;
+    }
+
     const closures = [];
     if (this.protocolServer) closures.push(new Promise(r => this.protocolServer.close(r)));
     if (this.webServer) closures.push(new Promise(r => this.webServer.close(r)));

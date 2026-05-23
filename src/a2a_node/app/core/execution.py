@@ -370,6 +370,8 @@ async def run_execution_engine():
                             await reach_consensus(task)
                         
                         print(f"✅ Finished task: {task.id[:8]} with status: {task.status}", flush=True)
+                        from app.core.swarm import mark_active
+                        mark_active()
                     
                     await db.commit()
                     

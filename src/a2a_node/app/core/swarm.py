@@ -16,6 +16,15 @@ _start_time = datetime.now(UTC)
 _last_active_time = datetime.now(UTC)
 _is_shutting_down = False
 
+def mark_active():
+    """
+    Bumps _last_active_time to now. Called from any code path that
+    represents the node doing productive work (task claim AND task
+    completion). Major #1 fix.
+    """
+    global _last_active_time
+    _last_active_time = datetime.now(UTC)
+
 async def run_swarm_intelligence():
     """
     Background task that scans for tasks to claim based on skills and swarm logic.
@@ -85,8 +94,7 @@ async def run_swarm_intelligence():
                                     res = r.json()
                                     if res.get("status") == "claimed":
                                         print(f"✅ Node {node_id} successfully claimed task {task.id[:8]}", flush=True)
-                                        global _last_active_time
-                                        _last_active_time = datetime.now(UTC)
+                                        mark_active()
                                     else:
                                         print(f"⚠️ Node {node_id} failed to claim task {task.id[:8]}: {res.get('status')}", flush=True)
                             except Exception as e:
@@ -124,6 +132,26 @@ async def perform_graceful_shutdown():
             break
         
         await asyncio.sleep(5)
+
+    # 2.5. Re-queue any tasks still claimed by this node (defensive _ covers
+    # the drain-timeout case where in-flight tasks didn't complete in time).
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(TaskEntry).filter(
+                and_(
+                    TaskEntry.status.in_(["claimed", "processing", "running"]),
+                    or_(TaskEntry.claimed_by == node_id, TaskEntry.assigned_to == node_id)
+                )
+            )
+        )
+        orphans = result.scalars().all()
+        for task in orphans:
+            task.status = "pending"
+            task.claimed_by = None
+            task.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            print(f"🔄 Re-queueing orphan task {task.id[:8]} on shutdown", flush=True)
+        if orphans:
+            await db.commit()
 
     # 3. Fire POST /mesh/contract to Medusa Server
     endpoint = "/mesh/contract"

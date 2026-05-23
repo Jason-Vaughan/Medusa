@@ -304,3 +304,184 @@ async def test_janitor_penalizes_active_node_with_stalled_task():
         )
 
     print("__ Janitor correctly penalizes active nodes with stalled tasks.")
+
+
+# ---------- MAJOR #1: false-idle shutdown on long-running tasks ----------
+
+@pytest.mark.asyncio
+async def test_swarm_exposes_mark_active_helper():
+    """
+    MAJOR #1: _last_active_time should be bumpable from outside swarm.py
+    so the task-completion path in execution.py can update it. Without
+    this hook, a node working on a 30min task sits with stale
+    _last_active_time and trips auto-termination mid-execution.
+    """
+    from datetime import datetime, UTC, timedelta
+    import app.core.swarm as swarm_mod
+
+    try:
+        from app.core.swarm import mark_active
+    except ImportError as e:
+        pytest.fail(
+            f"app.core.swarm.mark_active doesn't exist. Major #1 needs a "
+            f"helper function so execution.py can bump _last_active_time "
+            f"on task completion. ImportError: {e}"
+        )
+
+    swarm_mod._last_active_time = datetime.now(UTC) - timedelta(minutes=30)
+    mark_active()
+
+    age_seconds = (datetime.now(UTC) - swarm_mod._last_active_time).total_seconds()
+    assert age_seconds < 5, (
+        f"mark_active() didn't bump _last_active_time. Got age={age_seconds:.1f}s"
+    )
+
+    print("__ swarm.mark_active() exists and bumps _last_active_time.")
+
+
+@pytest.mark.asyncio
+async def test_execution_calls_mark_active_on_task_completion():
+    """
+    MAJOR #1 (wiring half): execution.py's task-completion path
+    (around line 357 where status flips to 'completed'/'failed') must
+    invoke swarm.mark_active. Without the wiring, the helper from the
+    prior test exists but never gets called.
+    """
+    import app.core.execution
+    import inspect
+
+    source = inspect.getsource(app.core.execution)
+    assert "mark_active" in source, (
+        "execution.py doesn't reference mark_active. Major #1 wiring "
+        "incomplete: helper exists but isn't called from the task-"
+        "completion path. Add `from app.core.swarm import mark_active` "
+        "and call mark_active() after the status='completed'/'failed' "
+        "assignment near line 357."
+    )
+
+    print("__ execution.py wires mark_active into task completion.")
+
+
+# ---------- MAJOR #2: drain timeout doesn't re-queue orphaned tasks ----------
+
+@pytest.mark.asyncio
+async def test_drain_timeout_requeues_orphaned_tasks():
+    """
+    MAJOR #2: When drain timeout fires, any tasks still claimed by this
+    node should be reset to status='pending', claimed_by=NULL so other
+    nodes pick them up immediately. Currently they stay claimed and wait.
+    """
+    from app.core.swarm import perform_graceful_shutdown
+    import app.core.swarm as swarm_mod
+    from sqlalchemy import select
+
+    swarm_mod._is_shutting_down = False
+    local_node_id = PerformanceMonitor.get_local_node_id()
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(TaskEntry))
+        await db.execute(delete(PeerEntry))
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        for i in range(2):
+            db.add(TaskEntry(
+                id=f"local-running-{i:02d}",
+                task_type="research",
+                description=f"In-flight task #{i}",
+                status="running",
+                assigned_to=local_node_id,
+                claimed_by=local_node_id,
+                updated_at=now,
+            ))
+        await db.commit()
+
+    mock_http = MagicMock()
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+    mock_http.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+    # Force drain timeout immediately by advancing datetime past MAX_DRAIN
+    base_time = datetime.now(UTC)
+    dt_call_count = [0]
+
+    def fake_now(tz=None):
+        dt_call_count[0] += 1
+        if dt_call_count[0] == 1:
+            return base_time
+        return base_time + timedelta(seconds=120)
+
+    mock_datetime = MagicMock()
+    mock_datetime.now = fake_now
+    mock_datetime.UTC = UTC
+
+    try:
+        with patch("app.core.swarm.httpx.AsyncClient", return_value=mock_http), \
+             patch("app.core.tangleclaw.release_port"), \
+             patch("app.core.swarm.os._exit"), \
+             patch("app.core.swarm.asyncio.sleep", new_callable=AsyncMock), \
+             patch("app.core.swarm.datetime", mock_datetime):
+            await asyncio.wait_for(perform_graceful_shutdown(), timeout=5.0)
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(TaskEntry).filter(
+                TaskEntry.id.in_(["local-running-00", "local-running-01"])
+            ))
+            tasks = result.scalars().all()
+
+            for t in tasks:
+                assert t.status == "pending", (
+                    f"Task {t.id} still 'running' after drain timeout. "
+                    f"Major #2: drain didn't re-queue orphaned tasks."
+                )
+                assert t.claimed_by is None, (
+                    f"Task {t.id} still claimed_by={t.claimed_by}. "
+                    f"Major #2: drain didn't release claim."
+                )
+    finally:
+        swarm_mod._is_shutting_down = False
+
+    print("__ Drain timeout re-queues orphaned tasks.")
+
+
+# ---------- MAJOR #4: spawned nodes also fire expansion ----------
+
+@pytest.mark.asyncio
+async def test_spawned_nodes_do_not_trigger_expansion():
+    """
+    MAJOR #4: check_for_expansion_need should only fire on SEED nodes.
+    Spawned children running the same check is wasteful: every new node
+    re-triggers the load detection and queues its own /mesh/expand
+    request (rate-limited server-side, but noisy in telemetry).
+    """
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(TaskEntry))
+        await db.execute(delete(PeerEntry))
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        for i in range(16):
+            db.add(TaskEntry(
+                id=f"spawned-pending-{i:02d}",
+                task_type="research",
+                description=f"Pending #{i}",
+                status="pending",
+                updated_at=now,
+            ))
+        await db.commit()
+
+    perf_mod._load_breach_start = datetime.now(UTC) - timedelta(seconds=70)
+    original_type = settings.A2A_NODE_TYPE
+    settings.A2A_NODE_TYPE = "spawned"
+
+    try:
+        with patch.object(
+            PerformanceMonitor, "request_mesh_expansion", new_callable=AsyncMock
+        ) as mock_expand:
+            await PerformanceMonitor.check_for_expansion_need()
+
+            # Spawned node sees sustained load BUT shouldn't request expansion
+            mock_expand.assert_not_called()
+    finally:
+        settings.A2A_NODE_TYPE = original_type
+        perf_mod._load_breach_start = None
+
+    print("__ Spawned nodes correctly skip expansion trigger.")

@@ -280,4 +280,94 @@ describe('MedusaServer Chunk 34 _ Capacity Expansion', () => {
       expect(port).toBeLessThanOrEqual(4239);
     });
   });
+
+  // ---------- MAJOR #3 + #5: missing telemetry events & crash synthesis ----------
+  describe('#9 _ Missing Chunk 34 telemetry & crash reconciler', () => {
+    test('MAJOR #3a: rate-limit path emits mesh.expand.rate_limited to messageHistory', async () => {
+      await server.start();
+      server.lastSpawnTime = Date.now() - 30_000;
+      server.messageHistory = [];
+
+      await postSigned('/mesh/expand');
+
+      const telemetry = server.messageHistory.filter(m => m.type === 'telemetry');
+      const rateLimited = telemetry.find(m => m.message.includes('mesh.expand.rate_limited'));
+      expect(rateLimited).toBeDefined();
+    });
+
+    test('MAJOR #3b: cap-hit path emits mesh.expand.cap_hit to messageHistory', async () => {
+      await server.start();
+      server.lastSpawnTime = 0;
+      server.messageHistory = [];
+      jest.spyOn(server, 'callA2A').mockResolvedValue({
+        ok: true, status: 200,
+        data: [
+          { id: 'workspace-spawned-4220', status: 'active' },
+          { id: 'workspace-spawned-4221', status: 'active' },
+          { id: 'workspace-spawned-4222', status: 'active' },
+          { id: 'workspace-spawned-4223', status: 'active' },
+        ]
+      });
+
+      await postSigned('/mesh/expand');
+
+      const telemetry = server.messageHistory.filter(m => m.type === 'telemetry');
+      const capHit = telemetry.find(m => m.message.includes('mesh.expand.cap_hit'));
+      expect(capHit).toBeDefined();
+    });
+
+    test('MAJOR #3c: approve path emits mesh.expand.approved to messageHistory', async () => {
+      await server.start();
+      server.messageHistory = [];
+      server.pendingSpawnRequests = [
+        { id: 'spawn-test-1', requestedAt: new Date().toISOString(), status: 'pending' }
+      ];
+      server.lastSpawnTime = 0;
+      jest.spyOn(server, 'getAvailablePortFromTangleClaw').mockResolvedValue(4220);
+      jest.spyOn(server, 'spawnA2ANode').mockResolvedValue('test-node-id');
+
+      await postSigned('/mesh/approve/spawn-test-1');
+
+      const telemetry = server.messageHistory.filter(m => m.type === 'telemetry');
+      const approved = telemetry.find(m => m.message.includes('mesh.expand.approved'));
+      expect(approved).toBeDefined();
+    });
+
+    test('MAJOR #5: reconciler synthesizes mesh.contract.crashed for vanished children', async () => {
+      await server.start();
+      server.messageHistory = [];
+
+      // Tell the server we previously spawned 2 children
+      // (this exercises whatever expected-children tracking the fix introduces)
+      if (typeof server.spawnedChildrenExpected === 'undefined') {
+        server.spawnedChildrenExpected = new Set();
+      }
+      server.spawnedChildrenExpected.add('workspace-spawned-4220');
+      server.spawnedChildrenExpected.add('workspace-spawned-4221');
+
+      // Gossip only reports one _ the other crashed without /mesh/contract
+      jest.spyOn(server, 'callA2A').mockResolvedValue({
+        ok: true, status: 200,
+        data: [{ id: 'workspace-spawned-4220', status: 'active' }]
+      });
+
+      // The fix should add a reconcileSpawnedChildren() method
+      if (typeof server.reconcileSpawnedChildren !== 'function') {
+        throw new Error(
+          'server.reconcileSpawnedChildren() does not exist. Major #5 needs ' +
+          'a method that diffs spawnedChildrenExpected against the live ' +
+          'gossip mesh and emits mesh.contract.crashed for missing entries.'
+        );
+      }
+
+      await server.reconcileSpawnedChildren();
+
+      const telemetry = server.messageHistory.filter(m => m.type === 'telemetry');
+      const crashed = telemetry.find(m =>
+        m.message.includes('mesh.contract.crashed') &&
+        m.message.includes('workspace-spawned-4221')
+      );
+      expect(crashed).toBeDefined();
+    });
+  });
 });

@@ -332,7 +332,12 @@ class PerformanceMonitor:
     async def check_for_expansion_need(cls):
         """
         Checks if sustained high load requires mesh expansion.
+        Only SEED nodes drive expansion decisions (Major #4 fix); spawned
+        children rely on the seed to coordinate scale-up.
         """
+        if settings.A2A_NODE_TYPE != "seed":
+            return
+
         global _load_breach_start
         
         load_info = await cls.get_swarm_load()

@@ -114,7 +114,7 @@ async def perform_graceful_shutdown():
     drain_start = datetime.now(UTC)
     while True:
         from app.core.performance import PerformanceMonitor
-        load = await PerformanceMonitor.get_current_load()
+        load = await PerformanceMonitor.get_local_load()
         if load.get("total_load", 0) == 0:
             print("🚿 All tasks drained successfully.", flush=True)
             break

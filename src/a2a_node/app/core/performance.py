@@ -47,6 +47,61 @@ class PerformanceMonitor:
         return health
 
     @classmethod
+    async def get_swarm_load(cls) -> Dict[str, Any]:
+        """
+        Returns swarm-wide totals across ALL nodes. Used by expansion logic.
+        """
+        async with AsyncSessionLocal() as db:
+            running_result = await db.execute(
+                select(TaskEntry).filter(TaskEntry.status == "running")
+            )
+            running_count = len(running_result.scalars().all())
+
+            pending_result = await db.execute(
+                select(TaskEntry).filter(TaskEntry.status == "pending")
+            )
+            pending_count = len(pending_result.scalars().all())
+
+            return {
+                "running_tasks": running_count,
+                "pending_tasks": pending_count,
+                "total_load": running_count + pending_count
+            }
+
+    @classmethod
+    async def get_local_load(cls) -> Dict[str, Any]:
+        """
+        Returns counts for tasks owned by THIS node only. Used by drain logic.
+        """
+        node_id = cls.get_local_node_id()
+        async with AsyncSessionLocal() as db:
+            running_result = await db.execute(
+                select(TaskEntry).filter(
+                    and_(
+                        TaskEntry.status == "running",
+                        or_(TaskEntry.claimed_by == node_id, TaskEntry.assigned_to == node_id)
+                    )
+                )
+            )
+            running_count = len(running_result.scalars().all())
+
+            pending_result = await db.execute(
+                select(TaskEntry).filter(
+                    and_(
+                        TaskEntry.status == "pending",
+                        or_(TaskEntry.assigned_to == "local", TaskEntry.assigned_to == node_id)
+                    )
+                )
+            )
+            pending_count = len(pending_result.scalars().all())
+
+            return {
+                "running_tasks": running_count,
+                "pending_tasks": pending_count,
+                "total_load": running_count + pending_count
+            }
+
+    @classmethod
     async def get_current_load(cls) -> Dict[str, Any]:
         """
         Calculates the current load of the local node based on active tasks.
@@ -280,7 +335,7 @@ class PerformanceMonitor:
         """
         global _load_breach_start
         
-        load_info = await cls.get_current_load()
+        load_info = await cls.get_swarm_load()
         pending = load_info.get("pending_tasks", 0)
         
         if pending > settings.LOAD_THRESHOLD:

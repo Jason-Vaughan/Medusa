@@ -1,4 +1,15 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
+#!/bin/sh
+set -e
+. "$(dirname "$0")/_/husky.sh"
 
-npm run validate:evidence
+echo "🐍 Running pre-commit validation..."
+
+# 1. Node.js tests
+echo "[*] Running Node.js tests..."
+npm test -- --passWithNoTests || { echo "❌ Node.js tests failed. Commit aborted."; exit 1; }
+
+# 2. Python tests
+echo "[*] Running Python A2A Node tests..."
+( cd src/a2a_node && export PYTHONPATH=$PYTHONPATH:. && . venv/bin/activate && pytest tests/ ) || { echo "❌ Python tests failed. Commit aborted."; exit 1; }
+
+echo "✅ Pre-commit validation passed!"

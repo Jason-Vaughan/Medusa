@@ -38,12 +38,15 @@ async def test_task_janitor_recovery():
             mock_settings.PROJECT_NAME = "medusa"
             mock_settings.PORT = 3200
             mock_settings.STALL_TIMEOUT = 300 # 5 minutes
+            mock_settings.TASK_JANITOR_INTERVAL = 0.1
+            mock_settings.A2A_NODE_TYPE = "seed"
+            mock_settings.AUTO_TERM_UPTIME_FLOOR = 900
+            mock_settings.AUTO_TERM_IDLE_TIMEOUT = 600
             
             # We'll use a timeout to let the janitor run one iteration and then cancel it
             janitor_task = asyncio.create_task(run_task_janitor())
-            await asyncio.sleep(2) # Give it time to run one loop
-            janitor_task.cancel()
-            
+            await asyncio.sleep(0.5) # Give it time to run one loop
+            janitor_task.cancel()            
         # 3. Verify task was reset (using a fresh session to avoid cache)
         async with AsyncSessionLocal() as db_check:
             result = await db_check.execute(select(TaskEntry).filter(TaskEntry.id == task_id))

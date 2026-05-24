@@ -23,11 +23,13 @@ async def test_run_gossip_one_iteration():
         mock_settings.PORT = 3200
         
         # Mock httpx to simulate peer sync
-        with patch("app.api.gossip.httpx.AsyncClient.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.json.return_value = {
+        with patch("app.api.gossip.httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
                 "peers": [], "tasks": [], "messages": []
             }
+            mock_get.return_value = mock_response
             
             # Run loop
             gossip_task = asyncio.create_task(run_gossip())

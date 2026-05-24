@@ -43,7 +43,7 @@ async def verify_medusa_handshake(
     try:
         ts = float(x_medusa_timestamp)
         now = time.time()
-        if abs(now - ts) > 60:
+        if abs(now - ts) > 300:
             raise HTTPException(status_code=403, detail="Timestamp expired or clock skew too high.")
     except ValueError:
         raise HTTPException(status_code=403, detail="Invalid X-Medusa-Timestamp.")

@@ -33,10 +33,12 @@ class MedusaEventBus extends EventEmitter {
 class MedusaServer {
   constructor(options = {}) {
     // Configuration
-    this.protocolPort = options.protocolPort || 3009;
-    this.webPort = options.webPort || 8181;
+    this.protocolPort = options.protocolPort || parseInt(process.env.MEDUSA_PROTOCOL_PORT) || 3009;
+    this.protocolHost = options.protocolHost || process.env.MEDUSA_PROTOCOL_HOST || '127.0.0.1';
+    this.webPort = options.webPort || parseInt(process.env.MEDUSA_WEB_PORT) || 8181;
+    this.webHost = options.webHost || process.env.MEDUSA_WEB_HOST || '127.0.0.1';
     this.workspaceRegistryFile = options.workspaceRegistryFile || path.join(os.homedir(), '.medusa', 'medusa-registry.json');
-    this.a2aBaseUrl = options.a2aBaseUrl || 'http://localhost:3200';
+    this.a2aBaseUrl = options.a2aBaseUrl || process.env.A2A_BASE_URL || 'http://localhost:3200';
     this.a2aSecret = options.a2aSecret || process.env.A2A_SECRET || 'medusa-please';
 
     // Server ownership tracking
@@ -247,7 +249,13 @@ class MedusaServer {
         A2A_PORT: port,
         A2A_PROJECT_NAME: `${this.serverMetadata.controllingWorkspace}-spawned`,
         A2A_NODE_TYPE: 'spawned',
-        A2A_SECRET: this.a2aSecret
+        A2A_SECRET: this.a2aSecret,
+        AUTO_TERM_UPTIME_FLOOR: process.env.AUTO_TERM_UPTIME_FLOOR || '900',
+        AUTO_TERM_IDLE_TIMEOUT: process.env.AUTO_TERM_IDLE_TIMEOUT || '600',
+        TASK_JANITOR_INTERVAL: process.env.TASK_JANITOR_INTERVAL || '60',
+        PERFORMANCE_MONITOR_INTERVAL: process.env.PERFORMANCE_MONITOR_INTERVAL || '60',
+        MEDUSA_PROTOCOL_PORT: process.env.MEDUSA_PROTOCOL_PORT || '3009',
+        MEDUSA_PROTOCOL_HOST: process.env.MEDUSA_PROTOCOL_HOST || '127.0.0.1'
       }
     });
     
@@ -463,6 +471,7 @@ class MedusaServer {
               a2aNode: 'bridge-active',
               webDashboard: 'running'
             },
+            history: this.messageHistory,
             warnings: []
           };
 
@@ -1050,7 +1059,7 @@ class MedusaServer {
               id: `sys-${Date.now()}`,
               from: 'system',
               to: 'dashboard',
-              message: `mesh.expand.requested: Approval required (Queue depth: ${this.pendingSpawnRequests.length})`,
+              message: `mesh.expand.requested: Approval required (ID: ${requestId})`,
               timestamp: new Date().toISOString(),
               type: 'telemetry'
             });
@@ -1420,18 +1429,21 @@ class MedusaServer {
       await this.loadRegistry();
       
       this.protocolServer = this.createProtocolServer();
-      await new Promise(resolve => this.protocolServer.listen(this.protocolPort, resolve));
+      await new Promise(resolve => this.protocolServer.listen(this.protocolPort, this.protocolHost, resolve));
       
-      console.log(`🐍 Medusa Protocol API running at http://localhost:${this.protocolPort}`);
+      console.log(`🐍 Medusa Protocol API running at http://${this.protocolHost}:${this.protocolPort}`);
       
-      this.wsServer = new WebSocket.Server({ port: this.protocolPort + 1 });
+      this.wsServer = new WebSocket.Server({ 
+        port: this.protocolPort + 1,
+        host: this.protocolHost 
+      });
       this.setupWebSocketHandlers();
       
       this.webServer = this.createWebServer();
-      await new Promise(resolve => this.webServer.listen(this.webPort, resolve));
+      await new Promise(resolve => this.webServer.listen(this.webPort, this.webHost, resolve));
       
-      console.log(`🐍 Switchboard running at http://localhost:${this.webPort}`);
-      console.log(`🔌 WebSocket Server running at ws://localhost:${this.protocolPort + 1}`);
+      console.log(`🐍 Switchboard running at http://${this.webHost}:${this.webPort}`);
+      console.log(`🔌 WebSocket Server running at ws://${this.protocolHost}:${this.protocolPort + 1}`);
       console.log('\nThe two medusas are ready to hiss properly! 🐍🔥🐍');
       
       this.spawnReconcilerInterval = setInterval(() => {

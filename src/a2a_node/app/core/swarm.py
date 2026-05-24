@@ -184,8 +184,8 @@ async def check_auto_termination():
         uptime = (now - _start_time).total_seconds()
         idle_time = (now - _last_active_time).total_seconds()
         
-        # Min 15m uptime + 10m idle
-        if uptime > 900 and idle_time > 600:
+        # Check against configurable thresholds
+        if uptime > settings.AUTO_TERM_UPTIME_FLOOR and idle_time > settings.AUTO_TERM_IDLE_TIMEOUT:
             print(f"❄️ Node idle for {idle_time/60:.1f}m. Triggering auto-termination.", flush=True)
             asyncio.create_task(perform_graceful_shutdown())
 
@@ -262,4 +262,4 @@ async def run_task_janitor():
         except Exception as e:
             logger.error(f"⚠️ Task Janitor error: {str(e)}")
             
-        await asyncio.sleep(60)
+        await asyncio.sleep(settings.TASK_JANITOR_INTERVAL)

@@ -5,7 +5,7 @@ class Settings:
     VERSION: str = "0.7.8-beta"
     A2A_SPEC_VERSION: str = "1.0-draft"
     PORT: int = int(os.getenv("A2A_PORT", 3200))
-    HOST: str = "0.0.0.0"
+    HOST: str = os.getenv("A2A_HOST", "127.0.0.1")
     DEBUG: bool = os.getenv("A2A_DEBUG", "True") == "True"
     A2A_SECRET: str = os.getenv("A2A_SECRET", "medusa-please")
     MEDUSA_SKILLS: str = os.getenv("MEDUSA_SKILLS", "python_expert,security_auditor,sass_master")
@@ -16,13 +16,17 @@ class Settings:
     # Default 30 days for HITL and pre-approved tasks to ensure a durable audit trail for critical actions.
     RETENTION_DAYS_AUDIT: int = int(os.getenv("RETENTION_DAYS_AUDIT", 30))
     STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
+    PERFORMANCE_MONITOR_INTERVAL: int = int(os.getenv("PERFORMANCE_MONITOR_INTERVAL", 60))
+    TASK_JANITOR_INTERVAL: int = int(os.getenv("TASK_JANITOR_INTERVAL", 60))
+    AUTO_TERM_UPTIME_FLOOR: int = int(os.getenv("AUTO_TERM_UPTIME_FLOOR", 900))
+    AUTO_TERM_IDLE_TIMEOUT: int = int(os.getenv("AUTO_TERM_IDLE_TIMEOUT", 600))
     BIDDING_CONFIDENCE_THRESHOLD: float = 0.6
     
     # Swarm Scaling Settings (Chunk 34)
     A2A_NODE_TYPE: str = os.getenv("A2A_NODE_TYPE", "seed") # 'seed' or 'spawned'
-    LOAD_THRESHOLD: int = 5
-    EXPANSION_WINDOW: int = 60 # seconds
-    MEDUSA_SERVER_URL: str = os.getenv("MEDUSA_SERVER_URL", "http://localhost:3009")
+    LOAD_THRESHOLD: int = int(os.getenv("LOAD_THRESHOLD", 5))
+    EXPANSION_WINDOW: int = int(os.getenv("EXPANSION_WINDOW", 60)) # seconds
+    MEDUSA_SERVER_URL: str = os.getenv("MEDUSA_SERVER_URL", f"http://localhost:{os.getenv('MEDUSA_PROTOCOL_PORT', 3009)}")
     
     # Reputation Settings
     REPUTATION_WEIGHT_COMPLETED: float = 0.1

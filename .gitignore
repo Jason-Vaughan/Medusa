@@ -142,3 +142,22 @@ venv/
 **/*.db
 **/*.sqlite
  
+
+# Prawduct session files
+.claude/settings.local.json
+.prawduct/.critic-findings.json
+.prawduct/.test-evidence.json
+.prawduct/.pr-reviews/
+.prawduct/.session-git-baseline
+.prawduct/.session-handoff.md
+.prawduct/.session-reflected
+.prawduct/.session-start
+.prawduct/.subagent-briefing.md
+.prawduct/.gates-waived
+.prawduct/.sync-pending
+.prawduct/reflections.md
+.prawduct/sync-manifest.json
+.prawduct/artifacts/build-plan.md
+__pycache__/
+*.tar.gz
+dist/

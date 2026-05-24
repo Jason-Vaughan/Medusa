@@ -398,4 +398,4 @@ async def run_performance_monitor():
         except Exception as e:
             print(f"❌ Error recording performance snapshot: {e}", flush=True)
         
-        await asyncio.sleep(60)
+        await asyncio.sleep(settings.PERFORMANCE_MONITOR_INTERVAL)

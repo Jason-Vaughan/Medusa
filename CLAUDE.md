@@ -37,6 +37,14 @@ Claude Code stores plan files globally at `~/.claude/plans/`. This causes proble
 - Never reference plans with ambiguous relative paths like `.claude/plans/...` _ always use absolute paths.
 - Each project's plans live inside that project. Do not rely on `~/.claude/plans/` as the source of truth across sessions.
 
+**Rule: Archive plans whose chunk has shipped.**
+
+A plan file outlives its purpose the moment the corresponding chunk's PR merges. Leaving shipped plans next to active ones traps future sessions into treating closed work as ready-to-execute — exactly the failure mode that bit the 2026-05-23 session (recommended #137 as next chunk because `build-plan.md` was present at the repo root; the issue had been closed 18 days earlier).
+
+- When a plan's referenced issue closes (or its PR merges), **move the plan to `<project-root>/.claude/plans/archive/`** rather than deleting. Archive preserves the design rationale for historical greppability without polluting the active plan listing.
+- Sessions starting work on a "next chunk" must verify the referenced issue is still **OPEN** via `gh issue view <N> --json state -q .state` before treating any plan as canonical, even if the file is in the active (non-archive) directory. This is the structural guard — archiving is the convention, the issue-state check is the contract.
+- The `.claude/plans/` directory and `build-plan*.md` at the repo root are gitignored on TC; the archive is local-only. A fresh clone has no archive — only this clone benefits from the historical record. That's fine; the issue-state check is what protects across clones.
+
 ## Memory Hygiene
 
 Memory entries that exist only to bridge a specific gap (e.g., "decisions ratified in chat that haven't yet landed in the canonical plan", "context for an in-progress
@@ -145,6 +153,20 @@ Substantive milestones become tagged releases on GitHub. Releases create permane
 - After a substantive merge, suggest tagging: `git tag -a vX.Y.Z -m "..." && git push --tags`.
 - Create the GitHub release: `gh release create vX.Y.Z --notes-from-tag` (or `-F <notes-file>` for hand-curated notes from CHANGELOG).
 - Maintain a `CHANGELOG.md` in Keep a Changelog format with `[Unreleased]` section + dated release entries. Each merged PR adds to `[Unreleased]`; releases promote those entries to a dated section.
+
+**Rule: TC's `version-bump` wrap step picks the bump level from `[Unreleased]` content. Author CHANGELOG entries under the subsection that produces the intended bump.**
+
+| `[Unreleased]` content | Bump |
+|---|---|
+| `BREAKING:` or `BREAKING(` marker anywhere in body | **major** |
+| Any `### Added`, `### Changed`, `### Removed`, or `### Deprecated` | **minor** |
+| Only `### Fixed`, `### Security`, or `### Internal` | **patch** |
+
+Rows are evaluated **top-down with first-match-wins** — a body that contains both `### Added` AND `### Internal` matches the minor row (user-visible subsection wins; `### Internal` does not veto a real feature). The patch row only fires when no minor- or major-triggering content is present.
+
+`### Internal` is a non-Keep-a-Changelog subsection (introduced in #231) for refactors, test-only changes, dev tooling, CI tweaks, and doc-only edits that don't change user-facing behavior. Entries logged here still appear in `CHANGELOG.md` for full auditable history, but the wrap step treats them as patch-tier so a release made up entirely of internal churn doesn't inflate the minor counter.
+
+Pick the subsection by **user-visible impact**, not file footprint: a one-line behavior change for the user is `### Added` / `### Changed`; a 500-line refactor with zero user-visible effect is `### Internal`. When in doubt between `### Changed` and `### Internal`, ask "would an operator notice a difference next session?" — yes → `### Changed`, no → `### Internal`.
 
 ## Repository Standards
 

@@ -2,6 +2,8 @@
   "engine": null,
   "methodology": "prawduct",
   "methodologyPhase": null,
+  "silentPrime": true,
+  "featureIndexEnabled": false,
   "rules": {
     "core": {
       "changelogPerChange": true,
@@ -45,6 +47,10 @@
     "baselineWindowDays": 14,
     "retentionDays": 90
   },
+  "wrapV2": true,
+  "testCommand": null,
+  "lintCommand": null,
+  "lastWrapSha": "04073d02f5d7330240e0d1ee5bca31da764410cd",
   "methodologyArchives": [
     {
       "methodology": "minimal",

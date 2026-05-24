@@ -2185,3 +2185,53 @@ echo $SERVER_STATUS | jq '.existing'  # true/false
 ---
 
 *Previous versions available in git history* 
+## 🎯 **v1.0.0-rc "PRODUCTION HARDENING & AUTONOMOUS SCALING"** - May 24, 2026
+
+### 🚀 **Medusa v1.0 Release Candidate: Production-Ready Mesh**
+
+**THE BIG ONE:** Medusa v1.0-rc represents the transition from a development prototype to a professional-grade, hardened coordination mesh. This release focuses on security, stability, and automated distribution.
+
+#### **🛡️ SECURITY HARDENING: LOOPBACK-BY-DEFAULT**
+
+**CRITICAL ARCHITECTURAL CHANGE:** To minimize the attack surface, Medusa now binds strictly to `127.0.0.1` by default for all services.
+- **Loopback Enforcement:** Node.js server and Python A2A nodes no longer listen on all interfaces (`0.0.0.0`).
+- **Secure Remote Mesh:** Multi-host coordination now requires explicit opt-in and a recommended TLS overlay (Tailscale, VPN, or Stunnel).
+- **HMAC Replay Protection:** Standardized on a strict 5-minute (300s) window for all signed P2P requests.
+
+#### **📈 AUTONOMOUS CAPACITY EXPANSION (CHUNK 34)**
+
+**SWARM INTELLIGENCE EVOLUTION:** The mesh can now autonomously scale its own processing capacity based on real-time load.
+- **Load Detection:** Seed nodes monitor sustained task pressure and trigger expansion requests.
+- **HITL Gate:** Secure Human-in-the-Loop approval flow for mesh expansion via the Medusa dashboard.
+- **Autonomous Spawning:** Medusa server dynamically boots child A2A nodes via TangleClaw PortHub.
+- **Graceful Contraction:** Child nodes automatically self-terminate after configurable idle periods, with full task re-queuing and telemetry reporting.
+
+#### **🧪 ENTERPRISE TESTING DISCIPLINE**
+
+**STRICT QUALITY ASSURANCE:** Established binding rules to ensure the mesh's structural integrity.
+- **GEMINI.md Discipline:** New hard rules for session-to-session quality control.
+- **Husky Pre-Commit Gate:** Automated validation runs both Node.js and Python test suites, blocking regressions at the source.
+- **Coverage Floor:** Core swarm modules now maintain >75% test coverage.
+
+#### **📦 DISTRIBUTION & MODERNIZATION**
+
+**PROFESSIONAL DELIVERY:** New automation for deploying Medusa to any environment.
+- **Distribution tarball:** Generated via `scripts/build-distribution.sh`, including a robust, fail-fast `INSTALL.sh`.
+- **FastAPI Lifespan:** Modernized Python components to use the `lifespan` context manager, eliminating startup deprecation warnings.
+- **Legacy Cleanup:** Renamed the legacy Google Sheets bridge to `bridges/google` and removed ephemeral development artifacts from distribution packages.
+
+#### **🛠 UPGRADE PATH**
+
+```bash
+# 1. Update Env Vars
+export MEDUSA_PROTOCOL_PORT=3909
+
+# 2. Install RC
+tar -xzf medusa-1.0.0-rc.tar.gz
+./INSTALL.sh
+
+# 3. Verify
+python3 scripts/test_e2e_spawn_integration.py
+```
+
+**Medusa is now ready for professional-grade AI coordination.** 🐍🔥🐍

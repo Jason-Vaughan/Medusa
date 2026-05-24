@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [1.0.0-rc] - 2026-05-24
+### Added
+- **Phase 4: Production Readiness (Security & Distribution).**
+- **Autonomous Capacity Expansion:** Formalized the Chunk 34 autonomous scaling protocol with real-time load detection, HITL spawn approval, and graceful self-termination.
+- **Testing Discipline:** Established strict `GEMINI.md` rules and a Husky pre-commit hook enforcing Node.js/Python cross-test suite validation.
+- **Distribution Automation:** Created `scripts/build-distribution.sh` for generating portable, production-grade `.tar.gz` artifacts.
+- **Robust Installer:** Enhanced `INSTALL.sh` with fail-fast dependency checks and idempotent virtual environment management.
+- **Upgrade Path:** Formalized documentation for migrating from v0.8.x beta to v1.0-rc.
+
+### Changed
+- **Network Default Hardening:** Services now bind strictly to `127.0.0.1` by default. Remote coordination now requires explicit opt-in and a TLS wrapper (Tailscale/VPN recommended).
+- **HMAC Standardization:** Aligned HMAC replay windows to a strict 300s (5-minute) threshold across all components.
+- **FastAPI Modernization:** Migrated A2A node from deprecated `on_event` handlers to the modern `lifespan` context manager.
+- **Telemetry Exposure:** Expanded `/telemetry` API to expose `messageHistory`, enabling end-to-end observability and automated testing of system events.
+
+### Fixed
+- **Coverage Gap:** Hit >75% coverage target for core modules (`llm.py`, `tangleclaw.py`, `supervisor.py`, `execution.py`) with 10+ new targeted test cases.
+- **Regressions:** Fixed 9 critical regressions in route registration and startup initialization introduced during architectural cleanup.
+- **Port Conflict Protection:** Configured E2E tests to run on non-colliding port ranges (3900+).
+
 ## [0.8.2-beta] - 2026-05-14
 ### Added
 - **Issue #19: Advanced Capabilities & Profiles (Dynamic Trust).**

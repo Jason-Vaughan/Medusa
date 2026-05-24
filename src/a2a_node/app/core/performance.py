@@ -296,9 +296,9 @@ class PerformanceMonitor:
     @classmethod
     async def prune_snapshots(cls):
         """
-        Prunes performance snapshots older than RETENTION_DAYS.
+        Prunes performance snapshots older than RETENTION_DAYS_PERF.
         """
-        threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=settings.RETENTION_DAYS)
+        threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=settings.RETENTION_DAYS_PERF)
         async with AsyncSessionLocal() as db:
             try:
                 stmt = delete(PerformanceSnapshot).where(PerformanceSnapshot.timestamp < threshold)

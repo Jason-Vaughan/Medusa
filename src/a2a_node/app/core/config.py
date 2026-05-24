@@ -15,6 +15,7 @@ class Settings:
     RETENTION_DAYS_ROUTINE: int = int(os.getenv("RETENTION_DAYS_ROUTINE", 7))
     # Default 30 days for HITL and pre-approved tasks to ensure a durable audit trail for critical actions.
     RETENTION_DAYS_AUDIT: int = int(os.getenv("RETENTION_DAYS_AUDIT", 30))
+    RETENTION_DAYS_PERF: int = int(os.getenv("RETENTION_DAYS_PERF", 7))
     STALL_TIMEOUT: int = int(os.getenv("STALL_TIMEOUT", 300))
     PERFORMANCE_MONITOR_INTERVAL: int = int(os.getenv("PERFORMANCE_MONITOR_INTERVAL", 60))
     TASK_JANITOR_INTERVAL: int = int(os.getenv("TASK_JANITOR_INTERVAL", 60))

@@ -280,21 +280,18 @@ async def place_bid(bid: BidRequest, db: AsyncSession = Depends(get_db)):
     # 2. Update task status and bid metadata
     task.status = "negotiating"
 
-    current_bid_data = task.bid_metadata or {"bids": []}
-    # Ensure bids is a list
-    if not isinstance(current_bid_data.get("bids"), list):
-        current_bid_data["bids"] = []
+    current_bid_data = task.bid_metadata or {"bids": {}}
+    # Ensure bids is a dict
+    if not isinstance(current_bid_data.get("bids"), dict):
+        current_bid_data["bids"] = {}
 
-    current_bid_data["bids"].append({
-        "bidder_id": bid.bidder_id,
+    current_bid_data["bids"][bid.bidder_id] = {
         "bid_value": bid.bid_value,
         "confidence": bid.confidence,
         "metadata": bid.metadata,
         "bidder_skills": bid.bidder_skills,
         "timestamp": datetime.now(UTC).isoformat()
-    })
-
-    # Update status based on some logic? No, just keep negotiating.
+    }
 
     # IMPORTANT: SQLAlchemy JSON columns need explicit re-assignment to trigger update
     from sqlalchemy.orm.attributes import flag_modified
@@ -303,7 +300,7 @@ async def place_bid(bid: BidRequest, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
 
-    return {"status": "bid_accepted", "message": "Your bid has been recorded. Don't hold your breath.", "task_id": task.id}
+    return {"status": "bid_accepted", "message": "Your bid has been recorded.", "task_id": task.id}
 
 # Capability Profiles API
 @router.post("/capabilities/profiles", response_model=CapabilityProfileSchema)
@@ -338,7 +335,11 @@ async def list_profiles(db: AsyncSession = Depends(get_db)):
 
 @router.get("/capabilities/profiles/{profile_id}", response_model=List[CapabilityProfileSchema])
 async def get_profile(profile_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CapabilityProfile).filter(CapabilityProfile.id == profile_id))
+    result = await db.execute(
+        select(CapabilityProfile)
+        .filter(CapabilityProfile.id == profile_id)
+        .order_by(CapabilityProfile.version.desc())
+    )
     profiles = result.scalars().all()
     if not profiles:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -480,17 +481,18 @@ async def resolve_auction(task_id: str, db: AsyncSession = Depends(get_db)):
         
     # 2. Select winner (lowest bid_value)
     bids = task.bid_metadata["bids"]
-    winner = min(bids, key=lambda x: x['bid_value'])
+    winner_id = min(bids, key=lambda x: bids[x]['bid_value'])
+    winner = bids[winner_id]
     
     # 3. Delegate to winner
     # Re-use our delegate_task logic (though it's usually called from a request)
     # Actually, we can just call it manually or simulate the logic
     
     # Fetch winner peer
-    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == winner['bidder_id']))
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == winner_id))
     peer = result.scalars().first()
     if not peer:
-        raise HTTPException(status_code=404, detail=f"Winner peer {winner['bidder_id']} not found.")
+        raise HTTPException(status_code=404, detail=f"Winner peer {winner_id} not found.")
         
     # Delegate
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
@@ -509,17 +511,16 @@ async def resolve_auction(task_id: str, db: AsyncSession = Depends(get_db)):
             if r.status_code == 200:
                 remote_task = r.json()
                 task.status = "delegated"
-                task.assigned_to = winner['bidder_id']
+                task.assigned_to = winner_id
                 task.execution_metadata = {
                     "remote_task_id": remote_task['task_id'],
-                    "auction_winner": winner['bidder_id'],
+                    "auction_winner": winner_id,
                     "bid_value": winner['bid_value']
                 }
                 await db.commit()
-                return {"status": "auction_resolved", "winner": winner['bidder_id'], "remote_task_id": remote_task['task_id']}
+                return {"status": "auction_resolved", "winner": winner_id, "remote_task_id": remote_task['task_id']}
             else:
                 raise HTTPException(status_code=500, detail=f"Winner rejected task: {r.text}")
-                
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delegate during resolution: {str(e)}")
 

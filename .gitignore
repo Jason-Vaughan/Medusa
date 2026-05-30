@@ -161,3 +161,6 @@ venv/
 __pycache__/
 *.tar.gz
 dist/
+
+# Prawduct session files
+.prawduct/.advisories.json

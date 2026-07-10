@@ -19,7 +19,14 @@ class MedusaMCPServer {
   constructor() {
     this.loadMedusaTools();
     this.a2aBaseUrl = 'http://localhost:3200';
-    this.a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+    this.a2aSecret = process.env.A2A_SECRET;
+    if (!this.a2aSecret) {
+      if (process.env.NODE_ENV === 'test') {
+        this.a2aSecret = 'medusa-please';
+      } else {
+        throw new Error('A2A_SECRET environment variable is required to start Medusa MCP server!');
+      }
+    }
     this.nodeId = process.env.A2A_PROJECT_NAME || 'Medusa-MCP-Gateway';
   }
   

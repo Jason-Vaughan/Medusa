@@ -100,7 +100,7 @@ async def test_auction_resolution():
         
         # 3. Add peers to DB (so delegation doesn't fail immediately)
         async with AsyncSessionLocal() as db:
-            db.add(PeerEntry(id="b2", address="http://localhost:3201", status="active"))
+            await db.merge(PeerEntry(id="b2", address="http://localhost:3201", status="active"))
             await db.commit()
             
         # 4. Resolve auction
@@ -112,8 +112,50 @@ async def test_auction_resolution():
         # It will likely fail delegation because no server is on 3201
         assert resp.status_code == 500
         assert "Failed to delegate" in resp.json()["detail"] or "Winner rejected" in resp.json()["detail"]
+
+@pytest.mark.asyncio
+async def test_send_message_by_workspace_id():
+    """Verifies that direct messages can be routed to a peer using their workspace_id."""
+    await init_db()
+    
+    # 1. Register a peer with workspace_id in capabilities
+    async with AsyncSessionLocal() as db:
+        await db.merge(PeerEntry(
+            id="peer-with-workspace",
+            address="http://localhost:9999", # dummy port
+            capabilities={"workspace_id": "test-workspace-999"},
+            status="active"
+        ))
+        await db.commit()
         
-        # But verify that the lowest bidder (b2) was selected
-        # Wait, the endpoint selects it before calling.
-        # Let's check the task in DB if it was partially updated? 
-        # Actually, in resolve_auction, it commits only if call succeeds.
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Mock httpx.AsyncClient.post since we don't have a server running on 9999
+        import httpx
+        from unittest.mock import patch, MagicMock
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "received", "id": "msg-123"}
+        
+        real_post = httpx.AsyncClient.post
+        mock_calls = []
+        async def mock_post_side_effect(client_self, url, *args, **kwargs):
+            mock_calls.append(url)
+            if "localhost:9999" in str(url):
+                return mock_response
+            return await real_post(client_self, url, *args, **kwargs)
+            
+        with patch("httpx.AsyncClient.post", autospec=True, side_effect=mock_post_side_effect):
+            path = "/a2a/messages/send"
+            payload = {
+                "sender_id": "sender-node",
+                "recipient_id": "test-workspace-999", # Look up by workspace_id!
+                "content": "Hello from workspace-to-workspace mapping!"
+            }
+            resp = await ac.post(path, json=payload, headers=get_auth_headers(path))
+            assert resp.status_code == 200
+            assert resp.json()["id"] == "msg-123"
+            
+            # Verify the outbound call to peer was made
+            assert any("http://localhost:9999" in str(u) for u in mock_calls)

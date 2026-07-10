@@ -39,7 +39,14 @@ class MedusaServer {
     this.webHost = options.webHost || process.env.MEDUSA_WEB_HOST || '127.0.0.1';
     this.workspaceRegistryFile = options.workspaceRegistryFile || path.join(os.homedir(), '.medusa', 'medusa-registry.json');
     this.a2aBaseUrl = options.a2aBaseUrl || process.env.A2A_BASE_URL || 'http://localhost:3200';
-    this.a2aSecret = options.a2aSecret || process.env.A2A_SECRET || 'medusa-please';
+    this.a2aSecret = options.a2aSecret || process.env.A2A_SECRET;
+    if (!this.a2aSecret) {
+      if (process.env.NODE_ENV === 'test') {
+        this.a2aSecret = 'medusa-please';
+      } else {
+        throw new Error('A2A_SECRET environment variable is required to start Medusa Hub!');
+      }
+    }
 
     // Server ownership tracking
     this.serverMetadata = {
@@ -57,6 +64,7 @@ class MedusaServer {
     this.wsClients = new Map(); // WebSocket connections by workspace ID
     this.listenerStatus = new Map(); // Track listener heartbeats
     this.messageCache = new Map(); // Cache to prevent message loops
+    this.offlineQueues = new Map(); // Queue of offline messages for workspaces
 
     // Swarm Management State (Chunk 34)
     this.lastSpawnTime = 0;
@@ -194,17 +202,16 @@ class MedusaServer {
    * Finds an available port in the dedicated range using TangleClaw PortHub
    */
   async getAvailablePortFromTangleClaw() {
-    const tangleClawUrl = 'https://localhost:3102/api/ports';
-    const https = require('https');
+    const tangleClawUrl = 'http://localhost:3102/api/ports';
+    const http = require('http');
     
     return new Promise((resolve, reject) => {
       const url = new URL(tangleClawUrl);
       const options = {
-        method: 'GET',
-        rejectUnauthorized: false // TangleClaw often uses self-signed mkcert
+        method: 'GET'
       };
       
-      const req = https.request(url, options, (res) => {
+      const req = http.request(url, options, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);
         res.on('end', () => {
@@ -608,7 +615,7 @@ class MedusaServer {
           const targetWorkspace = pathname.split('/')[3];
           const result = await this.callA2A('GET', '/a2a/messages');
           
-          const messages = Array.isArray(result.data) ? result.data
+          let messages = Array.isArray(result.data) ? result.data
             .filter(m => m.recipient_id === targetWorkspace || m.message_type === 'broadcast')
             .map(m => ({
               id: m.id,
@@ -618,6 +625,12 @@ class MedusaServer {
               timestamp: m.received_at,
               type: m.message_type === 'broadcast' ? 'broadcast' : 'direct'
             })) : [];
+          
+          if (this.offlineQueues.has(targetWorkspace)) {
+            const queuedMsgs = this.offlineQueues.get(targetWorkspace);
+            messages = messages.concat(queuedMsgs);
+            this.offlineQueues.delete(targetWorkspace);
+          }
           
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
@@ -670,26 +683,66 @@ class MedusaServer {
       if (pathname === '/messages/direct' && req.method === 'POST') {
         try {
           const data = await this.readRequestBody(req);
+          
+          const isOnline = this.wsClients.has(data.to);
+          const isRegistered = this.workspaceRegistry.has(data.to) || isOnline;
+          
+          if (!isRegistered) {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: `Peer/Workspace ${data.to} not found.` }));
+            return;
+          }
+          
+          let directDelivered = false;
+          let generatedId = crypto.randomUUID();
+          const timestamp = new Date().toISOString();
+          
+          const msgPayload = {
+            id: generatedId,
+            type: 'direct',
+            from: data.from,
+            to: data.to,
+            message: data.message,
+            timestamp: timestamp
+          };
+          
+          if (isOnline) {
+            this.sendWebSocketMessage(data.to, {
+              type: 'new_message',
+              messageId: generatedId,
+              message: msgPayload
+            });
+            directDelivered = true;
+          } else {
+            // Queue the message on the Hub for when they come back online
+            if (!this.offlineQueues.has(data.to)) {
+              this.offlineQueues.set(data.to, []);
+            }
+            this.offlineQueues.get(data.to).push(msgPayload);
+          }
+          
+          // Also attempt to propagate through the A2A mesh (fails gracefully if node is down)
           const result = await this.callA2A('POST', '/a2a/messages/send', {
             sender_id: data.from,
             recipient_id: data.to,
             content: data.message
-          });
+          }).catch(() => ({ ok: false, status: 503 }));
           
           if (result.ok && result.data && result.data.id) {
-            this.sendWebSocketMessage(data.to, {
-              type: 'direct',
-              messageId: result.data.id,
-              from: data.from,
-              to: data.to,
-              message: data.message,
-              timestamp: result.data.received_at || new Date().toISOString()
-            });
+            msgPayload.id = result.data.id;
           }
 
-          res.statusCode = result.status;
+          res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: result.ok, ...result.data }));
+          res.end(JSON.stringify({ 
+            success: true, 
+            status: isOnline ? 'received' : 'queued', 
+            id: msgPayload.id, 
+            message: isOnline 
+              ? 'Message delivered directly to workspace via WebSocket.' 
+              : 'Workspace offline. Message queued in Hub inbox.'
+          }));
         } catch (error) {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: error.message }));
@@ -708,12 +761,16 @@ class MedusaServer {
           if (result.ok && result.data && result.data.id) {
             for (const workspaceId of this.wsClients.keys()) {
               this.sendWebSocketMessage(workspaceId, {
-                type: 'broadcast',
+                type: 'new_message',
                 messageId: result.data.id,
-                from: data.from || 'system',
-                to: '*',
-                message: data.message,
-                timestamp: result.data.received_at || new Date().toISOString()
+                message: {
+                  id: result.data.id,
+                  type: 'broadcast',
+                  from: data.from || 'system',
+                  to: '*',
+                  message: data.message,
+                  timestamp: result.data.received_at || new Date().toISOString()
+                }
               });
             }
           }
@@ -1253,6 +1310,19 @@ class MedusaServer {
             }));
             
             console.log(`🔌 WebSocket registered for workspace: ${workspaceId} (${connectionId})`);
+            
+            // Drain offline queue and deliver immediately over WS!
+            if (this.offlineQueues.has(workspaceId)) {
+              const queuedMsgs = this.offlineQueues.get(workspaceId);
+              for (const queuedMsg of queuedMsgs) {
+                ws.send(JSON.stringify({
+                  type: 'new_message',
+                  messageId: queuedMsg.id,
+                  message: queuedMsg
+                }));
+              }
+              this.offlineQueues.delete(workspaceId);
+            }
           }
           
           if (message.type === 'ping') {

@@ -23,7 +23,15 @@ class SyncResponse(BaseModel):
     timestamp: datetime
 
 @router.get("/ping")
-async def ping(node_id: str, address: str, capabilities: str = None, strategies: str = None, health: str = None, db: AsyncSession = Depends(get_db)):
+async def ping(
+    node_id: str, 
+    address: str, 
+    workspace_id: str = None, 
+    capabilities: str = None, 
+    strategies: str = None, 
+    health: str = None, 
+    db: AsyncSession = Depends(get_db)
+):
     """
     Endpoint for other nodes to announce themselves.
     Updates or creates a peer entry in the ledger.
@@ -32,7 +40,9 @@ async def ping(node_id: str, address: str, capabilities: str = None, strategies:
     peer = result.scalars().first()
 
     health_data = json.loads(health) if health else None
-    cap_data = json.loads(capabilities) if capabilities else None
+    cap_data = json.loads(capabilities) if capabilities else {}
+    if workspace_id:
+        cap_data["workspace_id"] = workspace_id
 
     now_naive = datetime.now(UTC).replace(tzinfo=None)
 
@@ -213,7 +223,7 @@ async def run_gossip():
                 # 1. Discover potential NEW peers from TangleClaw
                 new_peer_addresses = []
                 try:
-                    tc_response = await client.get("https://localhost:3102/api/ports", timeout=2.0)
+                    tc_response = await client.get("http://localhost:3102/api/ports", timeout=2.0)
                     if tc_response.status_code == 200:
                         ports = tc_response.json().get('leases', [])
                         for p in ports:
@@ -254,6 +264,8 @@ async def run_gossip():
                             "strategies": json.dumps(await BiddingHeuristics.share_heuristic()),
                             "health": json.dumps(await PerformanceMonitor.get_resource_health())
                         }
+                        if settings.WORKSPACE_ID:
+                            params["workspace_id"] = settings.WORKSPACE_ID
                         headers = get_auth_headers("/a2a/gossip/ping")
 
                         await client.get(ping_url, params=params, headers=headers, timeout=1.0)

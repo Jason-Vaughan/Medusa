@@ -1,7 +1,7 @@
 import requests
 from .config import settings
 
-TANGLECLAW_URL = "https://localhost:3102/api/ports"
+TANGLECLAW_URL = "http://localhost:3102/api/ports"
 _reg_failed_once = False
 
 def register_port():

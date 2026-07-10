@@ -254,6 +254,10 @@ describe('MedusaServer Chunk 34 _ Capacity Expansion', () => {
         if (cb) cb(mockRes);
         return mockReq;
       });
+      jest.spyOn(http, 'request').mockImplementation((url, opts, cb) => {
+        if (cb) cb(mockRes);
+        return mockReq;
+      });
     };
 
     test('getAvailablePortFromTangleClaw returns a port in [4220, 4239] when range has free slots', async () => {

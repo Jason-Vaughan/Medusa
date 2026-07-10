@@ -381,6 +381,31 @@ describe('MedusaServer', () => {
       expect(mockWs.send).toHaveBeenCalled();
     });
 
+    test('POST /messages/direct should queue message if target workspace is registered but offline, and drain it on GET /messages/workspace/:id', async () => {
+      server.workspaceRegistry.set('offline-ws', { id: 'offline-ws', name: 'Offline' });
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ 
+        ok: false, 
+        status: 503,
+        data: { message: 'A2A Node offline' } 
+      });
+
+      const sendRes = await doPost('/messages/direct', { from: 's1', to: 'offline-ws', message: 'hello offline' });
+      expect(sendRes.status).toBe(200);
+      expect(sendRes.data.status).toBe('queued');
+      expect(server.offlineQueues.get('offline-ws')).toHaveLength(1);
+
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ 
+        ok: true, 
+        status: 200,
+        data: [] 
+      });
+      const getRes = await doGet('/messages/workspace/offline-ws');
+      expect(getRes.status).toBe(200);
+      expect(getRes.data.messages).toHaveLength(1);
+      expect(getRes.data.messages[0].message).toBe('hello offline');
+      expect(server.offlineQueues.has('offline-ws')).toBe(false);
+    });
+
     test('POST /messages/broadcast should bridge to A2A and notify all WS', async () => {
       jest.spyOn(server, 'callA2A').mockResolvedValue({ 
         ok: true, 

@@ -42,10 +42,10 @@
 
 # 🐍 Medusa Release Tracker
 
-**Current Version:** v0.5.31 (DEVELOPMENT)  
-**Published Version:** v0.5.30 (NPM)  
-**Current Date:** June 28, 2025  
-**Next Version:** v0.5.31 (critical fixes)
+**Current Version:** v1.0.0-rc (DEVELOPMENT)  
+**Published Version:** v0.8.2-beta (NPM)  
+**Current Date:** July 9, 2026  
+**Next Version:** v1.0.0 (production release)
 
 ---
 

@@ -550,8 +550,17 @@ async def send_message(message: MessageRequest, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="Recipient ID is required for sending.")
         
     # 1. Fetch the peer
-    result = await db.execute(select(PeerEntry).filter(PeerEntry.id == message.recipient_id))
-    peer = result.scalars().first()
+    result = await db.execute(select(PeerEntry))
+    peers = result.scalars().all()
+    peer = None
+    for p in peers:
+        if p.id == message.recipient_id:
+            peer = p
+            break
+        if p.capabilities and isinstance(p.capabilities, dict) and p.capabilities.get("workspace_id") == message.recipient_id:
+            peer = p
+            break
+            
     if not peer:
         raise HTTPException(status_code=404, detail=f"Peer {message.recipient_id} not found.")
         
@@ -592,27 +601,25 @@ async def broadcast_message(req: BroadcastRequest, db: AsyncSession = Depends(ge
     result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
     peers = result.scalars().all()
     
-    if not peers:
-        return {"status": "skipped", "message": "No active peers to broadcast to."}
-        
     node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
     success_count = 0
     
-    async with httpx.AsyncClient() as client:
-        for peer in peers:
-            try:
-                payload = {
-                    "sender_id": node_id,
-                    "content": req.content,
-                    "message_type": req.message_type
-                }
-                headers = {"X-Medusa-Secret": settings.A2A_SECRET}
-                r = await client.post(f"{peer.address}/a2a/messages", json=payload, headers=headers, timeout=2)
-                if r.status_code == 200:
-                    success_count += 1
-            except Exception:
-                pass # Ignore individual peer failures during broadcast
-                
+    if peers:
+        async with httpx.AsyncClient() as client:
+            for peer in peers:
+                try:
+                    payload = {
+                        "sender_id": node_id,
+                        "content": req.content,
+                        "message_type": req.message_type
+                    }
+                    headers = {"X-Medusa-Secret": settings.A2A_SECRET}
+                    r = await client.post(f"{peer.address}/a2a/messages", json=payload, headers=headers, timeout=2)
+                    if r.status_code == 200:
+                        success_count += 1
+                except Exception:
+                    pass # Ignore individual peer failures during broadcast
+                 
     # Log locally
     msg_id = str(uuid.uuid4())
     new_msg = MessageEntry(
@@ -624,7 +631,7 @@ async def broadcast_message(req: BroadcastRequest, db: AsyncSession = Depends(ge
     db.add(new_msg)
     await db.commit()
     
-    return {"status": "broadcasted", "recipients": success_count, "total_peers": len(peers)}
+    return {"status": "broadcasted", "id": msg_id, "recipients": success_count, "total_peers": len(peers)}
 
 @router.get("/messages", response_model=List[LedgerMessage])
 async def list_messages(limit: int = 20, db: AsyncSession = Depends(get_db)):

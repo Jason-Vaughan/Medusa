@@ -1025,7 +1025,7 @@ medusa
       
       const medusaProcess = spawn('node', [serverPath], {
         detached: true,
-        stdio: 'inherit'
+        stdio: 'ignore'
       });
       
       medusaProcess.unref();

@@ -1,9 +1,13 @@
 {
-  "engine": null,
+  "engine": "antigravity",
   "methodology": "prawduct",
   "methodologyPhase": null,
   "silentPrime": true,
-  "featureIndexEnabled": false,
+  "featureIndexEnabled": true,
+  "projectMapEnabled": true,
+  "versionBumpEnabled": true,
+  "wrapSections": null,
+  "orchestrationKeyRef": null,
   "rules": {
     "core": {
       "changelogPerChange": true,
@@ -50,7 +54,7 @@
   "wrapV2": true,
   "testCommand": null,
   "lintCommand": null,
-  "lastWrapSha": "9989ccb10f7a153bbdc2b8cd076a9c9b49b684a4",
+  "lastWrapSha": "762b1bd7476cc3d4df77939d94e58ed4d5e6f22c",
   "methodologyArchives": [
     {
       "methodology": "minimal",

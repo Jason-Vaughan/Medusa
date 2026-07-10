@@ -104,7 +104,10 @@ class PrawductManager {
    */
   async addLearning(title, content, tags = []) {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = process.env.A2A_SECRET || (process.env.NODE_ENV === 'test' ? 'medusa-please' : null);
+      if (!a2aSecret) {
+        throw new Error('A2A_SECRET environment variable is required!');
+      }
       const endpoint = '/a2a/learnings/';
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'POST',
@@ -149,7 +152,10 @@ class PrawductManager {
  */
 async getLearnings() {
   try {
-    const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+    const a2aSecret = process.env.A2A_SECRET || (process.env.NODE_ENV === 'test' ? 'medusa-please' : null);
+    if (!a2aSecret) {
+      throw new Error('A2A_SECRET environment variable is required!');
+    }
     const endpoint = '/a2a/learnings/';
     const response = await fetch(`http://localhost:3200${endpoint}`, {
       headers: this.signA2ARequest(endpoint, a2aSecret)

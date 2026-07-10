@@ -608,6 +608,39 @@ class MedusaServer {
         }
         return;
       }
+      
+      // Deregister/Delete a workspace
+      if (pathname.startsWith('/workspaces/') && req.method === 'DELETE') {
+        try {
+          const workspaceId = pathname.split('/')[2];
+          if (this.workspaceRegistry.has(workspaceId)) {
+            this.workspaceRegistry.delete(workspaceId);
+            await this.saveRegistry();
+            console.log(`🧹 Deregistered/Deleted workspace: ${workspaceId}`);
+            
+            // Also cleanup active WebSocket connections
+            if (this.wsClients.has(workspaceId)) {
+              const connections = this.wsClients.get(workspaceId);
+              for (const ws of connections.values()) {
+                ws.close();
+              }
+              this.wsClients.delete(workspaceId);
+            }
+            
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: true, message: `Workspace ${workspaceId} deregistered successfully.` }));
+          } else {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: `Workspace ${workspaceId} not found.` }));
+          }
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
 
       // Get messages for a specific workspace
       if (pathname.startsWith('/messages/workspace/') && req.method === 'GET') {

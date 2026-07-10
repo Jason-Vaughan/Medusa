@@ -293,6 +293,29 @@ describe('MedusaServer', () => {
       });
     };
 
+    const doDelete = (pathname) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method: 'DELETE'
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    };
+
     test('GET /health should report status', async () => {
       jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, data: [] });
       const { status, data } = await doGet('/health');
@@ -339,6 +362,19 @@ describe('MedusaServer', () => {
       });
       expect(status).toBe(201);
       expect(data.success).toBe(true);
+    });
+
+    test('DELETE /workspaces/:id should deregister workspace and close ws connections', async () => {
+      server.workspaceRegistry.set('test-delete', { id: 'test-delete', name: 'Test Delete' });
+      const mockWs = { readyState: WebSocket.OPEN, close: jest.fn() };
+      server.wsClients.set('test-delete', new Map([['c1', mockWs]]));
+      
+      const { status, data } = await doDelete('/workspaces/test-delete');
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(server.workspaceRegistry.has('test-delete')).toBe(false);
+      expect(mockWs.close).toHaveBeenCalled();
+      expect(server.wsClients.has('test-delete')).toBe(false);
     });
 
     test('GET /messages/workspace/:id should bridge to A2A', async () => {

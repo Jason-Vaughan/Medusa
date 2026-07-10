@@ -1,107 +1,167 @@
-# 🤖 Medusa-MCP v0.7.0-beta
-### **Autonomous AI-to-AI Coordination & Terminal Handoff Platform**
+# 🐍 Medusa v1.0.0-rc
+### **Autonomous AI Workspace Coordination & Live Messaging Protocol**
 
-![BETA](https://img.shields.io/badge/status-BETA-orange?style=for-the-badge)
-![Experimental](https://img.shields.io/badge/stability-experimental-red?style=for-the-badge)
+[![Release](https://img.shields.io/badge/release-v1.0.0--rc-blue?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
+[![Security](https://img.shields.io/badge/security-enforced-green?style=for-the-badge)](SECURITY.md)
+[![Stability](https://img.shields.io/badge/stability-release--candidate-brightgreen?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
 
-🚀 **[OFFICIAL PUBLIC BETA LAUNCH]**
-
-<img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="150">
-
-## **The Problem: The AI Silo Effect**
-Modern AI agents (Cursor, Windsurf, Claude Desktop) are brilliant but isolated. They live in single workspaces, unaware of what their peers are doing in other repositories or IDEs. When a project spans multiple services, the human becomes the "manual router," copy-pasting context and status between agents. This creates **fragmentation, context loss, and coordination debt.**
-
-## **The Solution: Medusa Chat Protocol (MCP)**
-Medusa is a decentralized coordination layer built on top of the **Model Context Protocol**. It transforms isolated AI agents into a **Collective Swarm Intelligence.** By bridging the gap between IDEs, background nodes, and the terminal, Medusa allows AIs to communicate, negotiate, and execute complex tasks autonomously.
+<img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="120">
 
 ---
 
-## 🚀 **Core Breakthroughs**
+## 📋 The Problem: AI Workspace Isolation
 
-### 🗳️ **Distributed Gossip Consensus**
-Nodes in the Medusa swarm don't just work in isolation; they reconcile conflicting results. Using a gossip-based majority voting system, the swarm can verify "The Truth" for redundant tasks, ensuring high-integrity execution across a decentralized mesh.
-
-### 🧠 **Collective Strategy Sharing**
-The swarm optimizes itself. Nodes share their internal heuristics, bidding thresholds, and specialized skills. Through **Strategic Yielding**, a node will intelligently defer a task to a peer who is mathematically better suited to handle it, maximizing swarm-wide efficiency.
-
-### 📟 **Bidirectional Terminal Interface**
-Medusa isn't just for IDEs. It features a professional-grade terminal interface for chat handoffs. You can initiate, monitor, and approve swarm tasks directly from your CLI, making it a universal bridge for AI-to-Human and AI-to-AI coordination.
-
-### 🧟 **ZombieDust Autonomous Monitoring**
-The "Necromancy" protocol. Medusa can transform any workspace into an autonomous endpoint that wakes up, processes incoming AI prompts, generates responses, and returns to a non-blocking monitoring state without human intervention.
+Modern AI development agents (e.g., Cursor, Windsurf, Claude Desktop, TangleClaw) are highly effective inside a single repository but remain **entirely isolated** from each other. When a project spans multiple microservices, repositories, or environments:
+1. **Context Fragmentation:** AIs are blind to changes, schemas, or errors occurring in adjacent workspaces.
+2. **Manual Routing:** Developers become "human routers," copy-pasting code fragments, error logs, and state updates between separate AI sessions.
+3. **Consensus Debt:** Redundant tasks or multi-repo builds cannot be coordinated or validated collectively.
 
 ---
 
-## 🏗️ **Architecture Overview**
+## 🐍 The Solution: Medusa Chat Protocol
 
-<img src="project-assets/medusa_text.png" alt="Medusa Architecture Flow" width="600">
+Medusa is a **decentralized workspace coordination and communication layer** built on top of the **Model Context Protocol (MCP)** and WebSockets. It bridges independent IDEs, CLI tools, and background processes, allowing AI agents to coordinate, share context, and delegate tasks autonomously.
 
-- **🐍 Medusa Hub (Node.js):** The central coordination server bridging the Dashboard and MCP tools.
-- **🐝 A2A Swarm (Python):** A decentralized mesh of nodes communicating via Gossip Protocol for task allocation.
-- **🗳️ Ledger & Consensus:** SQLite-based persistence with Alembic migrations for swarm-wide state synchronization.
-- **📊 Switchboard Dashboard:** Real-time telemetry for task auctions, peer strategy mapping, and HITL (Human-in-the-Loop) approvals.
+Medusa operates in two concurrent tiers:
+* **The Bridge Layer (Node.js Hub):** Runs a local WebSocket server (port `3101`) and HTTP server (port `3009`) allowing IDE listeners and custom clients to register, send direct/broadcast messages, and receive real-time updates.
+* **The Swarm Layer (Python A2A Mesh):** A decentralized mesh of A2A nodes (port `3200+`) communicating via a secure gossip consensus mesh to replicate task ledgers, manage auctions, and share learned project constraints.
 
 ---
 
-## ⚡ **Quick Start**
+## 🏗️ Architecture Overview
 
-### **1. Universal Installation**
-Medusa is a global platform. Set up your local hub and swarm nodes:
-```bash
-medusa wizard      # Guided setup with personality
-medusa status      # Check swarm health and peer discovery
-```
+```mermaid
+flowchart TD
+    subgraph Workspaces [IDE Workspace Layer]
+        TC[TangleClaw Workspace] <-->|WS / HTTP API| Hub
+        M[Medusa Workspace] <-->|WS / HTTP API| Hub
+    end
 
-### **2. Launch the Swarm**
-```bash
-medusa protocol start   # Start the Hub and Messaging server
-medusa a2a start        # Spin up local swarm intelligence nodes
-```
+    subgraph Hub [Medusa Hub - Node.js Server]
+        HTTP[HTTP API :3009]
+        WS[WebSocket Server :3101]
+        Queue[Store-and-Forward Inbox]
+    end
 
-### **3. Autonomous Coordination**
-Transform any directory into a monitored AI endpoint:
-```bash
-medusa zombify <workspace-name>
+    subgraph Mesh [A2A Swarm Layer - Python Mesh]
+        A2A_3200[A2A Node 1 :3200] <-->|Gossip Protocol| A2A_3202[A2A Node 2 :3202]
+        A2A_3200 <-->|SQLite Sync| DB1[(Ledger Database)]
+        A2A_3202 <-->|SQLite Sync| DB2[(Ledger Database)]
+    end
+
+    Hub <-->|HMAC Signed API| A2A_3200
 ```
 
 ---
 
-## 🧬 **Community & Contributions**
-Medusa is now in **Public Beta**. We welcome contributors who are sharp, autonomous, and a bit savage.
+## ⚡ Quick Start
 
-- 📜 **[CONTRIBUTING.md](CONTRIBUTING.md)**: Read the swarm rules before you break them.
-- 🛡️ **[SECURITY.md](SECURITY.md)**: Report vulnerabilities properly.
-- 🐛 **[Issues](https://github.com/Jason-Vaughan/Medusa/issues)**: Report bugs (if you're *sure* it's our fault).
+### 1. Set the Security Secret
+Medusa enforces cryptographic signatures for all API calls. Set a secure `A2A_SECRET` in your shell profile:
+```bash
+export A2A_SECRET="your-secure-random-secret-string"
+```
+> [!IMPORTANT]
+> The server and CLI commands will fail closed on startup if `A2A_SECRET` is unset or blank.
 
----
-
-## 🐍 **The Medusa Toolset (MCP)**
-Available for **Cursor, Windsurf, Claude Desktop, and Terminal**:
-
-- **🪝 `medusa_hook`** - Direct P2P handoff to a specific workspace.
-- **👋 `medusa_stone`** - Broadcast a task to the entire mesh.
-- **🔮 `medusa_craft`** - Initiate a deep-collaboration autonomous session.
-- **🤫 `medusa_whisper`** - Share cross-workspace context (code, errors, state).
-- **📊 `medusa_census`** - Audit all active peers and their strategies.
-
----
-
-## 📊 **Swarm Intelligence Dashboard**
-
-<img src="project-assets/medusa-dashboard-screenshot.png" alt="Medusa Dashboard" width="800">
-
-*The Medusa Switchboard provides real-time visibility into task auctions, collective strategy yielding, and redundant result consensus.*
+### 2. Start the Protocol Server
+Start the local coordination Hub and its primary A2A Swarm Node:
+```bash
+node bin/medusa.js medusa start
+```
+This launches:
+* **Protocol API:** `http://localhost:3009`
+* **Dashboard:** `http://localhost:8181`
+* **WebSocket Server:** `ws://localhost:3101`
+* **Primary A2A Node:** `http://localhost:3200`
 
 ---
 
-## 🧪 **Technical Integrity**
-- **Decentralized Discovery:** Automatic peer discovery via TangleClaw PortHub.
-- **LWW (Last-Write-Wins) & Consensus:** Robust conflict resolution for task claims and result verification.
-- **LLM-Agnostic:** Support for Claude, GPT-4, and local models via unified `LLMService`.
-- **Sass-Level Control:** Adjustable personality thresholds (Gentle to Savage).
+## 📬 Live Messaging API
+
+### Send a Direct Message
+Direct messages are routed in real-time to active WebSocket workspaces. If the recipient is registered but currently offline, the message is queued in the Hub's store-and-forward inbox.
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -H "X-Medusa-Secret: $A2A_SECRET" \
+  -d '{
+    "from": "medusa-4af02e0e",
+    "to": "tangleclaw-53e1c6fb",
+    "message": "Hello from the Medusa workspace!"
+  }' http://localhost:3009/messages/direct
+```
+
+### Pull Backlog Messages (Offline Drain)
+Workspaces polling for queued messages or retrieving backlog state on startup can request them from their mailbox:
+```bash
+curl -s http://localhost:3009/messages/workspace/tangleclaw-53e1c6fb
+```
+*Note: Direct messages are popped destructively from the inbox queue upon retrieval.*
 
 ---
 
-*"Individual intelligence is a spark; collective consensus is the fire."* 🧠🐝🔥
+## 🔌 Public WebSocket Consumer Contract
 
-**Medusa v0.7.0-beta** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Discussions](https://github.com/Jason-Vaughan/Medusa/discussions)
+Any custom script, client tool, or IDE extension can speak directly to the Medusa Hub over WebSockets:
+
+1. **Connection URL:** `ws://127.0.0.1:3101`
+2. **Registration Request:**
+   Send a `register` packet immediately after connecting:
+   ```json
+   {
+     "type": "register",
+     "workspaceId": "your-workspace-unique-id"
+   }
+   ```
+3. **Registration Acknowledgment:**
+   The Hub responds with confirmation:
+   ```json
+   {
+     "type": "registered",
+     "workspaceId": "your-workspace-unique-id",
+     "connectionId": "conn-123456789",
+     "message": "WebSocket connection established for real-time messaging"
+   }
+   ```
+4. **Queue Draining:**
+   Immediately following registration, the Hub pushes all pending offline backlog messages stored in the mailbox.
+5. **Incoming Message Envelope:**
+   Messages are delivered using the standard `new_message` envelope:
+   ```json
+   {
+     "type": "new_message",
+     "messageId": "msg-uuid-string",
+     "message": {
+       "id": "msg-uuid-string",
+       "type": "direct",
+       "from": "sender-workspace-id",
+       "to": "your-workspace-unique-id",
+       "message": "Message content here...",
+       "timestamp": "2026-07-10T01:18:25.193Z"
+     }
+   }
+   ```
+
+---
+
+## 🛡️ Security Model
+
+To prevent request tampering and replay attacks:
+* **HMAC Signatures:** Outbound requests are signed with `HMAC-SHA256` using the `A2A_SECRET`.
+* **Replay Protection:** Headers `X-Medusa-Timestamp` and `X-Medusa-Signature` are validated against a 5-minute clock skew window.
+* **Fail-Closed Design:** The server rejects all default secrets (such as the developer-only fallback `medusa-please`) outside of isolated test environments.
+
+---
+
+## 🧪 Testing and Verification
+
+Run the full testing matrix to verify build integrity:
+```bash
+# Run Node.js Hub Tests
+cd src/medusa && npm test
+
+# Run Python Swarm Tests
+cd src/a2a_node && npm run test:python
+```
+
+**Medusa v1.0.0-rc** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Security Policy](SECURITY.md)

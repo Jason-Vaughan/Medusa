@@ -86,6 +86,16 @@ describe('MedusaServer', () => {
       delete process.env.A2A_SECRET;
     });
 
+    test('should throw on unset A2A_SECRET in production mode', () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        expect(() => new MedusaServer()).toThrow('A2A_SECRET environment variable is required to start Medusa Hub!');
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    });
+
     test('signA2ARequest should generate valid HMAC', () => {
       const pathname = '/test';
       const secret = 'test-secret';

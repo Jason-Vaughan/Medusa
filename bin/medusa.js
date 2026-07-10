@@ -42,6 +42,19 @@ function signA2ARequest(path, secret) {
   };
 }
 
+function getA2ASecret() {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'test') {
+      return 'medusa-please';
+    }
+    console.error(chalk.red('❌ Error: A2A_SECRET environment variable is required to run this command!'));
+    console.error(chalk.yellow('💡 Run: export A2A_SECRET=your_secure_random_string'));
+    process.exit(1);
+  }
+  return secret;
+}
+
 // Get version from package.json
 const packageJson = require('../package.json');
 
@@ -542,7 +555,7 @@ a2a
   .description('📋 List all tasks in the A2A ledger')
   .action(async () => {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = '/a2a/tasks';
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         headers: signA2ARequest(endpoint, a2aSecret)
@@ -584,7 +597,7 @@ a2a
   .description('🪝 Claim a task from the A2A ledger')
   .action(async (taskId) => {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const nodeId = `Medusa-CLI-${process.pid}`;
       const endpoint = `/a2a/gossip/claim/${taskId}`;
       
@@ -621,7 +634,7 @@ profile
   .description('📋 List all capability profiles')
   .action(async () => {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = '/a2a/capabilities/profiles';
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         headers: signA2ARequest(endpoint, a2aSecret)
@@ -682,7 +695,7 @@ profile
         if (!confirm.ok) return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = '/a2a/capabilities/profiles';
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'POST',
@@ -714,7 +727,7 @@ profile
   .description('🔍 Show details of a capability profile')
   .action(async (id) => {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/capabilities/profiles/${id}`;
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         headers: signA2ARequest(endpoint, a2aSecret)
@@ -759,7 +772,7 @@ grant
         return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/workspaces/${workspaceId}/grants`;
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         headers: signA2ARequest(endpoint, a2aSecret)
@@ -811,7 +824,7 @@ grant
         if (!confirm.ok) return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/workspaces/${workspaceId}/grants`;
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'POST',
@@ -852,7 +865,7 @@ grant
         if (!confirm.ok) return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/grants/${grantId}`;
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         method: 'DELETE',
@@ -879,7 +892,7 @@ peer
   .description('📋 List all known peers in the mesh')
   .action(async () => {
     try {
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = '/a2a/gossip/peers';
       const response = await fetch(`http://localhost:3200${endpoint}`, {
         headers: signA2ARequest(endpoint, a2aSecret)
@@ -932,7 +945,7 @@ peer
         if (!confirm.ok) return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/gossip/peers/${nodeId}/quarantine`;
       const response = await fetch(`http://localhost:3200${endpoint}?reason=${encodeURIComponent(options.reason)}`, {
         method: 'POST',
@@ -964,7 +977,7 @@ peer
         if (!confirm.ok) return;
       }
 
-      const a2aSecret = process.env.A2A_SECRET || 'medusa-please';
+      const a2aSecret = getA2ASecret();
       const endpoint = `/a2a/gossip/peers/${nodeId}/unquarantine`;
       const response = await fetch(`http://localhost:3200${endpoint}?reason=${encodeURIComponent(options.reason)}`, {
         method: 'POST',
@@ -987,6 +1000,12 @@ medusa
   .option('--force', 'Force start even if another server is detected')
   .action(async (options) => {
     try {
+      if (!process.env.A2A_SECRET) {
+        console.error(chalk.red('❌ Error: A2A_SECRET environment variable is required to start Medusa!'));
+        console.error(chalk.yellow('💡 Run: export A2A_SECRET=your_secure_random_string'));
+        process.exit(1);
+      }
+      
       // NEW: Check for existing servers first
       const MedusaListener = require('../src/medusa/MedusaListener');
       const listener = new MedusaListener('temp-start-check');

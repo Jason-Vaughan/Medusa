@@ -76,3 +76,32 @@ async def test_verify_medusa_secret_failure():
     with pytest.raises(HTTPException) as exc:
         await verify_medusa_secret(x_medusa_secret="wrong-secret")
     assert exc.value.status_code == 403
+
+@pytest.mark.asyncio
+async def test_verify_medusa_handshake_rejected_with_old_default_secret():
+    import os
+    original_env = os.environ.get("A2A_SECRET")
+    os.environ["A2A_SECRET"] = "some-secure-non-default-secret-key-1234"
+    
+    try:
+        request = MagicMock(spec=Request)
+        request.url.path = "/test"
+        ts = str(time.time())
+        payload = f"{ts}{request.url.path}"
+        
+        # Forge signature using the old default secret 'medusa-please'
+        forged_sig = create_signature(payload, "medusa-please")
+        
+        with pytest.raises(HTTPException) as exc:
+            await verify_medusa_handshake(
+                request, 
+                x_medusa_timestamp=ts, 
+                x_medusa_signature=forged_sig
+            )
+        assert exc.value.status_code == 403
+        assert "Invalid X-Medusa-Signature" in exc.value.detail
+    finally:
+        if original_env is None:
+            del os.environ["A2A_SECRET"]
+        else:
+            os.environ["A2A_SECRET"] = original_env

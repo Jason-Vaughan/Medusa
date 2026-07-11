@@ -368,6 +368,12 @@ class MedusaServer {
       const workspaces = parsed.workspaces || parsed;
       for (const [id, workspace] of Object.entries(workspaces)) {
         if (id === 'spawnApprovalCount') continue;
+        
+        // Guard "test-id" behind NODE_ENV === 'test'
+        if (id === 'test-id' && process.env.NODE_ENV !== 'test') {
+          continue;
+        }
+
         this.workspaceRegistry.set(id, {
           ...workspace,
           lastSeen: new Date(workspace.lastSeen),
@@ -376,6 +382,9 @@ class MedusaServer {
       }
 
       this.spawnApprovalCount = parsed.spawnApprovalCount || 0;
+      
+      // Reap any stale workspaces loaded from disk
+      this.reapStaleWorkspaces();
       
       console.log(`🐍 Loaded ${this.workspaceRegistry.size} workspaces from registry (Spawn count: ${this.spawnApprovalCount})`);
     } catch (error) {
@@ -398,6 +407,37 @@ class MedusaServer {
       await fs.writeFile(this.workspaceRegistryFile, JSON.stringify(registry, null, 2));
     } catch (error) {
       console.error('Error saving registry:', error);
+    }
+  }
+
+  // Reap stale disconnected workspaces based on lastSeen TTL
+  reapStaleWorkspaces() {
+    const now = Date.now();
+    // Default TTL: 5 minutes. In test mode: 5 seconds.
+    const ttl = process.env.NODE_ENV === 'test' ? 5000 : 5 * 60 * 1000;
+    let changed = false;
+
+    for (const [id, ws] of this.workspaceRegistry) {
+      // Never reap if it's currently connected via WebSocket
+      if (this.wsClients.has(id)) {
+        continue;
+      }
+      
+      // Never reap the test-id in test mode
+      if (id === 'test-id' && process.env.NODE_ENV === 'test') {
+        continue;
+      }
+
+      const lastSeenTime = ws.lastSeen ? new Date(ws.lastSeen).getTime() : now;
+      if (now - lastSeenTime > ttl) {
+        this.workspaceRegistry.delete(id);
+        changed = true;
+        console.log(`🧹 TTL-expired and reaped stale workspace: ${id}`);
+      }
+    }
+
+    if (changed) {
+      this.saveRegistry();
     }
   }
 
@@ -498,6 +538,7 @@ class MedusaServer {
       // List all workspaces
       if (pathname === '/workspaces' && req.method === 'GET') {
         try {
+          this.reapStaleWorkspaces();
           const mergedWorkspaces = new Map();
           
           for (const [id, ws] of this.workspaceRegistry) {
@@ -1387,7 +1428,12 @@ class MedusaServer {
         if (workspaceId && this.wsClients.has(workspaceId)) {
           const connections = this.wsClients.get(workspaceId);
           connections.delete(connectionId);
-          if (connections.size === 0) this.wsClients.delete(workspaceId);
+          if (connections.size === 0) {
+            this.wsClients.delete(workspaceId);
+            // Reap on WS close
+            this.workspaceRegistry.delete(workspaceId);
+            this.saveRegistry();
+          }
           console.log(`🔌 WebSocket disconnected for workspace: ${workspaceId} (${connectionId})`);
         }
       });

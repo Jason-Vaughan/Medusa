@@ -637,6 +637,23 @@ describe('MedusaServer', () => {
   describe('WebSocket Coordination', () => {
     let wsUrl;
 
+    const doGet = (pathname) => {
+      return new Promise((resolve, reject) => {
+        const req = http.get(`http://localhost:${testPort}${pathname}`, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+      });
+    };
+
     beforeEach(async () => {
       await server.start();
       wsUrl = `ws://localhost:${testPort + 1}`;
@@ -683,6 +700,35 @@ describe('MedusaServer', () => {
         if (msg.type === 'heartbeat_ack') {
           expect(server.listenerStatus.get('test-ws').status).toBe('idle');
           done();
+        }
+      });
+    });
+
+    test('should reap workspace from registry on WS close', (done) => {
+      const ws = createWebSocket(wsUrl);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'register', workspaceId: 'close-ws' }));
+      });
+      ws.on('message', async (data) => {
+        const msg = JSON.parse(data);
+        if (msg.type === 'registered') {
+          // Check that it's registered
+          expect(server.wsClients.has('close-ws')).toBe(true);
+          
+          // Now close the connection
+          ws.terminate();
+          
+          // Wait briefly for server close handler to run
+          setTimeout(async () => {
+            expect(server.wsClients.has('close-ws')).toBe(false);
+            expect(server.workspaceRegistry.has('close-ws')).toBe(false);
+            
+            // Query workspaces to verify it disappeared from route
+            const workspacesRes = await doGet('/workspaces');
+            const found = workspacesRes.data.workspaces.find(w => w.id === 'close-ws');
+            expect(found).toBeUndefined();
+            done();
+          }, 100);
         }
       });
     });

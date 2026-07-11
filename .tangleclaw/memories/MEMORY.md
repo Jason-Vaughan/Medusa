@@ -2,13 +2,17 @@
 
 ## Project: Medusa (A2A Swarm)
 
-### Current State (2026-04-27)
-- **OFFICIAL PUBLIC BETA (v0.7.8-beta).**
-- **Chunk 25 Complete:** Node Reputation & Dynamic Bidding Thresholds verified.
-- **Reputation Engine:** Operational, tracking peer reliability and accuracy.
-- **Dynamic Bidding:** Active, adjusting confidence thresholds based on swarm health.
-- **Strategic Yield:** Factoring reputation scores to prefer reliable peers.
-- **Next: Chunk 26:** Skills Evolution & Automated Task Routing.
+### Current State (2026-07-11)
+- **PRODUCTION READINESS (v1.0.0-rc).**
+- **Comms Bridge & Queueing:** WebSocket messaging and store-and-forward queueing completed.
+- **Fail-Closed Security:** Hardened and verified.
+- **Pre-commit Gate:** All Node.js and Python test suites pass 100%.
+- **Next Steps:** Implement non-destructive read + delivery ACK (#33) and WS consumer documentation (#34).
+
+### Last Session (2026-07-11)
+- **Shipped:** Enforced fail-closed security by removing default `medusa-please` fallbacks, implemented workspaces deregistration (`DELETE /workspaces/:id`), and added WebSocket-disconnect reaping with a lastSeen TTL verification check.
+- **Learned:** Dynamic agent connection states require both immediate WebSocket close handlers and passive TTL validation. Open-sourcing code under the MIT license destroys global patent novelty rights unless a provisional application is filed first.
+- **Next:** Coordinate with the TangleClaw session to implement non-destructive read + delivery ACK (#33) and document the public WS consumer contract (#34).
 
 ### Key Decisions
 - **Reputation Scaling:** Decided on +0.1 for completion and -0.5 for stalling (Janitor) to heavily penalize nodes that claim tasks and then fail to deliver.
@@ -23,3 +27,6 @@
 ### Resilience
 - TangleClaw PortHub integration is working but sometimes times out; gossip protocol handles this by muting errors after the first failure.
 - SQLite is used for local ledger; migrations are managed via Alembic.
+
+### Learnings
+- Detailed session-by-session technical takeaways are documented in [learnings.md](learnings.md).

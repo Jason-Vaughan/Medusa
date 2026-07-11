@@ -6,6 +6,7 @@
   "featureIndexEnabled": true,
   "projectMapEnabled": true,
   "versionBumpEnabled": true,
+  "wrapAutoPrEnabled": true,
   "wrapSections": null,
   "orchestrationKeyRef": null,
   "rules": {
@@ -61,5 +62,6 @@
       "archivePath": ".tangleclaw/project.json.archived",
       "archivedAt": "2026-03-26T01:29:20.566Z"
     }
-  ]
+  ],
+  "medusaEnabled": true
 }

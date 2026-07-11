@@ -10,17 +10,17 @@ to file paths — this maps the layout itself.
 
 ## Structure
 
-- `Medusa Chat Protocol/` — <!-- describe -->
-- `bin/` — <!-- describe -->
-- `docs/` — <!-- describe -->
-- `pillow-talk/` — <!-- describe -->
-- `project-assets/` — <!-- describe -->
-- `reports/` — <!-- describe -->
-- `scripts/` — <!-- describe -->
-- `src/` — <!-- describe -->
-- `tests/` — <!-- describe -->
-- `tools/` — <!-- describe -->
-- `~/` — <!-- describe -->
+- `Medusa Chat Protocol/` — Legacy distribution and summary outputs.
+- `bin/` — Entry points and executable binaries for the medusa CLI.
+- `docs/` — Developer guides, upgrade paths, and architectural specs.
+- `pillow-talk/` — Message inbox log files used for local workspace coordination tests.
+- `project-assets/` — Graphical assets, logos, and screenshots for documentation.
+- `reports/` — Code coverage reports and static analysis logs.
+- `scripts/` — Automation scripts for building distributions, checking mutants, and E2E tests.
+- `src/` — Source code for the Node.js coordination hub, the Python A2A node, and utilities.
+- `tests/` — Swarm-wide integration tests and consensus simulation suites.
+- `tools/` — Developer utilities, environment checkers, and test harnesses.
+- `~/` — Legacy configuration directory containing cursor settings.
 
 ## Shared directories / doc groups
 

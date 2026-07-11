@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **Issue #31: Direct WebSocket Delivery & Store-and-Forward Queueing.** Implemented a WebSocket-based real-time communication channel on the Medusa Hub supporting direct and broadcast message delivery, with store-and-forward in-memory caching to buffer messages sent to registered but offline workspaces (#31, #25, #26).
+- **Issue #36: Clean Workspace Deregistration.** Added the `DELETE /workspaces/:id` HTTP endpoint in `medusa-server.js` to allow WebSocket clients to cleanly deregister on shutdown and avoid stale leases (#36).
+
+### Changed
+- **Issue #27: Enforced Fail-Closed Security.** Removed all default `A2A_SECRET` fallbacks (such as `medusa-please`) across the CLI and servers, enforcing a strict fail-closed validation check at startup to protect live deployments (#27).
+- **Professional Documentation Alignment.** Fully rewrote `README.md` to establish a professional tone, define the public WebSocket coordination contract, and provide complete step-by-step DIY provisional patent filing guidelines.
+
+### Fixed
+- **Issue #37: Stale Registration Reaping.** Implemented automatic cleanup of disconnected workspaces on WebSocket close and a `lastSeen` TTL-expire verification check on `GET /workspaces` query to prevent memory leaks and dead workspace selection (#37).
+- **Issue #19: Husky Commit Validation.** Resolved test-suite and lock contentions to re-enable strict Husky pre-commit validation gates for commit checks without `--no-verify` bypasses (#19).
+
 ## [1.0.0-rc] - 2026-05-24
 ### Added
 - **Phase 4: Production Readiness (Security & Distribution).**

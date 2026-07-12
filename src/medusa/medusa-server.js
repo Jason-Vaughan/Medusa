@@ -704,7 +704,7 @@ class MedusaServer {
           if (this.offlineQueues.has(targetWorkspace)) {
             const queuedMsgs = this.offlineQueues.get(targetWorkspace);
             messages = messages.concat(queuedMsgs);
-            this.offlineQueues.delete(targetWorkspace);
+            // Non-destructive read: do not delete here. Messages survive until explicitly ACK'd.
           }
           
           res.statusCode = 200;
@@ -820,6 +820,33 @@ class MedusaServer {
           }));
         } catch (error) {
           res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Acknowledge messages (non-destructive queue support)
+      if (pathname === '/messages/ack' && req.method === 'POST') {
+        try {
+          const data = await this.readRequestBody(req);
+          const { workspaceId, messageIds } = data;
+          
+          if (!workspaceId || !messageIds) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Missing required fields (workspaceId, messageIds)' }));
+            return;
+          }
+          
+          const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+          this.ackMessages(workspaceId, ids);
+          
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true, acked: ids }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: error.message }));
         }
         return;
@@ -1699,12 +1726,28 @@ class MedusaServer {
                   message: queuedMsg
                 }));
               }
-              this.offlineQueues.delete(workspaceId);
+              // Non-destructive: do not delete here. Messages survive until explicitly ACK'd.
             }
           }
           
           if (message.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          }
+
+          if (message.type === 'ack') {
+            let messageIds = message.messageIds;
+            if (message.messageId && !messageIds) {
+              messageIds = [message.messageId];
+            }
+            if (workspaceId && (Array.isArray(messageIds) || typeof messageIds === 'string')) {
+              const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+              this.ackMessages(workspaceId, ids);
+              ws.send(JSON.stringify({
+                type: 'ack_response',
+                success: true,
+                messageIds: ids
+              }));
+            }
           }
           
           if (message.type === 'listener_heartbeat' && isRegistered) {
@@ -1751,6 +1794,18 @@ class MedusaServer {
         }
       });
     });
+  }
+
+  ackMessages(workspaceId, messageIds) {
+    if (!this.offlineQueues.has(workspaceId)) return;
+    const queue = this.offlineQueues.get(workspaceId);
+    const updatedQueue = queue.filter(msg => !messageIds.includes(msg.id));
+    if (updatedQueue.length === 0) {
+      this.offlineQueues.delete(workspaceId);
+    } else {
+      this.offlineQueues.set(workspaceId, updatedQueue);
+    }
+    console.log(`✅ ACKed ${messageIds.length} messages for workspace: ${workspaceId}`);
   }
 
   sendWebSocketMessage(workspaceId, messageData) {

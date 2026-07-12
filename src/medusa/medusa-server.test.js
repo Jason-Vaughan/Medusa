@@ -449,6 +449,16 @@ describe('MedusaServer', () => {
       expect(getRes.status).toBe(200);
       expect(getRes.data.messages).toHaveLength(1);
       expect(getRes.data.messages[0].message).toBe('hello offline');
+      
+      // Verification of non-destructive read (message survives in queue)
+      expect(server.offlineQueues.has('offline-ws')).toBe(true);
+
+      // Acknowledge the message to remove it from the queue
+      const ackRes = await doPost('/messages/ack', {
+        workspaceId: 'offline-ws',
+        messageIds: [getRes.data.messages[0].id]
+      });
+      expect(ackRes.status).toBe(200);
       expect(server.offlineQueues.has('offline-ws')).toBe(false);
     });
 
@@ -950,6 +960,90 @@ describe('MedusaServer', () => {
       const result = server.sendWebSocketMessage('test-ws', { type: 'test', messageId: 'm1' });
       expect(result).toBe(false);
       expect(server.wsClients.has('test-ws')).toBe(false);
+    });
+  });
+
+  describe('At-Least-Once Delivery & ACK Semantics', () => {
+    let wsUrl;
+
+    beforeEach(async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+      server.workspaceRegistry.set('ws-ack-test', { id: 'ws-ack-test', name: 'AckTest', path: '/p1', type: 'cursor' });
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    test('queued message survives and is redelivered without ACK, cleared with ACK', (done) => {
+      // 1. Queue a message
+      const msgPayload = {
+        id: 'msg-ack-1',
+        type: 'direct',
+        from: 's1',
+        to: 'ws-ack-test',
+        message: 'testing at-least-once',
+        timestamp: new Date().toISOString()
+      };
+      server.offlineQueues.set('ws-ack-test', [msgPayload]);
+
+      // 2. Connect client first time (no ACK)
+      let ws1 = createWebSocket(wsUrl);
+      let messagesReceivedWs1 = [];
+
+      ws1.on('open', () => {
+        ws1.send(JSON.stringify({ type: 'register', workspaceId: 'ws-ack-test' }));
+      });
+
+      ws1.on('message', (data) => {
+        const msg = JSON.parse(data);
+        if (msg.type === 'new_message') {
+          messagesReceivedWs1.push(msg.message);
+          // Disconnect without sending ACK
+          ws1.close();
+        }
+      });
+
+      ws1.on('close', () => {
+        expect(messagesReceivedWs1).toHaveLength(1);
+        expect(messagesReceivedWs1[0].id).toBe('msg-ack-1');
+        // Queue should still hold the message since it was not ACKed
+        expect(server.offlineQueues.get('ws-ack-test')).toHaveLength(1);
+
+        // 3. Connect client second time (will send ACK)
+        let ws2 = createWebSocket(wsUrl);
+        let messagesReceivedWs2 = [];
+
+        ws2.on('open', () => {
+          ws2.send(JSON.stringify({ type: 'register', workspaceId: 'ws-ack-test' }));
+        });
+
+        ws2.on('message', (data) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'new_message') {
+            messagesReceivedWs2.push(msg.message);
+            // Send WS ACK
+            ws2.send(JSON.stringify({
+              type: 'ack',
+              messageIds: [msg.messageId]
+            }));
+          }
+          if (msg.type === 'ack_response') {
+            expect(msg.success).toBe(true);
+            expect(msg.messageIds).toContain('msg-ack-1');
+            ws2.close();
+          }
+        });
+
+        ws2.on('close', () => {
+          expect(messagesReceivedWs2).toHaveLength(1);
+          expect(messagesReceivedWs2[0].id).toBe('msg-ack-1');
+          // Queue should now be empty/deleted
+          expect(server.offlineQueues.has('ws-ack-test')).toBe(false);
+          done();
+        });
+      });
     });
   });
 

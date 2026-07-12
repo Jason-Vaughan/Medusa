@@ -222,24 +222,53 @@ Broadcasts a message to all registered workspaces.
 
 ## 🛡️ Delivery Semantics & Reliability
 
-### Destructive Pop-on-Read
-In Medusa `v1.0.0-rc`, inbox reads are **destructive**.
-*   When a client registers via WebSockets, all pending offline messages are drained and delivered, and the offline queue is immediately deleted from the server memory (`offlineQueues.delete(workspaceId)`).
-*   Similarly, polling the HTTP endpoint `GET /messages/workspace/<workspaceId>` returns all offline messages and instantly deletes them from the Hub.
-*   **Risk:** If a client consumer crashes or loses connection mid-processing after receiving drained messages but before writing them to disk, **those messages are lost permanently**.
+### Non-Destructive Queue Draining (At-Least-Once Delivery)
+Medusa implements at-least-once delivery semantics for offline message queues:
+*   When a client registers via WebSockets, all pending offline messages are drained and delivered as `new_message` frames.
+*   Similarly, polling the HTTP endpoint `GET /messages/workspace/<workspaceId>` returns all queued offline messages.
+*   **Durable Survival:** Unlike destructive reads, messages are NOT deleted from the server queue upon delivery. They survive and will be redelivered if the client disconnects and reconnects, or if they poll the HTTP endpoint again.
+*   **Clearing the Queue:** A message is only popped/deleted from the server's offline queue after the client explicitly sends an acknowledgment (ACK).
 
-### Roadmap: Non-Destructive Read + Delivery ACK (#33)
-> [!NOTE]
-> This capability is **open/planned** for future integration to support at-least-once delivery guarantees.
-*   **Proposed HTTP Peek:** `GET /messages/workspace/<id>?peek=true` will return pending messages without clearing the queue.
-*   **Proposed WS ACK:** A client will acknowledge durable processing by sending:
+### 🛠️ Acknowledgment Protocol
+
+A client can acknowledge one or more message IDs via WebSockets or the HTTP REST API.
+
+#### 1. WebSocket ACK Frame
+A registered client sends an `ack` frame over the active WebSocket link:
+*   **Client Send (WS):**
     ```json
     {
       "type": "ack",
       "messageIds": ["f9a7b4d7-bd22-4f29-90a4-1116d0cb0399"]
     }
     ```
-    Messages will only be popped from the Hub's queue after an explicit acknowledgment is received.
+    *Note:* A single ID can also be acknowledged using `"messageId": "id-string"` instead of `messageIds`.
+*   **Hub Response (WS):**
+    ```json
+    {
+      "type": "ack_response",
+      "success": true,
+      "messageIds": ["f9a7b4d7-bd22-4f29-90a4-1116d0cb0399"]
+    }
+    ```
+
+#### 2. HTTP ACK Endpoint
+Useful for stateless consumers or polling clients:
+*   **Endpoint:** `POST /messages/ack`
+*   **Payload:**
+    ```json
+    {
+      "workspaceId": "myworkspace-a1b2c3d4",
+      "messageIds": ["f9a7b4d7-bd22-4f29-90a4-1116d0cb0399"]
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "acked": ["f9a7b4d7-bd22-4f29-90a4-1116d0cb0399"]
+    }
+    ```
 
 ---
 

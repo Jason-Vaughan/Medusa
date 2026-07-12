@@ -966,6 +966,31 @@ describe('MedusaServer', () => {
   describe('At-Least-Once Delivery & ACK Semantics', () => {
     let wsUrl;
 
+    const doPost = (pathname, body) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        req.end();
+      });
+    };
+
     beforeEach(async () => {
       await server.start();
       wsUrl = `ws://localhost:${testPort + 1}`;
@@ -1039,6 +1064,76 @@ describe('MedusaServer', () => {
         ws2.on('close', () => {
           expect(messagesReceivedWs2).toHaveLength(1);
           expect(messagesReceivedWs2[0].id).toBe('msg-ack-1');
+          // Queue should now be empty/deleted
+          expect(server.offlineQueues.has('ws-ack-test')).toBe(false);
+          done();
+        });
+      });
+    });
+
+    test('live-delivered message is retained in offlineQueues until ACKed, and redelivered on reconnect if not ACKed', (done) => {
+      // 1. Setup online workspace
+      let ws1 = createWebSocket(wsUrl);
+      let liveMessages = [];
+
+      ws1.on('open', () => {
+        ws1.send(JSON.stringify({ type: 'register', workspaceId: 'ws-ack-test' }));
+      });
+
+      // We wait for registered confirmation, then trigger direct message
+      ws1.on('message', async (data) => {
+        const msg = JSON.parse(data);
+        if (msg.type === 'registered') {
+          // Send live message via HTTP POST
+          jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, status: 200, data: { id: 'msg-live-1' } });
+          const sendRes = await doPost('/messages/direct', {
+            from: 's1',
+            to: 'ws-ack-test',
+            message: 'live-delivered message'
+          });
+          expect(sendRes.status).toBe(200);
+        }
+
+        if (msg.type === 'new_message') {
+          liveMessages.push(msg.message);
+          // Verify that it is retained in the queue, even though it was delivered live!
+          expect(server.offlineQueues.get('ws-ack-test')).toHaveLength(1);
+          // Disconnect without ACKing
+          ws1.close();
+        }
+      });
+
+      ws1.on('close', () => {
+        expect(liveMessages).toHaveLength(1);
+        expect(liveMessages[0].message).toBe('live-delivered message');
+
+        // Connect again to verify redelivery of the un-ACKed live-delivered message
+        let ws2 = createWebSocket(wsUrl);
+        let redeliveredMessages = [];
+
+        ws2.on('open', () => {
+          ws2.send(JSON.stringify({ type: 'register', workspaceId: 'ws-ack-test' }));
+        });
+
+        ws2.on('message', (data) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'new_message') {
+            redeliveredMessages.push(msg.message);
+            // Send WS ACK to clear it
+            ws2.send(JSON.stringify({
+              type: 'ack',
+              messageIds: [msg.messageId]
+            }));
+          }
+          if (msg.type === 'ack_response') {
+            expect(msg.success).toBe(true);
+            ws2.close();
+          }
+        });
+
+        ws2.on('close', () => {
+          expect(redeliveredMessages).toHaveLength(1);
+          expect(redeliveredMessages[0].message).toBe('live-delivered message');
           // Queue should now be empty/deleted
           expect(server.offlineQueues.has('ws-ack-test')).toBe(false);
           done();

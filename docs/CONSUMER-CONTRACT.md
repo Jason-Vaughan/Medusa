@@ -243,10 +243,7 @@ In Medusa `v1.0.0-rc`, inbox reads are **destructive**.
 
 ---
 
-## 🔄 Loop Protocol (v2, Upcoming - Issue #39)
-
-> [!WARNING]
-> The Loop/Conversation protocol is currently **NOT-YET-IMPLEMENTED**. The spec below is provided for design parity.
+## 🔄 Loop Protocol (Issue #39)
 
 Autonomous agent-to-agent loops require structured back-and-forth states governed by Medusa to prevent execution deadlocks or runaway LLM usage.
 
@@ -265,7 +262,8 @@ Autonomous agent-to-agent loops require structured back-and-forth states governe
   },
   "round": 2,
   "state": "responded", // 'initiated' | 'responded' | 'continue' | 'complete' | 'halted'
-  "closeSignal": null
+  "closeSignal": null,
+  "createdAt": "2026-07-12T00:10:00.000Z"
 }
 ```
 
@@ -280,9 +278,78 @@ initiated ──> responded ──> continue ──> complete (Initiator-Only Cl
 *   **`responded`**: Target workspace AI processes the request and replies.
 *   **`continue`**: Initiator requires further refinement or updates task parameters.
 *   **`complete`**: The task matches the `doneCriteria`, and the initiator closes the loop.
-*   **`halted`**: The loop is terminated by the server due to guard limits (e.g. exceeded max rounds).
+*   **`halted`**: The loop is terminated by the server due to guard limits (e.g. exceeded max rounds or wall-clock duration).
 
 ### 3. Server-Enforced Invariants
-1.  **Initiator-Only Termination:** Only the loop `initiator` can close/terminate a conversation. A close attempt (`closeSignal`) sent by the `target` will be rejected by the server; targets can only yield or request the initiator to close.
-2.  **Runaway Guards:** The server increments `round` on every exchange. If `round > maxRounds`, the server transitions the state to `halted` and terminates the loop, rejecting further messages.
+1.  **Initiator-Only Termination:** Only the loop `initiator` can close/terminate a conversation. A close attempt (`closeSignal`) sent by the `target` will be rejected by the server (returns `403 Forbidden`).
+2.  **Runaway Guards:** The server increments `round` on every message exchange. If `round >= maxRounds` (or wall-clock time exceeds `maxWallTimeSeconds`), the loop transitions to `halted` and further messages are rejected (returns `400 Bad Request`).
 3.  **Structured `closeSignal`:** Closing a conversation requires setting a structured `closeSignal` field (e.g. `{"reason": "done", "evidence": "PR #42 merged"}`), preventing brittle text/prose sniffing.
+
+### 4. HTTP Endpoints
+
+#### ➕ Open a Loop
+*   **Endpoint:** `POST /loops`
+*   **Payload:**
+    ```json
+    {
+      "initiator": "workspace-a",
+      "target": "workspace-b",
+      "task": "Perform mutation testing audit and generate recommendations",
+      "doneCriteria": "Stryker reports 100% coverage",
+      "mode": "autonomous",
+      "guards": {
+        "maxRounds": 10,
+        "maxWallTimeSeconds": 600
+      }
+    }
+    ```
+*   **Response (201 Created):** Returns the initialized Loop object.
+
+#### 📨 Post a Round Message
+*   **Endpoint:** `POST /loops/:id/message`
+*   **Payload:**
+    ```json
+    {
+      "from": "workspace-b",
+      "message": "Audit completed. No active mutations found."
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "loopState": "responded",
+      "round": 1,
+      "messageId": "msg-uuid-string",
+      "delivered": true
+    }
+    ```
+    *Note:* This endpoint automatically resolves the recipient based on the loop participants and delivers the message via WebSocket (or queues it in the inbox if the recipient is offline).
+
+#### 🔍 Read Loop State
+*   **Endpoint:** `GET /loops/:id`
+*   **Response (200 OK):** Returns the current state of the Loop object. Note: Calling this endpoint triggers server-side wall-clock guard checks, transitioning the loop to `halted` if it has timed out.
+
+#### 🛑 Close a Loop
+*   **Endpoint:** `POST /loops/:id/close`
+*   **Payload:**
+    ```json
+    {
+      "from": "workspace-a",
+      "closeSignal": {
+        "reason": "complete",
+        "evidence": "Stryker reports 100% mutation score"
+      }
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "loopState": "complete",
+      "closeSignal": {
+        "reason": "complete",
+        "evidence": "Stryker reports 100% mutation score"
+      }
+    }
+    ```

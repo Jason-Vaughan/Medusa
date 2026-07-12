@@ -585,6 +585,174 @@ describe('MedusaServer', () => {
       const { status } = await doGet('/unknown');
       expect(status).toBe(404);
     });
+
+    describe('Loop Protocol Handshake and Invariants', () => {
+      beforeEach(() => {
+        server.workspaceRegistry.set('w1', { id: 'w1', name: 'w1', path: '/p1', type: 'cursor' });
+        server.workspaceRegistry.set('w2', { id: 'w2', name: 'w2', path: '/p2', type: 'cursor' });
+      });
+
+      test('POST /loops should open a loop and return a 201 response', async () => {
+        const payload = {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'migration check',
+          doneCriteria: 'no errors',
+          guards: { maxRounds: 4, maxWallTimeSeconds: 60 }
+        };
+        const { status, data } = await doPost('/loops', payload);
+        expect(status).toBe(201);
+        expect(data.id).toBeDefined();
+        expect(data.state).toBe('initiated');
+        expect(data.round).toBe(0);
+      });
+
+      test('POST /loops should validate required fields and workspaces', async () => {
+        // Missing fields
+        const { status: statusMissing } = await doPost('/loops', { initiator: 'w1' });
+        expect(statusMissing).toBe(400);
+
+        // Invalid workspace
+        const { status: statusInvalid } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'non-existent',
+          task: 't',
+          doneCriteria: 'd'
+        });
+        expect(statusInvalid).toBe(404);
+      });
+
+      test('Loop back-and-forth round message flow and state transitions', async () => {
+        // 1. Open loop
+        const openPayload = {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'migration check',
+          doneCriteria: 'no errors'
+        };
+        const { data: loop } = await doPost('/loops', openPayload);
+        const loopId = loop.id;
+
+        // 2. Read initial state
+        const { data: state1 } = await doGet(`/loops/${loopId}`);
+        expect(state1.state).toBe('initiated');
+
+        // 3. Sender validation: non-participant attempts to send message
+        const { status: statusNonParticipant } = await doPost(`/loops/${loopId}/message`, {
+          from: 'other',
+          message: 'hi'
+        });
+        expect(statusNonParticipant).toBe(403);
+
+        // 4. Initiator sends message first (rejected: progression check)
+        const { status: statusInitFirst } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w1',
+          message: 'first message'
+        });
+        expect(statusInitFirst).toBe(400);
+
+        // 5. Target sends first message (accepted -> transitions to responded)
+        const { status: statusTargetFirst, data: msgResult1 } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w2',
+          message: 'hello from target'
+        });
+        expect(statusTargetFirst).toBe(200);
+        expect(msgResult1.loopState).toBe('responded');
+        expect(msgResult1.round).toBe(1);
+
+        // 6. Target sends twice in a row (rejected -> expected initiator next)
+        const { status: statusTargetSecond } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w2',
+          message: 'target double send'
+        });
+        expect(statusTargetSecond).toBe(400);
+
+        // 7. Initiator sends message (accepted -> transitions to continue)
+        const { status: statusInitNext, data: msgResult2 } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w1',
+          message: 'continue loop'
+        });
+        expect(statusInitNext).toBe(200);
+        expect(msgResult2.loopState).toBe('continue');
+        expect(msgResult2.round).toBe(2);
+      });
+
+      test('Loop close invariants (only initiator may close, closeSignal recorded)', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'task',
+          doneCriteria: 'done'
+        });
+        const loopId = loop.id;
+
+        // Target attempts to close (rejected)
+        const { status: statusTargetClose } = await doPost(`/loops/${loopId}/close`, {
+          from: 'w2',
+          closeSignal: { reason: 'done' }
+        });
+        expect(statusTargetClose).toBe(403);
+
+        // Initiator closes (accepted)
+        const { status: statusInitClose, data: closeResult } = await doPost(`/loops/${loopId}/close`, {
+          from: 'w1',
+          closeSignal: { reason: 'complete', evidence: 'good output' }
+        });
+        expect(statusInitClose).toBe(200);
+        expect(closeResult.loopState).toBe('complete');
+        expect(closeResult.closeSignal.reason).toBe('complete');
+
+        // Cannot message or close already completed loop
+        const { status: statusMsgPostClose } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w2',
+          message: 'hi'
+        });
+        expect(statusMsgPostClose).toBe(400);
+      });
+
+      test('Runaway guards - maxRounds stops execution and halts loop', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'task',
+          doneCriteria: 'done',
+          guards: { maxRounds: 2 }
+        });
+        const loopId = loop.id;
+
+        // Round 1: target sends -> responded
+        await doPost(`/loops/${loopId}/message`, { from: 'w2', message: 'r1' });
+        // Round 2: initiator sends -> continue -> hits maxRounds 2 -> transitions to halted
+        const { data: result } = await doPost(`/loops/${loopId}/message`, { from: 'w1', message: 'r2' });
+        expect(result.loopState).toBe('halted');
+
+        // Verify GET returns halted state
+        const { data: finalState } = await doGet(`/loops/${loopId}`);
+        expect(finalState.state).toBe('halted');
+
+        // Further messages rejected
+        const { status: statusAfterHalt } = await doPost(`/loops/${loopId}/message`, { from: 'w2', message: 'r3' });
+        expect(statusAfterHalt).toBe(400);
+      });
+
+      test('Runaway guards - maxWallTimeSeconds halts loop on GET and POST', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'task',
+          doneCriteria: 'done',
+          guards: { maxWallTimeSeconds: 1 }
+        });
+        const loopId = loop.id;
+
+        // Wait for 1.1 seconds to trip the wall time
+        await new Promise(r => setTimeout(r, 1100));
+
+        // Attempting to read loop state should trigger the wall-clock guard and transition state to halted
+        const { data: state } = await doGet(`/loops/${loopId}`);
+        expect(state.state).toBe('halted');
+      });
+    });
   });
 
   describe('Web Dashboard', () => {

@@ -81,6 +81,7 @@ class MedusaServer {
     this.webServer = null;
     this.wsServer = null;
     this.processLock = null;
+    this.loops = new Map();
   }
 
   /**
@@ -883,6 +884,309 @@ class MedusaServer {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: error.message }));
         }
+        return;
+      }
+      
+      // Open a loop
+      if (pathname === '/loops' && req.method === 'POST') {
+        try {
+          const data = await this.readRequestBody(req);
+          const { initiator, target, task, doneCriteria, mode, guards } = data;
+          
+          if (!initiator || !target || !task || !doneCriteria) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Missing required loop fields (initiator, target, task, doneCriteria)' }));
+            return;
+          }
+          
+          // Verify workspaces exist
+          const initiatorExists = this.workspaceRegistry.has(initiator) || this.wsClients.has(initiator);
+          const targetExists = this.workspaceRegistry.has(target) || this.wsClients.has(target);
+          if (!initiatorExists || !targetExists) {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Initiator or target workspace not found' }));
+            return;
+          }
+          
+          const loopId = crypto.randomUUID();
+          const now = new Date();
+          const loopObj = {
+            id: loopId,
+            initiator,
+            target,
+            task,
+            doneCriteria,
+            mode: mode || 'supervised',
+            guards: guards || { maxRounds: 10, maxWallTimeSeconds: 600 },
+            round: 0,
+            state: 'initiated',
+            closeSignal: null,
+            createdAt: now.toISOString()
+          };
+          
+          this.loops.set(loopId, loopObj);
+          
+          res.statusCode = 201;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(loopObj));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+      
+      // Loop operations (GET state, POST message, POST close)
+      if (pathname.startsWith('/loops/')) {
+        const parts = pathname.split('/');
+        const loopId = parts[2];
+        const action = parts[3]; // undefined for GET /loops/:id, 'message' or 'close' for POSTs
+        
+        if (!this.loops.has(loopId)) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: `Loop ${loopId} not found` }));
+          return;
+        }
+        
+        const loop = this.loops.get(loopId);
+        
+        // Helper to check wall time guard before any operation
+        const checkWallTimeGuard = () => {
+          if (loop.state !== 'complete' && loop.state !== 'halted') {
+            const elapsed = (Date.now() - new Date(loop.createdAt).getTime()) / 1000;
+            if (loop.guards && loop.guards.maxWallTimeSeconds && elapsed > loop.guards.maxWallTimeSeconds) {
+              loop.state = 'halted';
+              this.loops.set(loopId, loop);
+              
+              // Push telemetry message
+              this.messageHistory.push({
+                id: `sys-loop-halt-${Date.now()}`,
+                from: 'system',
+                to: 'dashboard',
+                message: `loop.halted.timeout: ${loopId} (elapsed: ${elapsed}s)`,
+                timestamp: new Date().toISOString(),
+                type: 'telemetry'
+              });
+              return true;
+            }
+          }
+          return false;
+        };
+        
+        checkWallTimeGuard();
+        
+        // 1. Read loop state (GET /loops/:id)
+        if (!action && req.method === 'GET') {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(loop));
+          return;
+        }
+        
+        // 2. Post a round message (POST /loops/:id/message)
+        if (action === 'message' && req.method === 'POST') {
+          try {
+            const data = await this.readRequestBody(req);
+            const { from, message } = data;
+            
+            if (!from || !message) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Missing required message fields (from, message)' }));
+              return;
+            }
+            
+            if (loop.state === 'complete' || loop.state === 'halted') {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: `Loop is already in ${loop.state} state` }));
+              return;
+            }
+            
+            // Validate sender
+            if (from !== loop.initiator && from !== loop.target) {
+              res.statusCode = 403;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Sender is not a participant in this loop' }));
+              return;
+            }
+            
+            // Validate state progression (who can send when)
+            if (loop.state === 'initiated' && from !== loop.target) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Initiated loop expects target response first' }));
+              return;
+            }
+            if (loop.state === 'responded' && from !== loop.initiator) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Responded loop expects initiator message to continue' }));
+              return;
+            }
+            if (loop.state === 'continue' && from !== loop.target) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Continued loop expects target response' }));
+              return;
+            }
+            
+            // Increment round
+            loop.round += 1;
+            
+            // Transition state
+            if (from === loop.target) {
+              loop.state = 'responded';
+            } else {
+              loop.state = 'continue';
+            }
+            
+            // Deliver the message to the other participant
+            const recipient = from === loop.initiator ? loop.target : loop.initiator;
+            const isOnline = this.wsClients.has(recipient);
+            const msgId = crypto.randomUUID();
+            const timestamp = new Date().toISOString();
+            
+            const msgPayload = {
+              id: msgId,
+              type: 'direct',
+              from: from,
+              to: recipient,
+              message: message,
+              timestamp: timestamp,
+              loopId: loopId
+            };
+            
+            if (isOnline) {
+              this.sendWebSocketMessage(recipient, {
+                type: 'new_message',
+                messageId: msgId,
+                message: msgPayload
+              });
+            } else {
+              if (!this.offlineQueues.has(recipient)) {
+                this.offlineQueues.set(recipient, []);
+              }
+              this.offlineQueues.get(recipient).push(msgPayload);
+            }
+            
+            // Check maxRounds guard after incrementing
+            if (loop.guards && loop.guards.maxRounds && loop.round >= loop.guards.maxRounds) {
+              loop.state = 'halted';
+              // Push telemetry message
+              this.messageHistory.push({
+                id: `sys-loop-halt-${Date.now()}`,
+                from: 'system',
+                to: 'dashboard',
+                message: `loop.halted.max_rounds: ${loopId} (round: ${loop.round})`,
+                timestamp: new Date().toISOString(),
+                type: 'telemetry'
+              });
+            }
+            
+            this.loops.set(loopId, loop);
+            
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              success: true,
+              loopState: loop.state,
+              round: loop.round,
+              messageId: msgId,
+              delivered: isOnline
+            }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
+        }
+        
+        // 3. Close the loop (POST /loops/:id/close)
+        if (action === 'close' && req.method === 'POST') {
+          try {
+            const data = await this.readRequestBody(req);
+            const { from, closeSignal } = data;
+            
+            if (!from || !closeSignal) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Missing required close fields (from, closeSignal)' }));
+              return;
+            }
+            
+            // ONLY the initiator may close the loop
+            if (from !== loop.initiator) {
+              res.statusCode = 403;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Only the initiator may close the loop.' }));
+              return;
+            }
+            
+            if (loop.state === 'complete' || loop.state === 'halted') {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: `Loop is already in ${loop.state} state` }));
+              return;
+            }
+            
+            loop.state = 'complete';
+            loop.closeSignal = closeSignal;
+            this.loops.set(loopId, loop);
+            
+            // Deliver close notification to target participant
+            const recipient = loop.target;
+            const isOnline = this.wsClients.has(recipient);
+            const msgId = crypto.randomUUID();
+            const timestamp = new Date().toISOString();
+            
+            const msgPayload = {
+              id: msgId,
+              type: 'direct',
+              from: loop.initiator,
+              to: recipient,
+              message: `Loop closed: ${closeSignal.reason || 'completed'}`,
+              timestamp: timestamp,
+              loopId: loopId,
+              closeSignal: closeSignal
+            };
+            
+            if (isOnline) {
+              this.sendWebSocketMessage(recipient, {
+                type: 'new_message',
+                messageId: msgId,
+                message: msgPayload
+              });
+            } else {
+              if (!this.offlineQueues.has(recipient)) {
+                this.offlineQueues.set(recipient, []);
+              }
+              this.offlineQueues.get(recipient).push(msgPayload);
+            }
+            
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              success: true,
+              loopState: loop.state,
+              closeSignal: loop.closeSignal
+            }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
+        }
+        
+        res.statusCode = 404;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Endpoint action not found' }));
         return;
       }
       

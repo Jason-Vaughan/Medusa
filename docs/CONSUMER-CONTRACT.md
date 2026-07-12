@@ -91,7 +91,7 @@ Immediately after establishing a connection to `ws://127.0.0.1:3010`, the client
     ```
 
 ### 3. Post-Registration Offline-Queue Draining
-Immediately following the `registered` confirmation frame, if there are messages that were queued for the workspace while it was offline, the Hub will push them sequentially as `new_message` frames. Once the queue is completely drained, it is deleted from the Hub's memory.
+Immediately following the `registered` confirmation frame, if there are messages that were queued for the workspace, the Hub will push them sequentially as `new_message` frames. Drained messages are NOT deleted from the Hub's memory automatically. They survive and will be redelivered upon reconnection unless they are explicitly acknowledged via the ACK protocol (see Section 5/Delivery Semantics).
 
 ### 4. Dynamic Cleanup / Reaping
 To prevent registry bloat:
@@ -223,11 +223,11 @@ Broadcasts a message to all registered workspaces.
 ## 🛡️ Delivery Semantics & Reliability
 
 ### Non-Destructive Queue Draining (At-Least-Once Delivery)
-Medusa implements at-least-once delivery semantics for offline message queues:
-*   When a client registers via WebSockets, all pending offline messages are drained and delivered as `new_message` frames.
-*   Similarly, polling the HTTP endpoint `GET /messages/workspace/<workspaceId>` returns all queued offline messages.
-*   **Durable Survival:** Unlike destructive reads, messages are NOT deleted from the server queue upon delivery. They survive and will be redelivered if the client disconnects and reconnects, or if they poll the HTTP endpoint again.
-*   **Clearing the Queue:** A message is only popped/deleted from the server's offline queue after the client explicitly sends an acknowledgment (ACK).
+Medusa implements at-least-once delivery semantics for all direct and loop messages:
+*   **Durable Inbox Queue:** Every direct or loop message is recorded in the workspace's queue on the Hub. If the workspace is currently online, the message is also delivered live via WebSocket; otherwise, it remains queued.
+*   **Queue Draining:** When a client registers via WebSockets, all pending un-ACKed messages are drained and delivered as `new_message` frames. Similarly, polling the HTTP endpoint `GET /messages/workspace/<workspaceId>` returns all currently queued messages.
+*   **Durable Survival:** Messages are NOT deleted from the server queue upon delivery (regardless of whether they were delivered live or drained). They survive and will be redelivered if the client disconnects and reconnects, or if they poll the HTTP endpoint again.
+*   **Clearing the Queue:** A message is only popped/deleted from the server's queue after the client explicitly sends an acknowledgment (ACK).
 
 ### 🛠️ Acknowledgment Protocol
 

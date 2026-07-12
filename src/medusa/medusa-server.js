@@ -782,6 +782,12 @@ class MedusaServer {
             timestamp: timestamp
           };
           
+          // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
+          if (!this.offlineQueues.has(data.to)) {
+            this.offlineQueues.set(data.to, []);
+          }
+          this.offlineQueues.get(data.to).push(msgPayload);
+
           if (isOnline) {
             this.sendWebSocketMessage(data.to, {
               type: 'new_message',
@@ -789,12 +795,6 @@ class MedusaServer {
               message: msgPayload
             });
             directDelivered = true;
-          } else {
-            // Queue the message on the Hub for when they come back online
-            if (!this.offlineQueues.has(data.to)) {
-              this.offlineQueues.set(data.to, []);
-            }
-            this.offlineQueues.get(data.to).push(msgPayload);
           }
           
           // Also attempt to propagate through the A2A mesh (fails gracefully if node is down)
@@ -1088,17 +1088,18 @@ class MedusaServer {
               loopId: loopId
             };
             
+            // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
+            if (!this.offlineQueues.has(recipient)) {
+              this.offlineQueues.set(recipient, []);
+            }
+            this.offlineQueues.get(recipient).push(msgPayload);
+
             if (isOnline) {
               this.sendWebSocketMessage(recipient, {
                 type: 'new_message',
                 messageId: msgId,
                 message: msgPayload
               });
-            } else {
-              if (!this.offlineQueues.has(recipient)) {
-                this.offlineQueues.set(recipient, []);
-              }
-              this.offlineQueues.get(recipient).push(msgPayload);
             }
             
             // Check maxRounds guard after incrementing
@@ -1183,17 +1184,18 @@ class MedusaServer {
               closeSignal: closeSignal
             };
             
+            // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
+            if (!this.offlineQueues.has(recipient)) {
+              this.offlineQueues.set(recipient, []);
+            }
+            this.offlineQueues.get(recipient).push(msgPayload);
+
             if (isOnline) {
               this.sendWebSocketMessage(recipient, {
                 type: 'new_message',
                 messageId: msgId,
                 message: msgPayload
               });
-            } else {
-              if (!this.offlineQueues.has(recipient)) {
-                this.offlineQueues.set(recipient, []);
-              }
-              this.offlineQueues.get(recipient).push(msgPayload);
             }
             
             res.statusCode = 200;

@@ -2,7 +2,10 @@
   "mcpServers": {
     "Medusa_MCP": {
       "command": "node",
-      "args": ["/Users/jasonvaughan/Documents/Projects/Medusa/src/medusa/medusa-mcp-server.js"]
+      "args": ["/Users/jasonvaughan/Documents/Projects/Medusa/src/medusa/medusa-mcp-server.js"],
+      "env": {
+        "A2A_SECRET": "224646db134f56b714f2877ed52415570c793a2d22e3c565ac6b731792e30ccc"
+      }
     }
   }
 } 

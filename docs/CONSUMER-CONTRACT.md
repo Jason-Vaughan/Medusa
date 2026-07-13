@@ -334,6 +334,32 @@ initiated ──> responded ──> continue ──> complete (Initiator-Only Cl
     ```
 *   **Response (201 Created):** Returns the initialized Loop object.
 
+*   **Target Notification (Loop Invitation):** Opening a loop automatically enqueues a loop invitation message to the target workspace's inbox (delivered live via WebSocket if online, or queued for draining). The invitation is a standard message carrying a `loopInvite` metadata payload:
+    ```json
+    {
+      "id": "message-uuid-string",
+      "type": "direct",
+      "from": "workspace-a",
+      "to": "workspace-b",
+      "message": "New loop invitation from workspace-a for task: \"Perform mutation testing...\"",
+      "timestamp": "2026-07-13T13:20:00.000Z",
+      "loopId": "loop-uuid-string",
+      "loopInvite": {
+        "id": "loop-uuid-string",
+        "initiator": "workspace-a",
+        "target": "workspace-b",
+        "task": "Perform mutation testing audit and generate recommendations",
+        "doneCriteria": "Stryker reports 100% coverage",
+        "mode": "autonomous",
+        "guards": {
+          "maxRounds": 10,
+          "maxWallTimeSeconds": 600
+        }
+      }
+    }
+    ```
+    *Note:* The initiator cannot send messages to the loop while the state is `initiated`. The target must post a response first to transition the state to `responded`.
+
 #### 📨 Post a Round Message
 *   **Endpoint:** `POST /loops/:id/message`
 *   **Payload:**

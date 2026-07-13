@@ -954,7 +954,44 @@ class MedusaServer {
           };
           
           this.loops.set(loopId, loopObj);
-          
+
+          // Deliver loop invitation to the target workspace
+          const inviteMsgId = crypto.randomUUID();
+          const invitePayload = {
+            id: inviteMsgId,
+            type: 'direct',
+            from: initiator,
+            to: target,
+            message: `New loop invitation from ${initiator} for task: "${task}"`,
+            timestamp: now.toISOString(),
+            loopId: loopId,
+            loopInvite: {
+              id: loopId,
+              initiator,
+              target,
+              task,
+              doneCriteria,
+              mode: loopObj.mode,
+              guards: loopObj.guards
+            }
+          };
+
+          // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
+          if (!this.offlineQueues.has(target)) {
+            this.offlineQueues.set(target, []);
+          }
+          this.offlineQueues.get(target).push(invitePayload);
+
+          // If target is online, deliver live via WebSocket
+          const isOnline = this.wsClients.has(target);
+          if (isOnline) {
+            this.sendWebSocketMessage(target, {
+              type: 'new_message',
+              messageId: inviteMsgId,
+              message: invitePayload
+            });
+          }
+
           res.statusCode = 201;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(loopObj));

@@ -600,9 +600,10 @@ describe('MedusaServer', () => {
       beforeEach(() => {
         server.workspaceRegistry.set('w1', { id: 'w1', name: 'w1', path: '/p1', type: 'cursor' });
         server.workspaceRegistry.set('w2', { id: 'w2', name: 'w2', path: '/p2', type: 'cursor' });
+        server.offlineQueues.clear();
       });
 
-      test('POST /loops should open a loop and return a 201 response', async () => {
+      test('POST /loops should open a loop, return a 201 response, and queue a loop invite message for the target', async () => {
         const payload = {
           initiator: 'w1',
           target: 'w2',
@@ -615,6 +616,14 @@ describe('MedusaServer', () => {
         expect(data.id).toBeDefined();
         expect(data.state).toBe('initiated');
         expect(data.round).toBe(0);
+
+        // Verify that target got loop invitation queued in offlineQueues
+        const queued = server.offlineQueues.get('w2');
+        expect(queued).toHaveLength(1);
+        expect(queued[0].loopId).toBe(data.id);
+        expect(queued[0].loopInvite).toBeDefined();
+        expect(queued[0].loopInvite.task).toBe('migration check');
+        expect(queued[0].loopInvite.doneCriteria).toBe('no errors');
       });
 
       test('POST /loops should validate required fields and workspaces', async () => {

@@ -9,6 +9,11 @@ echo "[*] Running Node.js tests..."
 npm test -- --passWithNoTests || { echo "❌ Node.js tests failed. Commit aborted."; exit 1; }
 
 # 2. Python tests
+echo "[*] Cleaning up stray A2A node processes and test databases..."
+pkill -f "a2a_node/main.py" || true
+rm -f src/a2a_node/ledger_*.db*
+sleep 1
+
 echo "[*] Running Python A2A Node tests..."
 ( cd src/a2a_node && export PYTHONPATH=$PYTHONPATH:. && . venv/bin/activate && pytest tests/ ) || { echo "❌ Python tests failed. Commit aborted."; exit 1; }
 

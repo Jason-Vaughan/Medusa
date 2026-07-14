@@ -200,6 +200,37 @@ class MedusaServer {
   }
 
   /**
+   * Resolves a workspace identifier (which can be a raw workspace ID or a workspace name)
+   * to a valid registered workspace ID.
+   * Throws an error if the identifier matches multiple workspaces (ambiguous).
+   * Returns null if no match is found.
+   */
+  resolveWorkspaceId(identifier) {
+    if (!identifier) return null;
+    
+    // 1. If it's already a valid registered workspace ID or an active WebSocket client ID, use it directly
+    if (this.workspaceRegistry.has(identifier) || this.wsClients.has(identifier)) {
+      return identifier;
+    }
+    
+    // 2. Look for name matches (case-insensitive)
+    const matches = [];
+    for (const [id, ws] of this.workspaceRegistry.entries()) {
+      if (ws.name && ws.name.toLowerCase() === identifier.toLowerCase()) {
+        matches.push(id);
+      }
+    }
+    
+    if (matches.length === 1) {
+      return matches[0];
+    } else if (matches.length > 1) {
+      throw new Error(`Ambiguous workspace name "${identifier}": matches multiple registered IDs [${matches.join(', ')}]`);
+    }
+    
+    return null;
+  }
+
+  /**
    * Finds an available port in the dedicated range using TangleClaw PortHub
    */
   async getAvailablePortFromTangleClaw() {
@@ -759,16 +790,24 @@ class MedusaServer {
         try {
           const data = await this.readRequestBody(req);
           
-          const isOnline = this.wsClients.has(data.to);
-          const isRegistered = this.workspaceRegistry.has(data.to) || isOnline;
+          let targetId;
+          try {
+            targetId = this.resolveWorkspaceId(data.to);
+          } catch (err) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
           
-          if (!isRegistered) {
+          if (!targetId) {
             res.statusCode = 404;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: `Peer/Workspace ${data.to} not found.` }));
             return;
           }
           
+          const isOnline = this.wsClients.has(targetId);
           let directDelivered = false;
           let generatedId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
@@ -777,19 +816,19 @@ class MedusaServer {
             id: generatedId,
             type: 'direct',
             from: data.from,
-            to: data.to,
+            to: targetId,
             message: data.message,
             timestamp: timestamp
           };
           
           // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
-          if (!this.offlineQueues.has(data.to)) {
-            this.offlineQueues.set(data.to, []);
+          if (!this.offlineQueues.has(targetId)) {
+            this.offlineQueues.set(targetId, []);
           }
-          this.offlineQueues.get(data.to).push(msgPayload);
+          this.offlineQueues.get(targetId).push(msgPayload);
 
           if (isOnline) {
-            this.sendWebSocketMessage(data.to, {
+            this.sendWebSocketMessage(targetId, {
               type: 'new_message',
               messageId: generatedId,
               message: msgPayload
@@ -800,7 +839,7 @@ class MedusaServer {
           // Also attempt to propagate through the A2A mesh (fails gracefully if node is down)
           const result = await this.callA2A('POST', '/a2a/messages/send', {
             sender_id: data.from,
-            recipient_id: data.to,
+            recipient_id: targetId,
             content: data.message
           }).catch(() => ({ ok: false, status: 503 }));
           
@@ -928,9 +967,18 @@ class MedusaServer {
           }
           
           // Verify workspaces exist
-          const initiatorExists = this.workspaceRegistry.has(initiator) || this.wsClients.has(initiator);
-          const targetExists = this.workspaceRegistry.has(target) || this.wsClients.has(target);
-          if (!initiatorExists || !targetExists) {
+          let initId, targetId;
+          try {
+            initId = this.resolveWorkspaceId(initiator);
+            targetId = this.resolveWorkspaceId(target);
+          } catch (err) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
+
+          if (!initId || !targetId) {
             res.statusCode = 404;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: 'Initiator or target workspace not found' }));
@@ -941,8 +989,8 @@ class MedusaServer {
           const now = new Date();
           const loopObj = {
             id: loopId,
-            initiator,
-            target,
+            initiator: initId,
+            target: targetId,
             task,
             doneCriteria,
             mode: mode || 'supervised',
@@ -950,7 +998,8 @@ class MedusaServer {
             round: 0,
             state: 'initiated',
             closeSignal: null,
-            createdAt: now.toISOString()
+            createdAt: now.toISOString(),
+            startedAt: null
           };
           
           this.loops.set(loopId, loopObj);
@@ -960,32 +1009,34 @@ class MedusaServer {
           const invitePayload = {
             id: inviteMsgId,
             type: 'direct',
-            from: initiator,
-            to: target,
-            message: `New loop invitation from ${initiator} for task: "${task}"`,
+            from: initId,
+            to: targetId,
+            message: `New loop invitation from ${initId} for task: "${task}"`,
             timestamp: now.toISOString(),
             loopId: loopId,
             loopInvite: {
               id: loopId,
-              initiator,
-              target,
+              initiator: initId,
+              target: targetId,
               task,
               doneCriteria,
               mode: loopObj.mode,
-              guards: loopObj.guards
+              guards: loopObj.guards,
+              replyEndpoint: `/loops/${loopId}/message`,
+              replyInstruction: `To reply to this loop, you MUST send a POST request to /loops/${loopId}/message with {"from": "${targetId}", "message": "..."} rather than using a direct message.`
             }
           };
 
           // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
-          if (!this.offlineQueues.has(target)) {
-            this.offlineQueues.set(target, []);
+          if (!this.offlineQueues.has(targetId)) {
+            this.offlineQueues.set(targetId, []);
           }
-          this.offlineQueues.get(target).push(invitePayload);
+          this.offlineQueues.get(targetId).push(invitePayload);
 
           // If target is online, deliver live via WebSocket
-          const isOnline = this.wsClients.has(target);
+          const isOnline = this.wsClients.has(targetId);
           if (isOnline) {
-            this.sendWebSocketMessage(target, {
+            this.sendWebSocketMessage(targetId, {
               type: 'new_message',
               messageId: inviteMsgId,
               message: invitePayload
@@ -1020,8 +1071,8 @@ class MedusaServer {
         
         // Helper to check wall time guard before any operation
         const checkWallTimeGuard = () => {
-          if (loop.state !== 'complete' && loop.state !== 'halted') {
-            const elapsed = (Date.now() - new Date(loop.createdAt).getTime()) / 1000;
+          if (loop.state !== 'complete' && loop.state !== 'halted' && loop.startedAt) {
+            const elapsed = (Date.now() - new Date(loop.startedAt).getTime()) / 1000;
             if (loop.guards && loop.guards.maxWallTimeSeconds && elapsed > loop.guards.maxWallTimeSeconds) {
               loop.state = 'halted';
               this.loops.set(loopId, loop);
@@ -1105,6 +1156,9 @@ class MedusaServer {
             // Transition state
             if (from === loop.target) {
               loop.state = 'responded';
+              if (!loop.startedAt) {
+                loop.startedAt = new Date().toISOString();
+              }
             } else {
               loop.state = 'continue';
             }

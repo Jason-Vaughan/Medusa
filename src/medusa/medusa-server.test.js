@@ -754,7 +754,7 @@ describe('MedusaServer', () => {
         expect(statusAfterHalt).toBe(400);
       });
 
-      test('Runaway guards - maxWallTimeSeconds halts loop on GET and POST', async () => {
+      test('Runaway guards - maxWallTimeSeconds halts loop only after target responds and time budget is exceeded', async () => {
         const { data: loop } = await doPost('/loops', {
           initiator: 'w1',
           target: 'w2',
@@ -764,12 +764,75 @@ describe('MedusaServer', () => {
         });
         const loopId = loop.id;
 
-        // Wait for 1.1 seconds to trip the wall time
+        // 1. Wait for 1.1 seconds without any reply. Clock should not start yet.
+        await new Promise(r => setTimeout(r, 1100));
+        const { data: state1 } = await doGet(`/loops/${loopId}`);
+        expect(state1.state).toBe('initiated'); // Should still be initiated!
+
+        // 2. Target responds to start the clock.
+        const { status: replyStatus } = await doPost(`/loops/${loopId}/message`, {
+          from: 'w2',
+          message: 'first reply starts the clock'
+        });
+        expect(replyStatus).toBe(200);
+
+        // 3. Wait for 1.1 seconds to trip the wall time after start.
         await new Promise(r => setTimeout(r, 1100));
 
-        // Attempting to read loop state should trigger the wall-clock guard and transition state to halted
-        const { data: state } = await doGet(`/loops/${loopId}`);
-        expect(state.state).toBe('halted');
+        // 4. Reading loop state should now trigger the wall-clock guard and transition state to halted
+        const { data: state2 } = await doGet(`/loops/${loopId}`);
+        expect(state2.state).toBe('halted');
+      });
+    });
+
+    describe('Workspace Name Resolution (Send-by-name)', () => {
+      beforeEach(() => {
+        server.workspaceRegistry.clear();
+        server.offlineQueues.clear();
+        
+        server.workspaceRegistry.set('w1-id', { id: 'w1-id', name: 'w1', path: '/p1', type: 'cursor' });
+        server.workspaceRegistry.set('w2-id', { id: 'w2-id', name: 'w2', path: '/p2', type: 'cursor' });
+      });
+
+      test('POST /messages/direct should resolve target by name (case-insensitive)', async () => {
+        // Send to name 'W2' instead of raw ID 'w2-id'
+        const { status, data } = await doPost('/messages/direct', {
+          from: 'w1-id',
+          to: 'W2',
+          message: 'hello via name'
+        });
+        expect(status).toBe(200);
+        expect(data.success).toBe(true);
+
+        // Verify it was correctly queued for w2-id
+        const queued = server.offlineQueues.get('w2-id');
+        expect(queued).toHaveLength(1);
+        expect(queued[0].to).toBe('w2-id');
+      });
+
+      test('POST /loops should resolve initiator and target by name', async () => {
+        const { status, data } = await doPost('/loops', {
+          initiator: 'W1',
+          target: 'w2',
+          task: 'task via name',
+          doneCriteria: 'done'
+        });
+        expect(status).toBe(201);
+        expect(data.initiator).toBe('w1-id');
+        expect(data.target).toBe('w2-id');
+      });
+
+      test('POST /messages/direct should return 400 when name matches multiple workspaces (ambiguous)', async () => {
+        // Register another workspace with the name 'w2' but a different ID
+        server.workspaceRegistry.set('w2-duplicate-id', { id: 'w2-duplicate-id', name: 'w2', path: '/p3', type: 'cursor' });
+
+        const { status, data } = await doPost('/messages/direct', {
+          from: 'w1-id',
+          to: 'w2',
+          message: 'ambiguous message'
+        });
+        expect(status).toBe(400);
+        expect(data.error).toContain('Ambiguous workspace name "w2"');
       });
     });
   });

@@ -175,10 +175,11 @@ Messages are sent by POSTing to the HTTP API. Medusa signs requests using the `A
     ```json
     {
       "from": "myworkspace-a1b2c3d4",
-      "to": "target-workspace-id",
+      "to": "target-workspace-id", // Can also be the case-insensitive human name (e.g., "TangleClaw")
       "message": "Please review this stack trace."
     }
     ```
+    *Note:* Name resolution is case-insensitive. If a name matches multiple registered workspace IDs, the request fails with a `400 Bad Request` listing the matching IDs.
 *   **Response (Target Online - Delivered Instantly):**
     ```json
     {
@@ -311,7 +312,7 @@ initiated ──> responded ──> continue ──> complete (Initiator-Only Cl
 
 ### 3. Server-Enforced Invariants
 1.  **Initiator-Only Termination:** Only the loop `initiator` can close/terminate a conversation. A close attempt (`closeSignal`) sent by the `target` will be rejected by the server (returns `403 Forbidden`).
-2.  **Runaway Guards:** The server increments `round` on every message exchange. If `round >= maxRounds` (or wall-clock time exceeds `maxWallTimeSeconds`), the loop transitions to `halted` and further messages are rejected (returns `400 Bad Request`).
+2.  **Runaway Guards:** The server increments `round` on every message exchange. If `round >= maxRounds` (or wall-clock time exceeds `maxWallTimeSeconds`), the loop transitions to `halted` and further messages are rejected (returns `400 Bad Request`). Note: The wall-clock guard `maxWallTimeSeconds` only begins counting when the target first responds to the loop (state transitions from `initiated` to `responded`), rather than at creation, preventing timeouts during initial wake-up latency.
 3.  **Structured `closeSignal`:** Closing a conversation requires setting a structured `closeSignal` field (e.g. `{"reason": "done", "evidence": "PR #42 merged"}`), preventing brittle text/prose sniffing.
 
 ### 4. HTTP Endpoints

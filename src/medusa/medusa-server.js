@@ -213,18 +213,29 @@ class MedusaServer {
       return identifier;
     }
     
-    // 2. Look for name matches (case-insensitive)
-    const matches = [];
+    // 2. Look for name matches (case-insensitive) in registry and active WS clients
+    const matches = new Set();
+    
+    // Check registry entries
     for (const [id, ws] of this.workspaceRegistry.entries()) {
       if (ws.name && ws.name.toLowerCase() === identifier.toLowerCase()) {
-        matches.push(id);
+        matches.add(id);
       }
     }
     
-    if (matches.length === 1) {
-      return matches[0];
-    } else if (matches.length > 1) {
-      throw new Error(`Ambiguous workspace name "${identifier}": matches multiple registered IDs [${matches.join(', ')}]`);
+    // Check active WebSocket clients
+    for (const id of this.wsClients.keys()) {
+      const name = id.split('-')[0];
+      if (name && name.toLowerCase() === identifier.toLowerCase()) {
+        matches.add(id);
+      }
+    }
+    
+    const uniqueMatches = Array.from(matches);
+    if (uniqueMatches.length === 1) {
+      return uniqueMatches[0];
+    } else if (uniqueMatches.length > 1) {
+      throw new Error(`Ambiguous workspace name "${identifier}": matches multiple registered IDs [${uniqueMatches.join(', ')}]`);
     }
     
     return null;

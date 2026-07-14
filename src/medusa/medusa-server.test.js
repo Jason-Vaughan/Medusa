@@ -835,6 +835,225 @@ describe('MedusaServer', () => {
         expect(data.error).toContain('Ambiguous workspace name "w2"');
       });
     });
+
+    describe('Roster Display Name & WS Register (Issue #51)', () => {
+      let wsUrl;
+
+      beforeEach(() => {
+        wsUrl = `ws://localhost:${testPort + 1}`;
+        server.workspaceRegistry.clear();
+      });
+
+      test('should derive fallback display name without truncating multi-word suffix and preserve custom name', async () => {
+        const connectAndRegister = (workspaceId, customName) => {
+          return new Promise((resolve, reject) => {
+            const ws = createWebSocket(wsUrl);
+            ws.on('open', () => {
+              const payload = { type: 'register', workspaceId };
+              if (customName) payload.name = customName;
+              ws.send(JSON.stringify(payload));
+            });
+            ws.on('message', (data) => {
+              const msg = JSON.parse(data);
+              if (msg.type === 'registered') {
+                resolve(ws);
+              }
+            });
+            ws.on('error', reject);
+          });
+        };
+
+        // 1. Connect and register first client (fallback naming)
+        const ws1 = await connectAndRegister('tilt-claw-e569739f');
+
+        // 2. Connect and register second client (explicit custom name)
+        const ws2 = await connectAndRegister('tilt-v2-c13f9993', 'TiLT v2');
+
+        // 3. Query workspaces to verify display names
+        const { status, data: body } = await doGet('/workspaces');
+        expect(status).toBe(200);
+        const workspaces = body.workspaces;
+
+        // Find tilt-claw-e569739f and verify fallback name is "tilt-claw" (option a)
+        const wsClaw = workspaces.find(w => w.id === 'tilt-claw-e569739f');
+        expect(wsClaw).toBeDefined();
+        expect(wsClaw.name).toBe('tilt-claw');
+
+        // Find tilt-v2-c13f9993 and verify name is "TiLT v2" (option b)
+        const wsV2 = workspaces.find(w => w.id === 'tilt-v2-c13f9993');
+        expect(wsV2).toBeDefined();
+        expect(wsV2.name).toBe('TiLT v2');
+
+        ws1.close();
+        ws2.close();
+      });
+    });
+
+    describe('Loop Observability (Issue #49)', () => {
+      beforeEach(() => {
+        server.loops.clear();
+        server.workspaceRegistry.clear();
+        server.workspaceRegistry.set('w1', { id: 'w1', name: 'w1', path: '/p1', type: 'cursor' });
+        server.workspaceRegistry.set('w2', { id: 'w2', name: 'w2', path: '/p2', type: 'cursor' });
+        server.workspaceRegistry.set('w3', { id: 'w3', name: 'w3', path: '/p3', type: 'cursor' });
+      });
+
+      test('should list all loops and support participant filtering', async () => {
+        // Create loop 1: w1 -> w2
+        const { data: loop1 } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'task 1',
+          doneCriteria: 'done 1'
+        });
+
+        // Create loop 2: w2 -> w3
+        const { data: loop2 } = await doPost('/loops', {
+          initiator: 'w2',
+          target: 'w3',
+          task: 'task 2',
+          doneCriteria: 'done 2'
+        });
+
+        // Query all loops
+        const { status: sAll, data: dAll } = await doGet('/loops');
+        expect(sAll).toBe(200);
+        expect(dAll.count).toBe(2);
+        expect(dAll.loops.map(l => l.id).sort()).toEqual([loop1.id, loop2.id].sort());
+
+        // Query loops for participant w1 (should only get loop1)
+        const { status: sW1, data: dW1 } = await doGet('/loops?participant=w1');
+        expect(sW1).toBe(200);
+        expect(dW1.count).toBe(1);
+        expect(dW1.loops[0].id).toBe(loop1.id);
+
+        // Query loops for participant w2 (should get both loop1 and loop2)
+        const { status: sW2, data: dW2 } = await doGet('/loops?participant=w2');
+        expect(sW2).toBe(200);
+        expect(dW2.count).toBe(2);
+
+        // Query loops for participant w3 (should only get loop2)
+        const { status: sW3, data: dW3 } = await doGet('/loops?participant=w3');
+        expect(sW3).toBe(200);
+        expect(dW3.count).toBe(1);
+        expect(dW3.loops[0].id).toBe(loop2.id);
+      });
+
+      test('should retain messages in loop transcript and only include them when include=messages query param is present', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'transcript task',
+          doneCriteria: 'done'
+        });
+        const loopId = loop.id;
+
+        // Post a message from target to start the loop
+        await doPost(`/loops/${loopId}/message`, {
+          from: 'w2',
+          message: 'message from target'
+        });
+
+        // Post a message from initiator to continue
+        await doPost(`/loops/${loopId}/message`, {
+          from: 'w1',
+          message: 'message from initiator'
+        });
+
+        // 1. Query loop state without include parameter (should not contain messages array)
+        const { data: dNoInclude } = await doGet(`/loops/${loopId}`);
+        expect(dNoInclude.messages).toBeUndefined();
+
+        // 2. Query loop state with include=messages (should contain messages array with 2 messages)
+        const { data: dInclude } = await doGet(`/loops/${loopId}?include=messages`);
+        expect(dInclude.messages).toBeDefined();
+        expect(dInclude.messages).toHaveLength(2);
+        expect(dInclude.messages[0].from).toBe('w2');
+        expect(dInclude.messages[0].message).toBe('message from target');
+        expect(dInclude.messages[1].from).toBe('w1');
+        expect(dInclude.messages[1].message).toBe('message from initiator');
+
+        // 3. Query loops list with include=messages (should contain messages array)
+        const { data: dListInclude } = await doGet('/loops?include=messages');
+        expect(dListInclude.loops[0].messages).toBeDefined();
+        expect(dListInclude.loops[0].messages).toHaveLength(2);
+
+        // 4. Query loops list without include=messages (should omit messages array)
+        const { data: dListNoInclude } = await doGet('/loops');
+        expect(dListNoInclude.loops[0].messages).toBeUndefined();
+      });
+    });
+
+    describe('Loop Close Semantics (Issue #50)', () => {
+      beforeEach(() => {
+        server.loops.clear();
+        server.workspaceRegistry.clear();
+        server.workspaceRegistry.set('w1', { id: 'w1', name: 'w1', path: '/p1', type: 'cursor' });
+        server.workspaceRegistry.set('w2', { id: 'w2', name: 'w2', path: '/p2', type: 'cursor' });
+      });
+
+      test('should transition to complete when closed normally', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'close task',
+          doneCriteria: 'done'
+        });
+        const loopId = loop.id;
+
+        const { status, data } = await doPost(`/loops/${loopId}/close`, {
+          from: 'w1',
+          closeSignal: { reason: 'complete', evidence: 'all clean' }
+        });
+        expect(status).toBe(200);
+        expect(data.loopState).toBe('complete');
+
+        const { data: state } = await doGet(`/loops/${loopId}`);
+        expect(state.state).toBe('complete');
+      });
+
+      test('should transition to halted when force-done is requested', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'force close task',
+          doneCriteria: 'done'
+        });
+        const loopId = loop.id;
+
+        // Force close using reason: 'force-done'
+        const { status, data } = await doPost(`/loops/${loopId}/close`, {
+          from: 'w1',
+          closeSignal: { reason: 'force-done', evidence: 'operator aborted' }
+        });
+        expect(status).toBe(200);
+        expect(data.loopState).toBe('halted');
+
+        const { data: state } = await doGet(`/loops/${loopId}`);
+        expect(state.state).toBe('halted');
+      });
+
+      test('should transition to halted when forced: true is supplied in closeSignal', async () => {
+        const { data: loop } = await doPost('/loops', {
+          initiator: 'w1',
+          target: 'w2',
+          task: 'force close task 2',
+          doneCriteria: 'done'
+        });
+        const loopId = loop.id;
+
+        // Force close using forced: true
+        const { status, data } = await doPost(`/loops/${loopId}/close`, {
+          from: 'w1',
+          closeSignal: { reason: 'some reason', forced: true, evidence: 'force close parameter' }
+        });
+        expect(status).toBe(200);
+        expect(data.loopState).toBe('halted');
+
+        const { data: state } = await doGet(`/loops/${loopId}`);
+        expect(state.state).toBe('halted');
+      });
+    });
   });
 
   describe('Web Dashboard', () => {

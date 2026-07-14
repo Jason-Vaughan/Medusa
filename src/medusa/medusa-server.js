@@ -242,6 +242,45 @@ class MedusaServer {
   }
 
   /**
+   * Derives a fallback workspace display name from its ID by stripping
+   * only the trailing mint-suffix (the last hyphenated segment).
+   */
+  fallbackWorkspaceName(workspaceId) {
+    if (!workspaceId) return 'unknown';
+    const parts = workspaceId.split('-');
+    if (parts.length > 1) {
+      parts.pop();
+      return parts.join('-');
+    }
+    return workspaceId;
+  }
+
+  /**
+   * Evaluates the wall-clock timeout guard for a loop and transitions it to halted if exceeded.
+   */
+  checkWallTimeGuardForLoop(loop) {
+    if (loop.state !== 'complete' && loop.state !== 'halted' && loop.startedAt) {
+      const elapsed = (Date.now() - new Date(loop.startedAt).getTime()) / 1000;
+      if (loop.guards && loop.guards.maxWallTimeSeconds && elapsed > loop.guards.maxWallTimeSeconds) {
+        loop.state = 'halted';
+        this.loops.set(loop.id, loop);
+        
+        // Push telemetry message
+        this.messageHistory.push({
+          id: `sys-loop-halt-${Date.now()}`,
+          from: 'system',
+          to: 'dashboard',
+          message: `loop.halted.timeout: ${loop.id} (elapsed: ${elapsed}s)`,
+          timestamp: new Date().toISOString(),
+          type: 'telemetry'
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Finds an available port in the dedicated range using TangleClaw PortHub
    */
   async getAvailablePortFromTangleClaw() {
@@ -608,7 +647,7 @@ class MedusaServer {
             
             const existing = mergedWorkspaces.get(id) || {
               id: id,
-              name: id.split('-')[0],
+              name: this.fallbackWorkspaceName(id),
               connected: true
             };
             
@@ -1010,7 +1049,8 @@ class MedusaServer {
             state: 'initiated',
             closeSignal: null,
             createdAt: now.toISOString(),
-            startedAt: null
+            startedAt: null,
+            messages: []
           };
           
           this.loops.set(loopId, loopObj);
@@ -1065,6 +1105,47 @@ class MedusaServer {
         return;
       }
       
+      // List all loops
+      if (pathname === '/loops' && req.method === 'GET') {
+        try {
+          const participant = url.searchParams.get('participant');
+          let participantId = null;
+          if (participant) {
+            try {
+              participantId = this.resolveWorkspaceId(participant);
+            } catch (err) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message }));
+              return;
+            }
+          }
+          
+          const list = [];
+          const includeMessages = url.searchParams.get('include') === 'messages';
+          for (const [id, loop] of this.loops.entries()) {
+            this.checkWallTimeGuardForLoop(loop);
+            
+            if (!participantId || loop.initiator === participantId || loop.target === participantId) {
+              const resObj = { ...loop };
+              if (!includeMessages) {
+                delete resObj.messages;
+              }
+              list.push(resObj);
+            }
+          }
+          
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ loops: list, count: list.length }));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+      
       // Loop operations (GET state, POST message, POST close)
       if (pathname.startsWith('/loops/')) {
         const parts = pathname.split('/');
@@ -1082,34 +1163,21 @@ class MedusaServer {
         
         // Helper to check wall time guard before any operation
         const checkWallTimeGuard = () => {
-          if (loop.state !== 'complete' && loop.state !== 'halted' && loop.startedAt) {
-            const elapsed = (Date.now() - new Date(loop.startedAt).getTime()) / 1000;
-            if (loop.guards && loop.guards.maxWallTimeSeconds && elapsed > loop.guards.maxWallTimeSeconds) {
-              loop.state = 'halted';
-              this.loops.set(loopId, loop);
-              
-              // Push telemetry message
-              this.messageHistory.push({
-                id: `sys-loop-halt-${Date.now()}`,
-                from: 'system',
-                to: 'dashboard',
-                message: `loop.halted.timeout: ${loopId} (elapsed: ${elapsed}s)`,
-                timestamp: new Date().toISOString(),
-                type: 'telemetry'
-              });
-              return true;
-            }
-          }
-          return false;
+          return this.checkWallTimeGuardForLoop(loop);
         };
         
         checkWallTimeGuard();
         
         // 1. Read loop state (GET /loops/:id)
         if (!action && req.method === 'GET') {
+          const includeMessages = url.searchParams.get('include') === 'messages';
+          const responseObj = { ...loop };
+          if (!includeMessages) {
+            delete responseObj.messages;
+          }
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(loop));
+          res.end(JSON.stringify(responseObj));
           return;
         }
         
@@ -1173,6 +1241,15 @@ class MedusaServer {
             } else {
               loop.state = 'continue';
             }
+            
+            if (!loop.messages) {
+              loop.messages = [];
+            }
+            loop.messages.push({
+              from,
+              message,
+              timestamp: new Date().toISOString()
+            });
             
             // Deliver the message to the other participant
             const recipient = from === loop.initiator ? loop.target : loop.initiator;
@@ -1265,7 +1342,11 @@ class MedusaServer {
               return;
             }
             
-            loop.state = 'complete';
+            if (closeSignal.reason === 'force-done' || closeSignal.forced === true) {
+              loop.state = 'halted';
+            } else {
+              loop.state = 'complete';
+            }
             loop.closeSignal = closeSignal;
             this.loops.set(loopId, loop);
             
@@ -1803,6 +1884,27 @@ class MedusaServer {
           if (message.type === 'register' && !isRegistered) {
             workspaceId = message.workspaceId;
             
+            // Persist the workspace registration from the WS register frame if not present
+            if (!this.workspaceRegistry.has(workspaceId)) {
+              const now = new Date();
+              const wsObj = {
+                id: workspaceId,
+                name: message.name || this.fallbackWorkspaceName(workspaceId),
+                path: message.path || '',
+                type: message.clientType || 'medusa',
+                registeredAt: now.toISOString(),
+                lastSeen: now.toISOString()
+              };
+              this.workspaceRegistry.set(workspaceId, wsObj);
+              this.saveRegistry();
+            } else if (message.name) {
+              const wsObj = this.workspaceRegistry.get(workspaceId);
+              wsObj.name = message.name;
+              wsObj.lastSeen = new Date().toISOString();
+              this.workspaceRegistry.set(workspaceId, wsObj);
+              this.saveRegistry();
+            }
+
             if (!this.wsClients.has(workspaceId)) {
               this.wsClients.set(workspaceId, new Map());
             }

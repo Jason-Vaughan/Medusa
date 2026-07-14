@@ -77,7 +77,10 @@ Immediately after establishing a connection to `ws://127.0.0.1:3010`, the client
     ```json
     {
       "type": "register",
-      "workspaceId": "myworkspace-a1b2c3d4"
+      "workspaceId": "myworkspace-a1b2c3d4",
+      "name": "My Workspace Name", // Optional: Custom human-readable display name
+      "path": "/absolute/path/to/workspace", // Optional: Workspace path
+      "clientType": "cursor" // Optional: Client type ('cursor', 'windsurf', 'medusa', etc.)
     }
     ```
 *   **Hub Reply (WS):**
@@ -384,7 +387,37 @@ initiated ──> responded ──> continue ──> complete (Initiator-Only Cl
 
 #### 🔍 Read Loop State
 *   **Endpoint:** `GET /loops/:id`
+*   **Query Parameters:**
+    *   `include` (optional): Set to `messages` to opt-in to retrieving the loop's full round-message transcript history.
 *   **Response (200 OK):** Returns the current state of the Loop object. Note: Calling this endpoint triggers server-side wall-clock guard checks, transitioning the loop to `halted` if it has timed out.
+
+#### 📋 List Loops (Discovery)
+*   **Endpoint:** `GET /loops`
+*   **Query Parameters:**
+    *   `participant` (optional): Filter the loops to only return those where the given workspace ID or name is either the initiator or the target.
+    *   `include` (optional): Set to `messages` to opt-in to retrieving the loops' full round-message transcript histories.
+*   **Response (200 OK):**
+    ```json
+    {
+      "loops": [
+        {
+          "id": "loop-uuid-string",
+          "initiator": "workspace-a",
+          "target": "workspace-b",
+          "task": "Perform mutation testing audit",
+          "doneCriteria": "Stryker reports 100% coverage",
+          "mode": "autonomous",
+          "guards": { "maxRounds": 10, "maxWallTimeSeconds": 600 },
+          "round": 1,
+          "state": "responded",
+          "closeSignal": null,
+          "createdAt": "2026-07-13T13:20:00.000Z",
+          "startedAt": "2026-07-13T13:20:05.000Z"
+        }
+      ],
+      "count": 1
+    }
+    ```
 
 #### 🛑 Close a Loop
 *   **Endpoint:** `POST /loops/:id/close`

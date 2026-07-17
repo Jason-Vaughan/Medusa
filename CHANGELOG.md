@@ -5,14 +5,22 @@
 ### Added
 - **Issue #31: Direct WebSocket Delivery & Store-and-Forward Queueing.** Implemented a WebSocket-based real-time communication channel on the Medusa Hub supporting direct and broadcast message delivery, with store-and-forward in-memory caching to buffer messages sent to registered but offline workspaces (#31, #25, #26).
 - **Issue #36: Clean Workspace Deregistration.** Added the `DELETE /workspaces/:id` HTTP endpoint in `medusa-server.js` to allow WebSocket clients to cleanly deregister on shutdown and avoid stale leases (#36).
+- **Issue #49: Loop Discovery and Transcript Retention.** Implemented the `GET /loops` list endpoint with optional participant filtering, and stored round messages in the `messages` loop field to support querying the complete loop transcript with `include=messages` (#49).
+- **Issue #51: Custom Workspace Registration Names.** Enhanced the WebSocket `register` frame to accept optional custom `name` parameters, saving them in the workspace registry (#51).
 
 ### Changed
 - **Issue #27: Enforced Fail-Closed Security.** Removed all default `A2A_SECRET` fallbacks (such as `medusa-please`) across the CLI and servers, enforcing a strict fail-closed validation check at startup to protect live deployments (#27).
 - **Professional Documentation Alignment.** Fully rewrote `README.md` to establish a professional tone, define the public WebSocket coordination contract, and provide complete step-by-step DIY provisional patent filing guidelines.
+- **Issue #50: Forced Close Halted Semantics.** Updated loop termination so that a close signal with `reason: 'force-done'` or `forced: true` transitions the loop to `halted` instead of `complete` (#50).
+- **Issue #51: Roster Display Name Collisions.** Updated fallback workspace display naming to drop only the trailing hex suffix segment (rather than everything after the first hyphen) to prevent naming collisions (#51).
+- **Issue #52: Loop Round Advancement.** Appended explicit `replyEndpoint` and `replyInstruction` parameters in loop invites to guide target AIs on loop round posts (#52).
+- **Issue #53: Send-By-Name Ambiguity.** Enhanced `resolveWorkspaceId` to resolve workspaces by registered name, connection ID, or exact ID, returning a 400 error with matches if a name collision is detected (#53).
+- **Issue #54: Target-Response Wall-Clock Guard.** Initialized loop `startedAt` as null and updated it upon the target's first response, so the wall-clock guard counts only from when loop execution actually starts (#54).
 
 ### Fixed
 - **Issue #37: Stale Registration Reaping.** Implemented automatic cleanup of disconnected workspaces on WebSocket close and a `lastSeen` TTL-expire verification check on `GET /workspaces` query to prevent memory leaks and dead workspace selection (#37).
 - **Issue #19: Husky Commit Validation.** Resolved test-suite and lock contentions to re-enable strict Husky pre-commit validation gates for commit checks without `--no-verify` bypasses (#19).
+- **Issue #47: Loop Invitation Deadlock Fix.** Fixed loop initiation deadlock by enqueuing a loop invitation message to the target workspace's inbox on loop opening (#47).
 
 ## [1.0.0-rc] - 2026-05-24
 ### Added

@@ -56,14 +56,24 @@ async def test_skills_evolution():
     # Node should have higher confidence for python_expert (weight > 1.0) 
     # than for a generic task with no skill match.
     
-    eval_expert = await BiddingHeuristics.evaluate_task("python_expert", "Write some python code")
-    eval_generic = await BiddingHeuristics.evaluate_task("generic", "Do something random")
-    
-    print(f"Confidence (Expert): {eval_expert['confidence']}")
-    print(f"Confidence (Generic): {eval_generic['confidence']}")
-    
-    assert eval_expert["confidence"] > eval_generic["confidence"]
-    assert eval_expert["bid_value"] < eval_generic["bid_value"] # Lower is better
+    from unittest.mock import patch
+    async def mock_get_resource_health():
+        return {
+            "cpu_percent": 10.0,
+            "memory_percent": 10.0,
+            "load_avg": [0.1, 0.1, 0.1],
+            "timestamp": "2026-07-16T18:00:00"
+        }
+        
+    with patch('app.core.heuristics.PerformanceMonitor.get_resource_health', mock_get_resource_health):
+        eval_expert = await BiddingHeuristics.evaluate_task("python_expert", "Write some python code")
+        eval_generic = await BiddingHeuristics.evaluate_task("generic", "Do something random")
+        
+        print(f"Confidence (Expert): {eval_expert['confidence']}")
+        print(f"Confidence (Generic): {eval_generic['confidence']}")
+        
+        assert eval_expert["confidence"] > eval_generic["confidence"]
+        assert eval_expert["bid_value"] < eval_generic["bid_value"] # Lower is better
 
     print("\n✨ Skills Evolution Test Passed!")
 

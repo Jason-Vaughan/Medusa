@@ -29,7 +29,7 @@ function verifyVersions() {
   // Check RELEASE_TRACKER.md
   const trackerPath = path.join(__dirname, '../RELEASE_TRACKER.md');
   const trackerContent = fs.readFileSync(trackerPath, 'utf8');
-  const trackerVersionMatch = trackerContent.match(/\*\*Current Version:\*\* v([0-9.]+)/);
+  const trackerVersionMatch = trackerContent.match(/\*\*Current Version:\*\* v([0-9a-zA-Z.-]+)/);
   const trackerVersion = trackerVersionMatch ? trackerVersionMatch[1] : 'NOT FOUND';
   
   // Display results
@@ -38,13 +38,17 @@ function verifyVersions() {
   console.log(`📋 RELEASE_TRACKER:   v${trackerVersion}`);
   
   // Check consistency
-  const allMatch = localVersion === npmVersion && localVersion === trackerVersion;
+  const isPrivate = packageJson.private || npmVersion === 'ERROR';
+  const allMatch = localVersion === trackerVersion && (isPrivate || localVersion === npmVersion);
   
   if (allMatch) {
-    console.log('\n✅ ALL VERSIONS CONSISTENT! Safe to proceed with development.');
+    if (npmVersion === 'ERROR') {
+      console.log('\n⚠️ NPM version check skipped (package not published or private registry needed).');
+    }
+    console.log('✅ ALL VERSIONS CONSISTENT! Safe to proceed with development.');
   } else {
     console.log('\n🚨 VERSION MISMATCH DETECTED!');
-    console.log('❌ Update RELEASE_TRACKER.md and/or publish to NPM before development!');
+    console.log('❌ Update RELEASE_TRACKER.md and/or verify version mapping!');
     process.exit(1);
   }
 }

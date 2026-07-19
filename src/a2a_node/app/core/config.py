@@ -2,7 +2,7 @@ import os
 
 class Settings:
     PROJECT_NAME: str = os.getenv("A2A_PROJECT_NAME", "Medusa-A2A")
-    VERSION: str = "1.0.0-rc"
+    VERSION: str = "1.0.0"
     A2A_SPEC_VERSION: str = "1.0-draft"
     PORT: int = int(os.getenv("A2A_PORT", 3200))
     HOST: str = os.getenv("A2A_HOST", "127.0.0.1")

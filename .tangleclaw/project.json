@@ -1,6 +1,6 @@
 {
   "engine": "antigravity",
-  "methodology": "prawduct",
+  "methodology": "minimal",
   "methodologyPhase": null,
   "silentPrime": true,
   "featureIndexEnabled": true,
@@ -8,6 +8,8 @@
   "versionBumpEnabled": true,
   "wrapAutoPrEnabled": true,
   "wrapSections": null,
+  "defaultLaunchMode": "bypassPermissions",
+  "showLaunchModePicker": false,
   "orchestrationKeyRef": null,
   "rules": {
     "core": {
@@ -19,11 +21,11 @@
     },
     "extensions": {
       "identitySentry": false,
-      "docsParity": true,
-      "decisionFramework": true,
+      "docsParity": false,
+      "decisionFramework": false,
       "loggingLevel": "info",
       "zeroDebtProtocol": false,
-      "independentCritic": true,
+      "independentCritic": false,
       "adversarialTesting": false
     }
   },
@@ -52,16 +54,22 @@
     "baselineWindowDays": 14,
     "retentionDays": 90
   },
-  "wrapV2": true,
   "testCommand": null,
   "lintCommand": null,
-  "lastWrapSha": "762b1bd7476cc3d4df77939d94e58ed4d5e6f22c",
+  "lastWrapSha": "4d0edc67f6d705b1f4beaed80d0ab88ffaadf7e0",
+  "wrapV2": true,
   "methodologyArchives": [
     {
       "methodology": "minimal",
       "archivePath": ".tangleclaw/project.json.archived",
       "archivedAt": "2026-03-26T01:29:20.566Z"
+    },
+    {
+      "methodology": "prawduct",
+      "archivePath": ".prawduct.archived",
+      "archivedAt": "2026-07-18T06:42:08.982Z"
     }
   ],
-  "medusaEnabled": true
+  "medusaEnabled": true,
+  "medusaWake": true
 }

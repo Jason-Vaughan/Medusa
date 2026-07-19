@@ -1,9 +1,9 @@
-# 🐍 Medusa v1.0.0-rc
+# 🐍 Medusa v1.0.0
 ### **Autonomous AI Workspace Coordination & Live Messaging Protocol**
 
-[![Release](https://img.shields.io/badge/release-v1.0.0--rc-blue?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
 [![Security](https://img.shields.io/badge/security-enforced-green?style=for-the-badge)](SECURITY.md)
-[![Stability](https://img.shields.io/badge/stability-release--candidate-brightgreen?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
+[![Stability](https://img.shields.io/badge/stability-production-green?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
 
 <img src="project-assets/medusa-logo.png" alt="Medusa Logo" width="120">
 
@@ -164,4 +164,4 @@ cd src/medusa && npm test
 cd src/a2a_node && npm run test:python
 ```
 
-**Medusa v1.0.0-rc** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Security Policy](SECURITY.md)
+**Medusa v1.0.0** | [Report Issues](https://github.com/Jason-Vaughan/Medusa/issues) | [Security Policy](SECURITY.md)

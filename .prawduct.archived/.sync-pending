@@ -1,0 +1,9 @@
+{
+  "blocked_by": [
+    "non-framework changes present: .gemini/GEMINI.md, .tangleclaw/project.json, .claude/skills/backlog/ (+2 more)",
+    "branch 'main' is protected"
+  ],
+  "reason": "non-framework changes present: .gemini/GEMINI.md, .tangleclaw/project.json, .claude/skills/backlog/ (+2 more); branch 'main' is protected",
+  "ts": "2026-05-30T17:08:02Z",
+  "version": "1.8.0"
+}

@@ -1,0 +1,202 @@
+{
+  "format_version": 2,
+  "framework_source": "/Users/jasonvaughan/Documents/Projects/prawduct-test/prawduct",
+  "framework_version": "1.8.0",
+  "product_name": "Medusa",
+  "auto_pull": true,
+  "last_sync": "2026-05-30T17:08:02Z",
+  "files": {
+    "CLAUDE.md": {
+      "template": "templates/product-claude.md",
+      "strategy": "block_template",
+      "description": "Core principles and methodology instructions",
+      "generated_hash": null
+    },
+    ".prawduct/critic-review.md": {
+      "template": "templates/critic-review.md",
+      "strategy": "template",
+      "description": "Independent Critic review instructions (7 quality goals + coordinator pattern)",
+      "generated_hash": "868f0fc53ff34297520edadccd58bb792d92e64cfc98f65c73362360ae998543"
+    },
+    ".prawduct/pr-review.md": {
+      "template": "templates/pr-review.md",
+      "strategy": "template",
+      "description": "PR reviewer instructions for release-readiness assessment",
+      "generated_hash": "b0f342160edb13d53911fbfc75ddbf81fd395838ec9cfed5dd8a701f3b42809a"
+    },
+    ".prawduct/build-governance.md": {
+      "template": "templates/build-governance.md",
+      "strategy": "template",
+      "description": "Build governance reference \u2014 how to build against a plan (read before coding)",
+      "generated_hash": "10ab633f106ea52e2dcc4b50e09e462a0881b87ee0e92444f71656518f6d97cd"
+    },
+    ".claude/skills/pr/SKILL.md": {
+      "template": ".claude/skills/pr/SKILL.md",
+      "strategy": "template",
+      "description": "/pr skill \u2014 PR lifecycle management (create, update, merge, status). Configure PR behavior in project-preferences.md",
+      "generated_hash": "5abdc8c5bac72327f512100cefa7f28d808aed543c57755ca3b30fbb5eb7ee78"
+    },
+    ".claude/skills/janitor/SKILL.md": {
+      "template": ".claude/skills/janitor/SKILL.md",
+      "strategy": "template",
+      "description": "/janitor skill \u2014 Periodic codebase maintenance (encapsulation, deduplication, cleanup)",
+      "generated_hash": "6c1d0f74db2a79aa190e779145ffec3d6cef1515b3e70ab68c5cdf978fa8acab"
+    },
+    ".claude/skills/prawduct-doctor/SKILL.md": {
+      "template": ".claude/skills/prawduct-doctor/SKILL.md",
+      "strategy": "template",
+      "description": "/prawduct-doctor skill \u2014 Product repo setup, health check, and repair",
+      "generated_hash": "fa9fb9198ee835fa509acc46b77de0aaa32642e975ec3f834c56032405384451"
+    },
+    ".claude/skills/learnings/SKILL.md": {
+      "template": ".claude/skills/learnings/SKILL.md",
+      "strategy": "template",
+      "description": "/learnings skill \u2014 Look up project learnings and preferences relevant to your current task",
+      "generated_hash": "dc3b1ea1abdd7d0e578d32175d4d5407648b5dca4852690896d66c19f6194d68"
+    },
+    ".claude/skills/critic/SKILL.md": {
+      "template": "templates/skill-critic.md",
+      "strategy": "template",
+      "description": "/critic skill \u2014 Independent Critic review with structural tool restrictions (cannot run tests)",
+      "generated_hash": "835d9736a6a2b64e45c737bbef14ab18c28f6a63e9c6373a56fd4f55e4a399e9"
+    },
+    "tools/product-hook": {
+      "source": "tools/product-hook",
+      "strategy": "always_update",
+      "description": "Session governance hooks (reflection gate, Critic gate, session briefing)",
+      "generated_hash": "ce326a82f68844c6f106b77d83b5b389b29c49bab32030f5e4663f41fe30fc92"
+    },
+    ".claude/settings.json": {
+      "template": "templates/product-settings.json",
+      "strategy": "merge_settings",
+      "description": "Claude Code settings with hook configuration",
+      "generated_hash": null
+    },
+    ".claude/skills/prawduct-advisory/SKILL.md": {
+      "template": ".claude/skills/prawduct-advisory/SKILL.md",
+      "strategy": "template",
+      "description": "/prawduct-advisory skill \u2014 Manage post-sync advisories (list, show, dismiss, undismiss, resolve)",
+      "generated_hash": "79124b1a2322dc990651cd649f62bdb29d7192b6d3df936a3036ff46a59c8061"
+    },
+    ".claude/skills/backlog/SKILL.md": {
+      "template": ".claude/skills/backlog/SKILL.md",
+      "strategy": "template",
+      "description": "/backlog skill \u2014 Structured backlog management (pick, add, find, list, update, migrate)",
+      "generated_hash": "8f224d9e76e1c0a21791965624a98b068c1352107cca5469748a0e5c86022fc4"
+    },
+    "tools/lib/__init__.py": {
+      "source": "tools/lib/__init__.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "d7b6190c7f2552ce537702517158453a66da712cd12285b3c1a45b78ab5deef1"
+    },
+    "tools/lib/advisory_cmd.py": {
+      "source": "tools/lib/advisory_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "6dec85f3866fa195337b0a01cfc5b8e3e2961810a05893bb760368c00e98a1d9"
+    },
+    "tools/lib/advisory_store.py": {
+      "source": "tools/lib/advisory_store.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "6ae8fd650bdb3fa1c5134b6f8fd235f0a7bbc216321c18383261795cd88e5f28"
+    },
+    "tools/lib/audit_learnings_cmd.py": {
+      "source": "tools/lib/audit_learnings_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "dde03d5168722409e752e660f4f3502232c032869a9c12f985130fcaa3751ddc"
+    },
+    "tools/lib/backlog_probes.py": {
+      "source": "tools/lib/backlog_probes.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "49378cd1f8eb4b3851b87f8eb21aeb9f83e356c7097b0098abeb00a4b9003651"
+    },
+    "tools/lib/core.py": {
+      "source": "tools/lib/core.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "9e6d5a5a67a8b1324023bb5cd699e6284b0889c2aa1397167b53420378c390c1"
+    },
+    "tools/lib/critic_mode.py": {
+      "source": "tools/lib/critic_mode.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "2a5e4f0edbefe3a326e459beedb0f1ab08d9e36d65e951fd273ac2608db1aa83"
+    },
+    "tools/lib/init_cmd.py": {
+      "source": "tools/lib/init_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "dbdec796653ecc744c61c2403c1b395938f4af142b7d10061a36c48b82879ddd"
+    },
+    "tools/lib/migrate_cmd.py": {
+      "source": "tools/lib/migrate_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "1342825417977769a089898b5abee4582b9ed33e20fb023afc8ed2e29006d14f"
+    },
+    "tools/lib/operator_verification.py": {
+      "source": "tools/lib/operator_verification.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "6d5fe11e4e31cdf6e9645adf4e1f8afae3d905ce4e345f23bfdf45287abe95b4"
+    },
+    "tools/lib/sync_cmd.py": {
+      "source": "tools/lib/sync_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "67880f321dbf78c972372a3e226752771103e8dca3a3153bdc0d6bbd25040bdd"
+    },
+    "tools/lib/validate_cmd.py": {
+      "source": "tools/lib/validate_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "a00fd666cefeef34f268af46707cd77801d78fab45458dc5a58191ae136b5a20"
+    },
+    "tools/lib/views.py": {
+      "source": "tools/lib/views.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "535877b507df129f23ba682d2e58d43db52585556b8947590003793484df9e6a"
+    },
+    "tools/lib/views_cmd.py": {
+      "source": "tools/lib/views_cmd.py",
+      "strategy": "always_update",
+      "description": "product-hook runtime library (regen-views, operator-verification, advisories)",
+      "generated_hash": "ea47f345b50f66b079b43ceb0dca2dec53cc4e4014953b948b98bf8252ea6946"
+    }
+  },
+  "v1_4_views_enabled": true,
+  "place_once_templates": {
+    ".prawduct/artifacts/project-preferences.md": {
+      "template": "templates/project-preferences.md",
+      "template_hash": "ce0f2c4bed1639905eb687562c369e59fd6e2d5f20771a46105207baeb9d7104",
+      "created_at": "2026-05-24T03:52:09Z"
+    },
+    ".prawduct/artifacts/boundary-patterns.md": {
+      "template": "templates/boundary-patterns.md",
+      "template_hash": "36b8ab4c121ad6a77b2cd42ba7ac632d69db7417f7ba05579657d7aef83ec59e",
+      "created_at": "2026-05-24T03:52:09Z"
+    },
+    ".prawduct/change-log.md": {
+      "template": "templates/change-log.md",
+      "template_hash": "abb03d1f5cdfd3ba3e5844f5c986de78c173b73b634cdc23f06688fdd6334f5b",
+      "created_at": "2026-05-24T03:52:09Z"
+    },
+    ".prawduct/backlog.md": {
+      "template": "templates/backlog.md",
+      "template_hash": "060740a191be48b4cff6ef7e5b16161e16976f24747fe1eeed62440aa8722484",
+      "created_at": "2026-05-24T03:52:09Z",
+      "last_surfaced_at": "2026-05-30T17:08:02Z"
+    },
+    "tests/conftest.py": {
+      "template": "templates/conftest.py",
+      "template_hash": "9b3d20da3787223d7520cb1f3eaa930f9595215f322a6b3660eb50b7189abbda",
+      "created_at": "2026-05-24T03:52:09Z"
+    }
+  },
+  "framework_commit": "3e1ba9d"
+}

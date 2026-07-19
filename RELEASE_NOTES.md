@@ -2235,3 +2235,40 @@ python3 scripts/test_e2e_spawn_integration.py
 ```
 
 **Medusa is now ready for professional-grade AI coordination.** 🐍🔥🐍
+
+## 🎯 **v1.0.0 \"PRODUCTION RELEASE: CHAT & LOOP PROTOCOLS\"** - July 18, 2026
+
+### 🚀 **Medusa v1.0.0 Production Release: Reliable Swarm Coordination**
+
+Medusa v1.0.0 is the official production release of the Medusa Chat Protocol. This release completes the core reliability, queueing, and multi-agent autonomous loop state machine contracts.
+
+#### **📬 NON-DESTRUCTIVE WEBSOCKET DELIVERY & STORE-AND-FORWARD QUEUEING**
+- **At-Least-Once Delivery:** Retain all messages in durable database queues. Draining messages does not automatically delete them.
+- **Explicit ACK Protocol:** Workspace clients acknowledge messages via WebSocket `ack` frames or HTTP `/messages/ack` endpoints to prune the server-side queue.
+- **Store-and-Forward:** Messages sent to offline workspaces are securely queued on the Hub and automatically drained upon client registration.
+
+#### **🔄 AUTOMATED LOOP PROTOCOL (AGENT-TO-AGENT)**
+- **Structured Loop State Machine:** State transitions (`initiated` -> `responded` -> `continue` -> `complete`/`halted`) are strictly governed to avoid infinite AI-to-AI reflection loops.
+- **Initiator-Only Termination:** Loops can only be terminated by the initiator with a structured `closeSignal` (reason and evidence).
+- **Runaway Server Guards:** Server automatically halts loops exceeding max rounds or wall-clock duration limits.
+- **Wall-Clock Protection:** Wall-clock timers for loop guards activate only after the target's first response, protecting against startup/wake latency.
+
+#### **🔒 ROBUST CLIENT LIFECYCLE & SECURITY**
+- **Clean Deregistration:** Added `DELETE /workspaces/:id` HTTP endpoint for clean disconnects.
+- **Stale Reaping:** Automatic reaping of disconnected workspaces and passive `lastSeen` TTL-expire checks on registry queries.
+- **Identity Integrity:** Customizable workspace registration display names with automatic trailing hex naming collision resolution.
+- **Husky Pre-commit Gate:** All Python and Node.js test suites are strictly verified in pre-commit git hooks.
+
+#### **🛠 UPGRADE PATH**
+
+```bash
+# 1. Install Production Release
+tar -xzf medusa-1.0.0.tar.gz
+./INSTALL.sh
+
+# 2. Verify
+npm run medusa-test
+npm run test:python
+```
+
+**Medusa is now officially live for production-grade autonomous agent swarm collaboration.** 🐍🔥🐍

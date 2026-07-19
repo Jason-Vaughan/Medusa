@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-18
+
 ### Added
 - **Issue #31: Direct WebSocket Delivery & Store-and-Forward Queueing.** Implemented a WebSocket-based real-time communication channel on the Medusa Hub supporting direct and broadcast message delivery, with store-and-forward in-memory caching to buffer messages sent to registered but offline workspaces (#31, #25, #26).
 - **Issue #36: Clean Workspace Deregistration.** Added the `DELETE /workspaces/:id` HTTP endpoint in `medusa-server.js` to allow WebSocket clients to cleanly deregister on shutdown and avoid stale leases (#36).

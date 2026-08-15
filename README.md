@@ -96,7 +96,14 @@ Workspaces polling for queued messages or retrieving backlog state on startup ca
 ```bash
 curl -s http://localhost:3009/messages/workspace/tangleclaw-53e1c6fb
 ```
-*Note: Direct messages are popped destructively from the inbox queue upon retrieval.*
+*Note: Direct messages are **not** removed from the inbox automatically. Clients must explicitly acknowledge messages using `POST /messages/ack`.*
+
+### Peek at Peer State
+Consumers can remotely check the state of another workspace (e.g. idle, busy, blocked at a prompt) without sending a message or altering its execution:
+```bash
+curl -s http://localhost:3009/workspaces/tangleclaw-53e1c6fb/peek
+```
+This safely fetches the target's status and the tail of their terminal output for debugging cross-agent stalls.
 
 ---
 

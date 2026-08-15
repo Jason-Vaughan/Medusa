@@ -16,6 +16,7 @@ const os = require('os');
 const WebSocket = require('ws');
 const { spawn } = require('child_process');
 const ProcessLock = require('../utils/ProcessLock');
+const UpdateManager = require('./UpdateManager');
 
 // Load version from package.json dynamically
 const packagePath = path.join(__dirname, '../../package.json');
@@ -82,6 +83,7 @@ class MedusaServer {
     this.wsServer = null;
     this.processLock = null;
     this.loops = new Map();
+    this.updateManager = new UpdateManager(this);
   }
 
   /**
@@ -2234,6 +2236,9 @@ class MedusaServer {
         this.reconcileSpawnedChildren().catch(() => {});
       }, 30000); // every 30s
 
+      // Start update polling
+      this.updateManager.startPolling();
+
       return true;
     } catch (error) {
       console.error(`❌ Failed to start Medusa server: ${error.message}`);
@@ -2251,6 +2256,10 @@ class MedusaServer {
     if (this.spawnReconcilerInterval) {
       clearInterval(this.spawnReconcilerInterval);
       this.spawnReconcilerInterval = null;
+    }
+
+    if (this.updateManager) {
+      this.updateManager.stopPolling();
     }
 
     const closures = [];

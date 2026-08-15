@@ -70,6 +70,41 @@ program
   .description('Medusa - Making AI assistants work together through the Medusa Chat Protocol')
   .version(packageJson.version);
 
+// Update command
+program
+  .command('update')
+  .description('Update Medusa to the latest release')
+  .action(async () => {
+    try {
+      const UpdateManager = require('../src/medusa/UpdateManager');
+      const manager = new UpdateManager(null);
+      
+      console.log(chalk.cyan('🔍 Checking for Medusa updates...'));
+      const releaseInfo = await manager.checkLatestRelease();
+      if (!releaseInfo) {
+        console.log(chalk.yellow('No releases found.'));
+        return;
+      }
+      
+      const latestVersion = releaseInfo.tag_name.replace(/^v/, '');
+      if (manager.compareVersions(latestVersion, manager.currentVersion) > 0) {
+        console.log(chalk.green(`New version found: ${latestVersion} (Current: ${manager.currentVersion})`));
+        const asset = releaseInfo.assets.find(a => a.name.startsWith('medusa-') && a.name.endsWith('.tar.gz'));
+        if (asset) {
+          console.log(chalk.cyan(`Downloading and applying update...`));
+          await manager.performHotSwap(latestVersion, asset.browser_download_url);
+        } else {
+          console.log(chalk.red('No suitable tar.gz asset found in the release.'));
+        }
+      } else {
+        console.log(chalk.green(`Medusa is up to date (Version ${manager.currentVersion}).`));
+      }
+    } catch (error) {
+      console.error(chalk.red('Update failed:'), error.message);
+      process.exit(1);
+    }
+  });
+
 // Status command
 program
   .command('status')

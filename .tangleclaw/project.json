@@ -1,13 +1,53 @@
 {
   "engine": "antigravity",
-  "methodology": "minimal",
-  "methodologyPhase": null,
   "silentPrime": true,
   "featureIndexEnabled": true,
   "projectMapEnabled": true,
   "versionBumpEnabled": true,
+  "versionFilePath": null,
   "wrapAutoPrEnabled": true,
   "wrapSections": null,
+  "wrapStepOverrides": {
+    "open-pr-check": {
+      "enabled": false
+    },
+    "changelog-update": {
+      "enabled": false
+    },
+    "version-bump": {
+      "enabled": false
+    },
+    "learnings-capture": {
+      "enabled": false
+    },
+    "learnings-db-write": {
+      "enabled": false
+    },
+    "rule-proposal": {
+      "enabled": false
+    },
+    "next-session-prime": {
+      "enabled": false
+    },
+    "features-toc": {
+      "enabled": false
+    },
+    "project-map": {
+      "enabled": false
+    },
+    "index-describe": {
+      "enabled": false
+    },
+    "memory-update": {
+      "enabled": false
+    },
+    "continuity-write": {
+      "enabled": false
+    },
+    "apply-pr-resolutions": {
+      "enabled": false
+    }
+  },
   "defaultLaunchMode": "bypassPermissions",
   "showLaunchModePicker": false,
   "orchestrationKeyRef": null,
@@ -31,7 +71,6 @@
   },
   "ports": {},
   "quickCommands": [],
-  "actions": [],
   "tags": [],
   "evalAuditMode": {
     "enabled": false,
@@ -56,7 +95,10 @@
   },
   "testCommand": null,
   "lintCommand": null,
-  "lastWrapSha": "4d0edc67f6d705b1f4beaed80d0ab88ffaadf7e0",
+  "lastWrapSha": "6b54f3539672c6f5aebe32a7f79ea2f392bd3219",
+  "methodology": "minimal",
+  "methodologyPhase": null,
+  "actions": [],
   "wrapV2": true,
   "methodologyArchives": [
     {
@@ -71,5 +113,6 @@
     }
   ],
   "medusaEnabled": true,
-  "medusaWake": true
+  "medusaWake": true,
+  "wrapOverridesSeeded": true
 }

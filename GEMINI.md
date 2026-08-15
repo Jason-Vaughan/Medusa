@@ -25,5 +25,9 @@ Before declaring any Step (from Phase 4 plan) or Chunk (from Issue/Issue backlog
 - Always run `./scripts/build-distribution.sh` and verify the `.tar.gz` content before declaring Step 4 items done.
 - The `INSTALL.sh` must be idempotent and fail-fast.
 
+## 📖 Documentation Parity Rule
+- Any changes to core APIs, message formats, or WebSockets MUST be reflected in `WS_CONSUMER_CONTRACT.md` or the relevant contract documents.
+- Documentation parity is enforced programmatically. You MUST ensure `docs-parity.test.js` (or equivalent) passes and is updated if endpoints or payloads change.
+
 ---
 *Follow these rules strictly. They are the mesh's immunity system.* 🧠🐝🛡️

@@ -59,12 +59,29 @@ class WorkspaceDetector {
     }
   }
 
-  /**
-   * Get current workspace based on working directory
-   */
   async getCurrentWorkspace() {
     try {
       const cwd = process.cwd();
+      
+      // Attempt to read unified workspace ID from medusa-config
+      try {
+        const keyBytes = Buffer.from(cwd, 'utf-8');
+        const base64Str = keyBytes.toString('base64');
+        const cleanStr = base64Str.replace(/[^a-zA-Z0-9]/g, '');
+        const configFilename = `medusa-config-${cleanStr}.json`;
+        const configPath = path.join(os.homedir(), '.medusa', configFilename);
+        
+        if (await fs.pathExists(configPath)) {
+          const data = await fs.readFile(configPath, 'utf8');
+          const config = JSON.parse(data);
+          if (config.workspaceId) {
+            return config.workspaceId;
+          }
+        }
+      } catch (e) {
+        // Fall back
+      }
+
       const workspaceName = path.basename(cwd);
 
       // Try to detect if we're in a known project structure

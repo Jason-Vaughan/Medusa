@@ -22,7 +22,7 @@ class ReputationEngine:
         Event types: 'completed', 'failed', 'stalled', 'consensus_disagreement'
         """
         # Local Node Skill Evolution (Chunk 27)
-        local_node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+        local_node_id = settings.NODE_ID
         if node_id == local_node_id and metadata and "task_type" in metadata:
             await LearningEngine.update_skill(metadata["task_type"], event_type)
             await LearningEngine.sync_to_peer_entry(node_id)

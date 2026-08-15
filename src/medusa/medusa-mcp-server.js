@@ -69,9 +69,17 @@ class MedusaMCPServer {
                 return;
             }
             const response = JSON.parse(body);
-            resolve(response);
+            if (res.statusCode >= 400) {
+              resolve({ error: response.detail || response.error || 'HTTP Error', status: res.statusCode, ...response });
+            } else {
+              resolve(response);
+            }
           } catch (error) {
-            resolve({ error: 'Parse error', body, status: res.statusCode });
+            if (res.statusCode >= 400) {
+              resolve({ error: 'HTTP Error', body, status: res.statusCode });
+            } else {
+              resolve({ error: 'Parse error', body, status: res.statusCode });
+            }
           }
         });
       });
@@ -116,6 +124,12 @@ class MedusaMCPServer {
 
       switch (method) {
         case 'initialize':
+          let packageVersion = '1.0.0';
+          try {
+            const pkg = require('../../package.json');
+            if (pkg && pkg.version) packageVersion = pkg.version;
+          } catch (e) {}
+          
           result = {
             protocolVersion: '2024-11-05',
             capabilities: { 
@@ -125,7 +139,7 @@ class MedusaMCPServer {
             },
             serverInfo: {
               name: '🐍 Medusa Protocol - A2A Edition',
-              version: '0.6.2-beta'
+              version: packageVersion
             }
           };
           break;
@@ -181,17 +195,28 @@ class MedusaMCPServer {
           
           if (!sendResult.error) {
             return {
-              content: [{
-                type: 'text',
-                text: `🪝 AI hooked successfully via A2A Node!\n\n` +
-                      `📤 From: ${this.nodeId}\n` +
-                      `📥 To: ${args.target_workspace}\n` +
-                      `💬 Message: "${args.message}"\n` +
-                      `🆔 Result: ${sendResult.status || 'Sent'}`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `🪝 AI hooked successfully via A2A Node!\n\n` +
+                        `📤 From: ${this.nodeId}\n` +
+                        `📥 To: ${args.target_workspace}\n` +
+                        `💬 Message: "${args.message}"\n` +
+                        `🆔 Result: ${sendResult.status || 'Sent'}`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    message_id: sendResult.id || sendResult.message_id,
+                    timestamp: sendResult.timestamp || new Date().toISOString()
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to hook AI: ${sendResult.detail || sendResult.error}`
@@ -208,14 +233,24 @@ class MedusaMCPServer {
             ).join('\n');
             
             return {
-              content: [{
-                type: 'text',
-                text: `⛓️ Gaze locked - messages retrieved:\n\n${messageList}\n\n` +
-                      `Total messages: ${messages.length}`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `⛓️ Gaze locked - messages retrieved:\n\n${messageList}\n\n` +
+                        `Total messages: ${messages.length}`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    messages: messages,
+                    count: messages.length
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to chain messages: ${messages.detail || messages.error || 'Unknown error'}`
@@ -231,15 +266,27 @@ class MedusaMCPServer {
           
           if (!broadcastResult.error) {
             return {
-              content: [{
-                type: 'text',
-                text: `👋 MedusaStone delivered to the mesh!\n\n` +
-                      `📢 Message: "${args.message}"\n` +
-                      `🎯 Recipients: ${broadcastResult.recipients}/${broadcastResult.total_peers} peers`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `👋 MedusaStone delivered to the mesh!\n\n` +
+                        `📢 Message: "${args.message}"\n` +
+                        `🎯 Recipients: ${broadcastResult.recipients}/${broadcastResult.total_peers} peers`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    message_id: broadcastResult.id || broadcastResult.message_id,
+                    recipients: broadcastResult.recipients,
+                    total_peers: broadcastResult.total_peers
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to stone workspaces: ${broadcastResult.detail || broadcastResult.error}`
@@ -256,14 +303,24 @@ class MedusaMCPServer {
             ).join('\n');
             
             return {
-              content: [{
-                type: 'text',
-                text: `📊 Medusa Census - your domain:\n\n${peerList}\n\n` +
-                      `📊 Total peers: ${peers.length}`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `📊 Medusa Census - your domain:\n\n${peerList}\n\n` +
+                        `📊 Total peers: ${peers.length}`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    workspaces: peers,
+                    count: peers.length
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to count peers: ${peers.detail || peers.error || 'Unknown error'}`
@@ -271,26 +328,90 @@ class MedusaMCPServer {
             };
           }
           
+        case 'medusa_peek':
+          try {
+            // Forward peek request to Medusa Server which runs the tmux pane capture
+            const peekResult = await new Promise((resolve) => {
+              const req = http.request(`http://127.0.0.1:3100/workspaces/${args.target_workspace}/peek`, { method: 'GET' }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(JSON.parse(data)));
+              });
+              req.on('error', (e) => resolve({ error: e.message }));
+              req.end();
+            });
+
+            if (peekResult.error) {
+              return {
+                isError: true,
+                content: [{
+                  type: 'text',
+                  text: `❌ Failed to peek at workspace: ${peekResult.error}`
+                }]
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `👀 Peek into ${args.target_workspace}:\n\n` +
+                        `State: ${peekResult.state}\n` +
+                        `Reason: ${peekResult.reason}\n` +
+                        `Last Activity: ${peekResult.lastActivity}\n\n` +
+                        `Terminal Tail:\n${peekResult.paneTail || '(No terminal output available)'}`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    state: peekResult.state,
+                    reason: peekResult.reason,
+                    paneTail: peekResult.paneTail
+                  })
+                }
+              ]
+            };
+          } catch (e) {
+            return {
+              isError: true,
+              content: [{
+                type: 'text',
+                text: `❌ Failed to peek at workspace: ${e.message}`
+              }]
+            };
+          }
+          
         case 'medusa_craft':
           const taskResult = await this.callA2A('POST', '/a2a/tasks', {
-            task_type: 'collaboration',
+            task_type: 'local',
             description: args.task_description,
-            context: { initial_message: args.initial_message, max_exchanges: args.max_exchanges },
+            context: {},
             priority: 2
           });
           
           if (!taskResult.error) {
             return {
-              content: [{
-                type: 'text',
-                text: `🔮 MedusaCraft task created!\n\n` +
-                      `📋 Task: ${args.task_description}\n` +
-                      `🆔 Task ID: ${taskResult.task_id}\n` +
-                      `🚦 Status: ${taskResult.status}`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `🔮 MedusaCraft background task created!\n\n` +
+                        `📋 Task: ${args.task_description}\n` +
+                        `🆔 Task ID: ${taskResult.task_id}\n` +
+                        `🚦 Status: ${taskResult.status}`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    task_id: taskResult.task_id,
+                    status: taskResult.status
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to create task: ${taskResult.detail || taskResult.error}`
@@ -306,15 +427,26 @@ class MedusaMCPServer {
           
           if (!whisperResult.error) {
             return {
-              content: [{
-                type: 'text',
-                text: `🤫 Secrets whispered across the void!\n\n` +
-                      `📁 Type: ${args.context_type}\n` +
-                      `🎯 Recipients: ${whisperResult.recipients} peers`
-              }]
+              content: [
+                {
+                  type: 'text',
+                  text: `🤫 Secrets whispered across the void!\n\n` +
+                        `📁 Type: ${args.context_type}\n` +
+                        `🎯 Recipients: ${whisperResult.recipients} peers`
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    context_type: args.context_type,
+                    recipients: whisperResult.recipients
+                  })
+                }
+              ]
             };
           } else {
             return {
+              isError: true,
               content: [{
                 type: 'text',
                 text: `❌ Failed to whisper secrets: ${whisperResult.detail || whisperResult.error}`
@@ -329,15 +461,27 @@ class MedusaMCPServer {
           if (Array.isArray(recentMessages)) {
               // Simple logic for loop_slave: just report if there are new messages
               return {
-                content: [{
-                  type: 'text',
-                  text: `🤖 MedusaCoil active.\n\n` +
-                        `📨 Recent messages: ${recentMessages.length}\n` +
-                        `🔄 Auto-response: ${args.enable_auto_response ? 'Enabled' : 'Disabled'}`
-                }]
+                content: [
+                  {
+                    type: 'text',
+                    text: `🤖 MedusaCoil active.\n\n` +
+                          `📨 Recent messages: ${recentMessages.length}\n` +
+                          `🔄 Auto-response: ${args.enable_auto_response ? 'Enabled' : 'Disabled'}`
+                  },
+                  {
+                    type: 'text',
+                    text: JSON.stringify({
+                      new_messages: recentMessages.length,
+                      responses_sent: 0,
+                      auto_response_active: args.enable_auto_response || false,
+                      next_check_in: new Date(Date.now() + 30000).toISOString()
+                    })
+                  }
+                ]
               };
           } else {
               return {
+                isError: true,
                 content: [{
                   type: 'text',
                   text: `❌ MedusaCoil failed to check messages: ${recentMessages.detail || recentMessages.error}`
@@ -351,6 +495,7 @@ class MedusaMCPServer {
     } catch (error) {
       console.error(`🐍 Medusa-MCP Error: ${error.message}`);
       return {
+        isError: true,
         content: [{
           type: 'text',
           text: `❌ A2A Node Error: ${error.message}\n\nIs the A2A node running at ${this.a2aBaseUrl}?`
@@ -445,7 +590,10 @@ class MedusaMCPServer {
     console.error('🎯 Medusa MCP Server ready for Cursor integration!');
   }
 }
+module.exports = MedusaMCPServer;
 
-// Start the Medusa MCP server
-const server = new MedusaMCPServer();
-server.start(); 
+if (require.main === module) {
+  // Start the Medusa MCP server
+  const server = new MedusaMCPServer();
+  server.start();
+}

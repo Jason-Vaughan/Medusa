@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-07-18
+## [1.0.0-rc1] - 2026-08-15
 
 ### Added
 - **Issue #31: Direct WebSocket Delivery & Store-and-Forward Queueing.** Implemented a WebSocket-based real-time communication channel on the Medusa Hub supporting direct and broadcast message delivery, with store-and-forward in-memory caching to buffer messages sent to registered but offline workspaces (#31, #25, #26).

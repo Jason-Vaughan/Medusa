@@ -86,7 +86,7 @@ async def create_task(
     Creates a new A2A task. If assigned_by is provided, it's treated as a remote request.
     """
     task_id = str(uuid.uuid4())
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     
     # Trusted client ID from handshake
     client_id = caller_id if caller_id != "unknown-client" else (task.assigned_by or node_id)
@@ -161,7 +161,7 @@ async def delegate_task(req: DelegateRequest, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=404, detail="Peer not found in ledger.")
     
     # 3. Call peer's /tasks endpoint
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     try:
         payload = {
             "task_type": task.task_type,
@@ -438,7 +438,7 @@ async def announce_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not peers:
         return {"status": "skipped", "message": "No active peers to announce to."}
         
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     node_address = f"http://localhost:{settings.PORT}"
     success_count = 0
     
@@ -495,7 +495,7 @@ async def resolve_auction(task_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Winner peer {winner_id} not found.")
         
     # Delegate
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     try:
         payload = {
             "task_type": task.task_type,
@@ -601,7 +601,7 @@ async def broadcast_message(req: BroadcastRequest, db: AsyncSession = Depends(ge
     result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
     peers = result.scalars().all()
     
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     success_count = 0
     
     if peers:

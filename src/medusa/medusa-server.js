@@ -259,6 +259,10 @@ class MedusaServer {
    * Evaluates the wall-clock timeout guard for a loop and transitions it to halted if exceeded.
    */
   checkWallTimeGuardForLoop(loop) {
+    if (loop.mode === 'supervised') {
+      return false; // Supervised loops wait on human deliberation, so wall clock does not apply
+    }
+    
     if (loop.state !== 'complete' && loop.state !== 'halted' && loop.startedAt) {
       const elapsed = (Date.now() - new Date(loop.startedAt).getTime()) / 1000;
       if (loop.guards && loop.guards.maxWallTimeSeconds && elapsed > loop.guards.maxWallTimeSeconds) {
@@ -431,12 +435,19 @@ class MedusaServer {
 
   // Update listener heartbeat
   updateListenerHeartbeat(workspaceId, status = 'active') {
+    const now = new Date();
     this.listenerStatus.set(workspaceId, {
-      lastHeartbeat: new Date(),
+      lastHeartbeat: now,
       status: status, // 'active', 'idle', 'error'
       autonomousMode: status === 'active',
       connectionCount: this.wsClients.has(workspaceId) ? this.wsClients.get(workspaceId).size : 0
     });
+    
+    // Fix for Issue 59: Refresh the registry lastSeen so consumers know this workspace is alive.
+    // Note: intentionally not calling saveRegistry() here to avoid disk I/O on every heartbeat.
+    if (this.workspaceRegistry.has(workspaceId)) {
+      this.workspaceRegistry.get(workspaceId).lastSeen = now;
+    }
   }
 
   // Load workspace registry from disk
@@ -701,7 +712,17 @@ class MedusaServer {
             return;
           }
           
-          const workspaceId = `${name.toLowerCase().replace(/\s+/g, '-')}-${crypto.randomBytes(4).toString('hex')}`;
+          const requestedId = data.workspaceId;
+          if (requestedId && this.workspaceRegistry.has(requestedId)) {
+            const existing = this.workspaceRegistry.get(requestedId);
+            if (existing.path !== workspacePath || existing.name !== name) {
+              res.statusCode = 409;
+              res.end(JSON.stringify({ error: 'Workspace ID collision' }));
+              return;
+            }
+          }
+          
+          const workspaceId = requestedId || `${name.toLowerCase().replace(/\s+/g, '-')}-${crypto.randomBytes(4).toString('hex')}`;
           const now = new Date();
           
           const workspace = {
@@ -949,6 +970,7 @@ class MedusaServer {
             content: data.message
           });
           
+          let wsCount = 0;
           if (result.ok && result.data && result.data.id) {
             for (const workspaceId of this.wsClients.keys()) {
               this.sendWebSocketMessage(workspaceId, {
@@ -963,12 +985,23 @@ class MedusaServer {
                   timestamp: result.data.received_at || new Date().toISOString()
                 }
               });
+              wsCount++;
             }
           }
 
           res.statusCode = result.status;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: result.ok, ...result.data }));
+          
+          const responseData = { 
+            success: result.ok, 
+            ...result.data, 
+            workspaces: wsCount 
+          };
+          if (typeof result.data?.recipients === 'number') {
+            responseData.peers = result.data.recipients;
+          }
+          
+          res.end(JSON.stringify(responseData));
         } catch (error) {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: error.message }));
@@ -1608,6 +1641,43 @@ class MedusaServer {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: error.message }));
         }
+        return;
+      }
+
+      // Peek at a workspace's state
+      if (pathname.match(/^\/workspaces\/[^\/]+\/peek$/) && req.method === 'GET') {
+        const workspaceId = pathname.split('/')[2];
+        const statusData = this.listenerStatus.get(workspaceId) || { status: 'unreachable' };
+        
+        let paneTail = undefined;
+        let reason = 'unknown';
+        
+        try {
+          const { execSync } = require('child_process');
+          // Capture the last 20 lines of the tmux pane. We use single quotes for security.
+          paneTail = execSync(`tmux capture-pane -p -t '${workspaceId.replace(/'/g, "'\\''")}' -S -20 2>/dev/null`).toString('utf8').trim();
+          
+          if (paneTail.includes('? ') || paneTail.match(/\[[Yy]\/[Nn]\]/)) {
+            reason = 'at-dialog';
+          } else {
+            reason = 'turn-in-flight';
+          }
+          
+          if (statusData.status === 'unreachable') {
+            statusData.status = 'busy'; 
+          }
+        } catch (e) {
+          reason = 'no-tmux';
+        }
+
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          state: statusData.status || 'unreachable',
+          reason: reason,
+          lastActivity: statusData.lastHeartbeat || new Date().toISOString(),
+          paneTail: paneTail
+        }));
         return;
       }
 

@@ -29,6 +29,7 @@ async def test_swarm_intelligence_iteration():
     with patch("app.core.swarm.settings") as mock_settings:
         mock_settings.PROJECT_NAME = "medusa"
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         mock_settings.MEDUSA_SKILLS = "research"
         mock_settings.BIDDING_CONFIDENCE_THRESHOLD = 0.1
         
@@ -43,6 +44,7 @@ async def test_swarm_intelligence_iteration():
 async def test_graceful_shutdown_v3():
     with patch("app.core.swarm.settings") as mock_settings:
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         mock_settings.A2A_NODE_TYPE = "spawned"
         mock_settings.MEDUSA_SERVER_URL = "http://mock-server"
         

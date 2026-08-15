@@ -16,6 +16,7 @@ async def test_performance_monitor_loop():
         
     with patch("app.core.performance.settings") as mock_settings:
         mock_settings.PERFORMANCE_MONITOR_INTERVAL = 0.1
+        mock_settings.NODE_ID = "mocked-node-id"
         
         # Run loop
         perf_task = asyncio.create_task(run_performance_monitor())
@@ -45,6 +46,7 @@ async def test_performance_pruning_v3():
     # Prune snapshots older than 1 day
     with patch("app.core.performance.settings") as mock_settings:
         mock_settings.RETENTION_DAYS_PERF = 1 # Use actual INT
+        mock_settings.NODE_ID = "mocked-node-id"
         await PerformanceMonitor.prune_snapshots()
         
     async with AsyncSessionLocal() as db_check:

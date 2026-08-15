@@ -34,7 +34,7 @@ class TaskExecutor:
             await asyncio.sleep(2)
             return {
                 "outcome": "Success (Simulated)",
-                "processed_by": f"{settings.PROJECT_NAME}-{settings.PORT}",
+                "processed_by": settings.NODE_ID,
                 "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 "output": f"Processed '{task.description}' with extreme efficiency and moderate sass."
             }
@@ -238,7 +238,7 @@ async def run_execution_engine():
     """
     Background task that processes pending local tasks.
     """
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     print(f"⚙️ Execution Engine started for node {node_id}", flush=True)
 
     while True:
@@ -248,7 +248,7 @@ async def run_execution_engine():
 
             async with AsyncSessionLocal() as db:
                 # 1. Fetch pending tasks assigned to local or claimed by local
-                node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+                node_id = settings.NODE_ID
                 now = datetime.now(UTC).replace(tzinfo=None)
                 result = await db.execute(
                     select(TaskEntry)

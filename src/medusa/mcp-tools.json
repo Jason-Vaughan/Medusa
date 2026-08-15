@@ -16,21 +16,6 @@
           "message": {
             "type": "string",
             "description": "The message content to send"
-          },
-          "context": {
-            "type": "object",
-            "description": "Optional context about the current task or code",
-            "properties": {
-              "task": {"type": "string"},
-              "file": {"type": "string"},
-              "code_snippet": {"type": "string"},
-              "priority": {"type": "string", "enum": ["low", "normal", "high"]}
-            }
-          },
-          "expects_reply": {
-            "type": "boolean",
-            "description": "Whether you expect a reply from the other AI",
-            "default": true
           }
         },
         "required": ["target_workspace", "message"]
@@ -49,21 +34,7 @@
       "description": "Check for messages from other workspace AI assistants to see what they need from you.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "since": {
-            "type": "string",
-            "description": "ISO timestamp to get messages after (optional)"
-          },
-          "from_workspace": {
-            "type": "string",
-            "description": "Filter messages from specific workspace (optional)"
-          },
-          "unread_only": {
-            "type": "boolean",
-            "description": "Only get unread messages",
-            "default": true
-          }
-        }
+        "properties": {}
       },
       "returns": {
         "type": "object",
@@ -114,13 +85,7 @@
       "description": "Get a list of all registered workspaces and their AI assistants.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "active_only": {
-            "type": "boolean",
-            "description": "Only show currently active workspaces",
-            "default": true
-          }
-        }
+        "properties": {}
       },
       "returns": {
         "type": "object",
@@ -142,30 +107,39 @@
       }
     },
     {
-      "name": "medusa_craft",
-      "description": "Initiate autonomous collaboration sessions with another workspace's AI.",
+      "name": "medusa_peek",
+      "description": "Peek at another workspace's current state to see if they are busy, idle, or waiting for human input.",
       "parameters": {
         "type": "object",
         "properties": {
           "target_workspace": {
             "type": "string",
-            "description": "The workspace to collaborate with"
-          },
-          "task_description": {
-            "type": "string",
-            "description": "What you want to accomplish together"
-          },
-          "initial_message": {
-            "type": "string",
-            "description": "Your opening message to start the collaboration"
-          },
-          "max_exchanges": {
-            "type": "integer",
-            "description": "Maximum number of back-and-forth exchanges",
-            "default": 10
+            "description": "The workspace ID to peek at"
           }
         },
-        "required": ["target_workspace", "task_description", "initial_message"]
+        "required": ["target_workspace"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "state": {"type": "string"},
+          "reason": {"type": "string"},
+          "paneTail": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "medusa_craft",
+      "description": "Create a local background task for the Medusa A2A node to execute autonomously.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_description": {
+            "type": "string",
+            "description": "Detailed description of the task to be executed autonomously"
+          }
+        },
+        "required": ["task_description"]
       }
     },
     {
@@ -181,11 +155,6 @@
           "content": {
             "type": "object",
             "description": "The context content to share"
-          },
-          "target_workspaces": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Specific workspaces to share with (empty = all)"
           }
         },
         "required": ["context_type", "content"]

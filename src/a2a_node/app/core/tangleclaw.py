@@ -9,8 +9,7 @@ def register_port():
     payload = {
         "port": settings.PORT,
         "project": "Medusa",
-        "service": "a2a-node",
-        "permanent": True
+        "service": "a2a-node"
     }
     try:
         # Use verify=False for self-signed cert
@@ -30,5 +29,12 @@ def release_port():
     payload = {"port": settings.PORT}
     try:
         requests.post(f"{TANGLECLAW_URL}/release", json=payload)
+    except:
+        pass
+
+def heartbeat_port():
+    payload = {"port": settings.PORT}
+    try:
+        requests.post(f"{TANGLECLAW_URL}/heartbeat", json=payload, timeout=2.0, verify=False)
     except:
         pass

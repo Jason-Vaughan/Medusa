@@ -78,4 +78,11 @@ class Settings:
             pass
         return None
 
+    @property
+    def NODE_ID(self) -> str:
+        workspace_id = self.WORKSPACE_ID
+        if workspace_id:
+            return workspace_id
+        return f"{self.PROJECT_NAME}-{self.PORT}"
+
 settings = Settings()

@@ -17,7 +17,7 @@ class PerformanceMonitor:
     
     @staticmethod
     def get_local_node_id() -> str:
-        return f"{settings.PROJECT_NAME}-{settings.PORT}"
+        return settings.NODE_ID
 
     @classmethod
     async def get_resource_health(cls) -> Dict[str, Any]:

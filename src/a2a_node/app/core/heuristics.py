@@ -62,8 +62,13 @@ class BiddingHeuristics:
         mem = health.get("memory_percent", 0)
         
         health_multiplier = 1.0
-        if cpu > 80: health_multiplier *= 0.7
-        if mem > 90: health_multiplier *= 0.6
+        # Continuous penalty for high CPU: starts at 60%, scales down to 0.1 at 100%
+        if cpu > 60: 
+            health_multiplier *= max(0.1, 1.0 - ((cpu - 60) / 40) * 0.9)
+            
+        # Continuous penalty for high Memory: starts at 70%, scales down to 0.1 at 100%
+        if mem > 70: 
+            health_multiplier *= max(0.1, 1.0 - ((mem - 70) / 30) * 0.9)
         
         confidence *= health_multiplier
         
@@ -88,7 +93,7 @@ class BiddingHeuristics:
         # Resource health critical check
         cpu = local_health.get("cpu_percent", 0)
         mem = local_health.get("memory_percent", 0)
-        critical_condition = cpu > 95 or mem > 98
+        critical_condition = cpu > 90 or mem > 95
 
         # Dynamic Threshold Adjustment
         swarm_health = await PerformanceMonitor.get_swarm_health()
@@ -187,7 +192,7 @@ class BiddingHeuristics:
 
         # 2. Peer Analysis
         better_peers = []
-        local_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+        local_id = settings.NODE_ID
         
         for peer in peers:
             if peer.id == local_id: continue

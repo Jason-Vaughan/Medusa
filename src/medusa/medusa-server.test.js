@@ -374,6 +374,27 @@ describe('MedusaServer', () => {
       expect(data.success).toBe(true);
     });
 
+    test('POST /workspaces/register should accept a caller-supplied workspaceId (Issue #40)', async () => {
+      const { status, data } = await doPost('/workspaces/register', {
+        name: 'Stable Workspace',
+        path: '/some/stable/path',
+        workspaceId: 'stable-id-123'
+      });
+      expect(status).toBe(201);
+      expect(data.workspace.id).toBe('stable-id-123');
+      expect(server.workspaceRegistry.has('stable-id-123')).toBe(true);
+    });
+
+    test('POST /workspaces/register should reject caller-supplied workspaceId collision with different owner (Issue #40)', async () => {
+      server.workspaceRegistry.set('stable-id-456', { id: 'stable-id-456', name: 'Other Workspace', path: '/other/path' });
+      const { status } = await doPost('/workspaces/register', {
+        name: 'My Workspace',
+        path: '/my/path',
+        workspaceId: 'stable-id-456'
+      });
+      expect(status).toBe(409);
+    });
+
     test('DELETE /workspaces/:id should deregister workspace and close ws connections', async () => {
       server.workspaceRegistry.set('test-delete', { id: 'test-delete', name: 'Test Delete' });
       const mockWs = { readyState: WebSocket.OPEN, close: jest.fn() };
@@ -462,18 +483,21 @@ describe('MedusaServer', () => {
       expect(server.offlineQueues.has('offline-ws')).toBe(false);
     });
 
-    test('POST /messages/broadcast should bridge to A2A and notify all WS', async () => {
+    test('POST /messages/broadcast should bridge to A2A and notify all WS (Issue #35)', async () => {
       jest.spyOn(server, 'callA2A').mockResolvedValue({ 
         ok: true, 
         status: 200,
-        data: { id: 'm1' } 
+        data: { id: 'm1', recipients: 2 } 
       });
       const mockWs = { readyState: WebSocket.OPEN, send: jest.fn() };
       server.wsClients.set('w1', new Map([['c1', mockWs]]));
+      server.wsClients.set('w2', new Map([['c2', mockWs]]));
       
-      const { status } = await doPost('/messages/broadcast', { from: 's1', message: 'hello all' });
+      const { status, data } = await doPost('/messages/broadcast', { from: 's1', message: 'hello all' });
       expect(status).toBe(200);
-      expect(mockWs.send).toHaveBeenCalled();
+      expect(mockWs.send).toHaveBeenCalledTimes(2);
+      expect(data.workspaces).toBe(2);
+      expect(data.peers).toBe(2);
     });
 
     test('GET /messages/recent should bridge to A2A', async () => {
@@ -760,6 +784,7 @@ describe('MedusaServer', () => {
           target: 'w2',
           task: 'task',
           doneCriteria: 'done',
+          mode: 'autonomous',
           guards: { maxWallTimeSeconds: 1 }
         });
         const loopId = loop.id;
@@ -1156,7 +1181,7 @@ describe('MedusaServer', () => {
       });
     });
 
-    test('should handle listener heartbeats', (done) => {
+    test('should handle listener heartbeats and update lastSeen (Issue #59)', (done) => {
       const ws = createWebSocket(wsUrl);
       ws.on('open', () => {
         ws.send(JSON.stringify({ type: 'register', workspaceId: 'test-ws' }));
@@ -1164,10 +1189,13 @@ describe('MedusaServer', () => {
       ws.on('message', (data) => {
         const msg = JSON.parse(data);
         if (msg.type === 'registered') {
+          // Temporarily alter lastSeen to prove the heartbeat overwrites it
+          server.workspaceRegistry.get('test-ws').lastSeen = new Date('2020-01-01T00:00:00.000Z');
           ws.send(JSON.stringify({ type: 'listener_heartbeat', status: 'idle' }));
         }
         if (msg.type === 'heartbeat_ack') {
           expect(server.listenerStatus.get('test-ws').status).toBe('idle');
+          expect(server.workspaceRegistry.get('test-ws').lastSeen.getFullYear()).toBeGreaterThan(2020);
           done();
         }
       });

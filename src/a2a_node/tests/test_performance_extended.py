@@ -37,6 +37,7 @@ async def test_check_for_expansion_need_breach_v2():
         with patch("app.core.performance.settings") as mock_settings:
             mock_settings.LOAD_THRESHOLD = 5
             mock_settings.EXPANSION_WINDOW = 60
+            mock_settings.NODE_ID = "mocked-node-id"
             mock_settings.A2A_NODE_TYPE = "seed"
             
             # Reset global state for test
@@ -53,6 +54,7 @@ async def test_check_for_expansion_need_breach_v2():
             with patch("app.core.performance.settings") as mock_settings:
                 mock_settings.LOAD_THRESHOLD = 5
                 mock_settings.EXPANSION_WINDOW = 60
+                mock_settings.NODE_ID = "mocked-node-id"
                 mock_settings.A2A_NODE_TYPE = "seed"
                 
                 with patch("app.core.performance.PerformanceMonitor.request_mesh_expansion", new_callable=AsyncMock) as mock_exp:

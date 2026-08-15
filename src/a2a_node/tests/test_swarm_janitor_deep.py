@@ -26,6 +26,7 @@ async def test_janitor_stalled_task_recovery_v7():
     with patch("app.core.swarm.settings") as mock_settings:
         mock_settings.PROJECT_NAME = "medusa"
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         mock_settings.STALL_TIMEOUT = 300
         mock_settings.TASK_JANITOR_INTERVAL = 0.1
         mock_settings.AUTO_TERM_UPTIME_FLOOR = 1000

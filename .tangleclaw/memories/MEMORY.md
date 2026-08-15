@@ -18,11 +18,12 @@
 - **Reputation Scaling:** Decided on +0.1 for completion and -0.5 for stalling (Janitor) to heavily penalize nodes that claim tasks and then fail to deliver.
 - **Swarm Health Index:** Using 5-snapshot average of global success rates to stabilize dynamic threshold changes.
 - **Signature Payload:** Decided on `timestamp + path` for HMAC payload to ensure simplicity while protecting against replay and path-manipulation attacks.
+- **Node Pruning:** Nodes with < 0.1 reputation that have been inactive for over 24 hours are now automatically swept by the Janitor.
+- **Health-Based Bidding Curves:** Implemented continuous exponential penalty curves for CPU and Memory, and lowered hard-reject thresholds to CPU > 90% and Memory > 95% to allow for more graceful swarm degradation.
 - **Retention Policy:** Defaulted to 7 days for performance snapshots; configurable via `RETENTION_DAYS`.
 
 ### Open Questions / Future Work
-- **Node Pruning:** Should we automatically remove peers with reputation < 0.1 after a period of inactivity?
-- **Health-Based Bidding:** Factoring resource health (CPU/Load) into the `BiddingHeuristics` to avoid overloading struggling nodes. (Already implemented in Chunk 24, but refining).
+- (No major open architectural questions remain for v1.0.0-rc.)
 
 ### Resilience
 - TangleClaw PortHub integration is working but sometimes times out; gossip protocol handles this by muting errors after the first failure.

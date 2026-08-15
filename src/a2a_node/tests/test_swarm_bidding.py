@@ -19,6 +19,7 @@ async def test_swarm_bidding_and_claim_fixed_v3():
     with patch("app.core.swarm.settings") as mock_settings:
         mock_settings.PROJECT_NAME = "medusa"
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         mock_settings.MEDUSA_SKILLS = "research"
         mock_settings.GOSSIP_INTERVAL = 0.1
         mock_settings.BIDDING_CONFIDENCE_THRESHOLD = 0.5

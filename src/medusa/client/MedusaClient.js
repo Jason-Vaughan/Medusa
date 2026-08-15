@@ -325,6 +325,29 @@ class MedusaClient extends EventEmitter {
   }
   
   /**
+   * Acknowledge messages to remove them from the delivery queue
+   */
+  async ackMessages(messageIds) {
+    if (!this.workspaceId) {
+      throw new Error('Workspace not registered!');
+    }
+    
+    const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+    if (ids.length === 0) return { success: true, acked: [] };
+    
+    try {
+      const response = await this.request('POST', '/messages/ack', {
+        workspaceId: this.workspaceId,
+        messageIds: ids
+      });
+      return response;
+    } catch (error) {
+      console.error('🐍 Failed to acknowledge messages:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Share context with other workspaces
    */
   async shareContext(context, targets = []) {

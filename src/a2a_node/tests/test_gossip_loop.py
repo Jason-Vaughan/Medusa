@@ -21,6 +21,7 @@ async def test_run_gossip_one_iteration():
         mock_settings.GOSSIP_INTERVAL = 0.1
         mock_settings.PROJECT_NAME = "medusa"
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         
         # Mock httpx to simulate peer sync
         with patch("app.api.gossip.httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:

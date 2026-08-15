@@ -71,14 +71,14 @@ async def ping(
         db.add(new_peer)
 
     await db.commit()
-    return {"status": "pong", "message": "I see you.", "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}"}
+    return {"status": "pong", "message": "I see you.", "node_id": settings.NODE_ID}
 
 @router.get("/peers", response_model=list[LedgerPeer])
 async def list_peers(db: AsyncSession = Depends(get_db)):
     """
     Returns a list of all known peers in the ledger.
     """
-    result = await db.execute(select(PeerEntry))
+    result = await db.execute(select(PeerEntry).filter(PeerEntry.status != "unreachable"))
     return result.scalars().all()
 class PeerStatusAction(BaseModel):
     reason: str
@@ -244,7 +244,7 @@ async def run_gossip():
                     result = await db.execute(select(PeerEntry).filter(PeerEntry.status == "active"))
                     peers = result.scalars().all()
                     for peer in peers:
-                        if peer.address and peer.id != f"{settings.PROJECT_NAME}-{settings.PORT}":
+                        if peer.address and peer.id != settings.NODE_ID:
                             active_peer_addresses.append(peer.address)
                 
                 # 3. Combine and deduplicate
@@ -259,7 +259,7 @@ async def run_gossip():
                         ping_url = f"{peer_address}/a2a/gossip/ping"
                         
                         params = {
-                            "node_id": f"{settings.PROJECT_NAME}-{settings.PORT}",
+                            "node_id": settings.NODE_ID,
                             "address": f"http://localhost:{settings.PORT}",
                             "strategies": json.dumps(await BiddingHeuristics.share_heuristic()),
                             "health": json.dumps(await PerformanceMonitor.get_resource_health())
@@ -279,12 +279,25 @@ async def run_gossip():
                         if r.status_code == 200:
                             sync_data = r.json()
                             await merge_sync_data(sync_data)
+                            
+                            # Mark as active if it was unreachable
+                            async with AsyncSessionLocal() as db_update:
+                                res = await db_update.execute(select(PeerEntry).filter(PeerEntry.address == peer_address))
+                                p = res.scalars().first()
+                                if p and p.status != "active":
+                                    p.status = "active"
+                                    await db_update.commit()
                         else:
-                            # print(f"⚠️ Gossip: Node {settings.PORT} sync failed with {peer_address}: {r.status_code}", flush=True)
                             pass
                             
                     except Exception:
-                        pass
+                        # Mark peer as unreachable
+                        async with AsyncSessionLocal() as db_fail:
+                            res = await db_fail.execute(select(PeerEntry).filter(PeerEntry.address == peer_address))
+                            p = res.scalars().first()
+                            if p and p.status == "active":
+                                p.status = "unreachable"
+                                await db_fail.commit()
 
                 # 5. Swarm Self-Healing (Chunk 31)
                 async with AsyncSessionLocal() as db:

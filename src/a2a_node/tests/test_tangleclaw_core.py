@@ -11,6 +11,7 @@ def test_register_port_success(mock_post):
     
     with patch("app.core.tangleclaw.settings") as mock_settings:
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         register_port()
         
     mock_post.assert_called_once()
@@ -26,6 +27,7 @@ def test_register_port_failure(mock_post):
     
     with patch("app.core.tangleclaw.settings") as mock_settings:
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         register_port()
         
     mock_post.assert_called_once()
@@ -36,6 +38,7 @@ def test_register_port_exception(mock_post):
     
     with patch("app.core.tangleclaw.settings") as mock_settings:
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         register_port()
         
     mock_post.assert_called_once()
@@ -44,6 +47,7 @@ def test_register_port_exception(mock_post):
 def test_release_port(mock_post):
     with patch("app.core.tangleclaw.settings") as mock_settings:
         mock_settings.PORT = 3200
+        mock_settings.NODE_ID = "mocked-node-id"
         release_port()
         
     mock_post.assert_called_once()

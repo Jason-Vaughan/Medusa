@@ -29,7 +29,7 @@ async def run_swarm_intelligence():
     """
     Background task that scans for tasks to claim based on skills and swarm logic.
     """
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     print(f"🐝 Swarm Intelligence started for node {node_id}", flush=True)
 
     while True:
@@ -111,7 +111,7 @@ async def perform_graceful_shutdown():
     """
     global _is_shutting_down
     _is_shutting_down = True
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     
     print(f"🛑 Initiating graceful shutdown for spawned node {node_id}...", flush=True)
     
@@ -193,7 +193,7 @@ async def run_task_janitor():
     """
     Background task that monitors for stalled tasks and performs daily ledger pruning.
     """
-    node_id = f"{settings.PROJECT_NAME}-{settings.PORT}"
+    node_id = settings.NODE_ID
     STALL_TIMEOUT = settings.STALL_TIMEOUT if hasattr(settings, "STALL_TIMEOUT") else 300
     
     print(f"🧹 Task Janitor started for node {node_id} (Timeout: {STALL_TIMEOUT}s)", flush=True)
@@ -203,6 +203,10 @@ async def run_task_janitor():
         try:
             # 0. Check for auto-termination
             await check_auto_termination()
+
+            # 0.5 TangleClaw PortHub Heartbeat (Bug 28)
+            from app.core.tangleclaw import heartbeat_port
+            heartbeat_port()
 
             # 1. Stalled Task Recovery
             async with AsyncSessionLocal() as db:
@@ -240,6 +244,30 @@ async def run_task_janitor():
                             await ReputationEngine.update_reputation(old_owner, "stalled")
                     
                 if stalled_tasks:
+                    await db.commit()
+            
+            # 1.5 Node Pruning (Hygiene)
+            async with AsyncSessionLocal() as db:
+                now_naive = datetime.now(UTC).replace(tzinfo=None)
+                # Prune peers with reputation < 0.1 after 24 hours of inactivity
+                inactivity_threshold = now_naive - timedelta(hours=24)
+                
+                result = await db.execute(
+                    select(PeerEntry).filter(
+                        PeerEntry.last_seen < inactivity_threshold
+                    )
+                )
+                inactive_peers = result.scalars().all()
+                pruned_count = 0
+                
+                for peer in inactive_peers:
+                    rep_score = peer.performance.get("reputation_score", 1.0) if peer.performance else 1.0
+                    if rep_score < 0.1:
+                        print(f"🧹 Janitor: Pruning inactive peer {peer.id} with low reputation ({rep_score:.2f}).", flush=True)
+                        await db.delete(peer)
+                        pruned_count += 1
+                
+                if pruned_count > 0:
                     await db.commit()
             
             # 2. Daily Ledger Pruning (Hygiene)

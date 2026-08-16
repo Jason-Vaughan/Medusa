@@ -41,22 +41,30 @@ class UpdateManager {
     if (this.isUpdating) return;
     try {
       console.log('[UpdateManager] Polling for new releases...');
+      this.lastCheckTime = new Date().toISOString();
       const releaseInfo = await this.checkLatestRelease();
-      if (!releaseInfo) return;
+      if (!releaseInfo) {
+        this.lastCheckStatus = 'No release found on GitHub API';
+        return;
+      }
 
       const latestVersion = releaseInfo.tag_name.replace(/^v/, '');
       if (this.compareVersions(latestVersion, this.currentVersion) > 0) {
         console.log(`[UpdateManager] New version found: ${latestVersion} (Current: ${this.currentVersion})`);
         const asset = releaseInfo.assets.find(a => a.name.startsWith('medusa-') && a.name.endsWith('.tar.gz'));
         if (asset) {
+          this.lastCheckStatus = `Update ${latestVersion} found and downloading`;
           await this.performHotSwap(latestVersion, asset.browser_download_url);
         } else {
+          this.lastCheckStatus = `Error: Update ${latestVersion} found but no medusa-*.tar.gz asset attached`;
           console.log('[UpdateManager] No suitable tar.gz asset found in the release.');
         }
       } else {
+        this.lastCheckStatus = 'Already on the latest version';
         console.log('[UpdateManager] Already on the latest version.');
       }
     } catch (error) {
+      this.lastCheckStatus = `Error: ${error.message}`;
       console.error('[UpdateManager] Error during poll:', error.message);
     }
   }

@@ -568,7 +568,8 @@ class MedusaServer {
             workspaces: Array.isArray(peers.data) ? peers.data.length : 0,
             messages: Array.isArray(messages.data) ? messages.data.length : 0,
             uptime: process.uptime(),
-            a2a_connected: a2aHealth.ok
+            a2a_connected: a2aHealth.ok,
+            updaterStatus: this.updateManager ? this.updateManager.lastCheckStatus || 'Pending initial check' : 'Uninitialized'
           }));
         } catch (error) {
           res.statusCode = 200;

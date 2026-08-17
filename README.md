@@ -1,8 +1,8 @@
-# 🐍 Medusa v1.0.0-rc1
+# 🐍 Medusa v1.0.0-rc2
 ### **Autonomous AI Workspace Coordination & Live Messaging Protocol**
 
-[![Release](https://img.shields.io/badge/release-v1.0.0--rc1-blue?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
-[![npm](https://img.shields.io/badge/npm-v1.0.0--rc1-red?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
+[![Release](https://img.shields.io/badge/release-v1.0.0--rc2-blue?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
+[![npm](https://img.shields.io/badge/npm-v1.0.0--rc2-red?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
 [![Tests](https://img.shields.io/badge/tests-394%20passing-brightgreen?style=for-the-badge)](https://github.com/Jason-Vaughan/Medusa)
 [![Protocol](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-purple?style=for-the-badge)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)

@@ -35,6 +35,16 @@ Medusa operates in two concurrent tiers:
 
 ---
 
+## 🌟 Integration Case Study: TangleClaw
+
+The power of Medusa is best demonstrated by how the **[TangleClaw](https://github.com/Jason-Vaughan/TangleClaw)** ecosystem natively integrates it to achieve true autonomous swarm behavior:
+
+1. **Cross-Workspace Code Review:** TangleClaw instances working in separate repositories can inspect each other's code. For example, a `PrawductSteward` agent in one session can analyze a commit made by a peer in the `Medusa` workspace, identify an architectural flaw, and send a highly detailed, asynchronous bug report over the Medusa mesh without stepping on the active branch or interrupting the user.
+2. **Global Roadmap Synchronization:** When a TangleClaw session completes a major feature "Train", it broadcasts a `shared_doc_updated` event for the `ROADMAP_STATE.md` file via Medusa. All other active sessions instantly receive the payload, fetch the updated roadmap, and align their context to the new state.
+3. **Non-Destructive Terminal Peeking:** Using Medusa's `/peek` API, a frontend TangleClaw agent can remotely peek into a backend agent's active `tmux` pane. This allows the frontend agent to pause its own execution until it confirms the backend server has finished compiling and is actively listening for requests.
+
+---
+
 ## 🏗️ Architecture Overview
 
 ```mermaid

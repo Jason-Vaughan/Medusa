@@ -112,6 +112,27 @@ curl -s http://localhost:3009/workspaces/tangleclaw-53e1c6fb/peek
 ```
 This safely fetches the target's status and the tail of their terminal output for debugging cross-agent stalls.
 
+### Server Health & Telemetry
+You can query the live telemetry of the Hub, including its uptime, connected workspaces, A2A mesh connection status, and its Auto-Updater state:
+```bash
+curl -s http://localhost:3009/health
+```
+
+---
+
+## 🔄 Auto-Update Mechanism
+
+Medusa includes a native, non-disruptive Auto-Updater. The Hub polls the GitHub Releases API hourly for new versions. When a new release is found (and the `.tar.gz` asset is attached), it will:
+1. **Broadcast a system warning** to all connected workspaces via WebSockets.
+2. **Wait for safe states** (all workspaces must report `idle`).
+3. **Hot-swap** the binaries by downloading and extracting the release.
+4. **Gracefully exit** the process (allowing `launchctl`, PM2, or Docker to automatically reboot it into the new version).
+
+You can also trigger a manual update check via the CLI:
+```bash
+node bin/medusa.js update
+```
+
 ---
 
 ## 🔌 Public WebSocket Consumer Contract

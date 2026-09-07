@@ -41,3 +41,32 @@ If Medusa breaks, it's probably your fault. But if you're *sure* it's ours:
 3. Attach logs from `medusa status --verbose`.
 
 *"Individual intelligence is a spark; collective consensus is the fire."* 🧠🐝🔥
+
+<!-- BEGIN mirrored-security-rules
+     MIRRORED from https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
+     Edit that file first, then update this copy. Do not let them diverge.
+     These markers are load-bearing: a drift checker extracts exactly what lies between
+     them, so do not remove, rename or reformat them. -->
+
+## Security rules that apply to every repository
+
+- **Clean-room review.** Pull requests from contributors we do not know are reviewed as raw text
+  diffs. Maintainers do not check out your branch or run your code on their own machines. Where a
+  repository runs CI on pull requests, those runs are sandboxed by GitHub with a read-only token and
+  no access to repository secrets. If your logic is sound we re-implement it and credit you as the
+  author.
+- **Because we reconstruct it, your explanation is worth more than your code.** Describe the bug
+  precisely and explain the approach; a clear description gets shipped, a large unexplained diff
+  does not.
+- **Scope.** One issue per pull request. A diff touching unrelated files is closed regardless of
+  quality — from the outside, scope overrun and probing are indistinguishable.
+- **Reviewable text only.** No binary files, and no generated, minified or vendored code. Source
+  must contain no bidirectional control characters, no zero-width or invisible characters, and no
+  non-ASCII homoglyphs standing in for ASCII in identifiers: those make a diff *render* differently
+  from what it *executes* (Trojan Source, CVE-2021-42574), which defeats a text audit by
+  construction. Ordinary Unicode in prose, comments and string literals is fine.
+- **Security reports:** do not open a public issue. Open this repository's **Security** tab and
+  choose **Report a vulnerability** — see the [security policy](../../security/policy).
+
+Full contribution guide: https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
+<!-- END mirrored-security-rules -->

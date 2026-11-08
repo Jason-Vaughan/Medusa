@@ -2015,5 +2015,128 @@ describe('MedusaServer', () => {
         message: 'Order of operations check'
       });
     });
+
+    test('concurrent replay waits for in-flight initial save and fails if the initial save rejects, never returning a false 200', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-race', mockWs]]));
+
+      // 1. Hold the first save pending via a deferred promise on performRegistrySave
+      let saveEnteredResolve;
+      const saveEntered = new Promise((resolve) => {
+        saveEnteredResolve = resolve;
+      });
+      let rejectPendingSave;
+      const saveSpy = jest.spyOn(server, 'performRegistrySave').mockImplementationOnce(() => {
+        saveEnteredResolve();
+        return new Promise((_resolve, reject) => {
+          rejectPendingSave = reject;
+        });
+      });
+
+      const firstReqPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race wake',
+        idempotencyKey: 'race-key-fail'
+      });
+
+      await saveEntered;
+
+      // Synchronous receipt check while save is still pending must not report a committed receipt
+      expect(server.getIdempotencyReceipt('race-key-fail')).toBeNull();
+
+      let replaySettled = false;
+      const replayReqPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race wake',
+        idempotencyKey: 'race-key-fail'
+      }).then((res) => {
+        replaySettled = true;
+        return res;
+      });
+
+      // Conflicting key reuse while save is pending is still refused with 409
+      const conflictWhilePending = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Different payload while pending',
+        idempotencyKey: 'race-key-fail'
+      });
+      expect(conflictWhilePending.status).toBe(409);
+      expect(conflictWhilePending.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Give the event loop a turn and verify replay has NOT settled while initial save is still pending
+      await new Promise((r) => setTimeout(r, 30));
+      expect(replaySettled).toBe(false);
+
+      // Now reject the in-flight save
+      rejectPendingSave(new Error('ENOSPC: no space left on device'));
+
+      const [firstRes, replayRes] = await Promise.all([firstReqPromise, replayReqPromise]);
+      expect(firstRes.status).toBe(500);
+      expect(firstRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(replayRes.status).toBe(500);
+      expect(replayRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('race-key-fail')).toBe(false);
+
+      const receiptAfterReject = await doRequest('GET', '/messages/receipts/race-key-fail');
+      expect(receiptAfterReject.status).toBe(404);
+
+      // 2. Positive concurrent case: held save succeeds -> first gets 200 (replayed: false),
+      // concurrent replay waits and gets 200 (replayed: true) with identical id
+      saveSpy.mockRestore();
+      const origPerformSave = server.performRegistrySave.bind(server);
+      let saveEntered2Resolve;
+      const saveEntered2 = new Promise((resolve) => {
+        saveEntered2Resolve = resolve;
+      });
+      let resolvePendingSave2;
+      jest.spyOn(server, 'performRegistrySave').mockImplementationOnce(async () => {
+        saveEntered2Resolve();
+        await new Promise((resolve) => {
+          resolvePendingSave2 = resolve;
+        });
+        return origPerformSave();
+      });
+
+      const firstOkPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race success',
+        idempotencyKey: 'race-key-ok'
+      });
+
+      await saveEntered2;
+
+      let replayOkSettled = false;
+      const replayOkPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race success',
+        idempotencyKey: 'race-key-ok'
+      }).then((res) => {
+        replayOkSettled = true;
+        return res;
+      });
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(replayOkSettled).toBe(false);
+
+      resolvePendingSave2();
+
+      const [firstOkRes, replayOkRes] = await Promise.all([firstOkPromise, replayOkPromise]);
+      expect(firstOkRes.status).toBe(200);
+      expect(firstOkRes.data.replayed).toBe(false);
+      expect(replayOkRes.status).toBe(200);
+      expect(replayOkRes.data.replayed).toBe(true);
+      expect(replayOkRes.data.id).toBe(firstOkRes.data.id);
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+    });
   });
 });

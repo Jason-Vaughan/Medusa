@@ -67,6 +67,7 @@ class MedusaServer {
     this.messageCache = new Map(); // Cache to prevent message loops
     this.offlineQueues = new Map(); // Queue of offline messages for workspaces
     this.idempotencyRecords = new Map(); // Durable send idempotency key -> receipt record
+    this.pendingIdempotencySaves = new Map(); // In-flight send idempotency key -> { record, promise }
     this.isStopping = false;
     this._savePromise = Promise.resolve();
     this._saveSeq = 0;
@@ -630,7 +631,11 @@ class MedusaServer {
    * @returns {object|null} Structured receipt or null if the key is unknown
    */
   getIdempotencyReceipt(idempotencyKey) {
-    if (!idempotencyKey || !this.idempotencyRecords.has(idempotencyKey)) {
+    if (
+      !idempotencyKey ||
+      this.pendingIdempotencySaves.has(idempotencyKey) ||
+      !this.idempotencyRecords.has(idempotencyKey)
+    ) {
       return null;
     }
 
@@ -1024,6 +1029,32 @@ class MedusaServer {
             return;
           }
 
+          if (idempotencyKey && this.pendingIdempotencySaves.has(idempotencyKey)) {
+            const pending = this.pendingIdempotencySaves.get(idempotencyKey);
+            if (!this.matchesIdempotencyRecord(pending.record, data)) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: 'Idempotency key conflict: key already used with different recipient or payload',
+                code: 'IDEMPOTENCY_KEY_CONFLICT',
+                idempotencyKey
+              }));
+              return;
+            }
+
+            try {
+              await pending.promise;
+            } catch (persistError) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: `Failed to persist message to durable Hub queue: ${persistError.message}`,
+                code: 'PERSISTENCE_FAILED'
+              }));
+              return;
+            }
+          }
+
           if (idempotencyKey && this.idempotencyRecords.has(idempotencyKey)) {
             const existingRecord = this.idempotencyRecords.get(idempotencyKey);
             if (!this.matchesIdempotencyRecord(existingRecord, data)) {
@@ -1095,8 +1126,9 @@ class MedusaServer {
           const targetQueue = this.offlineQueues.get(targetId);
           targetQueue.push(msgPayload);
 
+          let idempotencyRecord = null;
           if (idempotencyKey) {
-            this.idempotencyRecords.set(idempotencyKey, {
+            idempotencyRecord = {
               idempotencyKey,
               messageId: generatedId,
               from: data.from || null,
@@ -1109,23 +1141,43 @@ class MedusaServer {
               createdAt: timestamp,
               deliveredAt: null,
               ackedAt: null
-            });
+            };
+            this.idempotencyRecords.set(idempotencyKey, idempotencyRecord);
           }
 
           // Persist queue and idempotency key atomically BEFORE live WebSocket delivery or A2A propagation
+          const rawSavePromise = this.saveRegistry({ throwOnError: true }).then(
+            () => {
+              if (idempotencyKey) {
+                this.pendingIdempotencySaves.delete(idempotencyKey);
+              }
+            },
+            (persistError) => {
+              const idx = targetQueue.indexOf(msgPayload);
+              if (idx !== -1) {
+                targetQueue.splice(idx, 1);
+              }
+              if (!hadQueue && targetQueue.length === 0) {
+                this.offlineQueues.delete(targetId);
+              }
+              if (idempotencyKey) {
+                this.idempotencyRecords.delete(idempotencyKey);
+                this.pendingIdempotencySaves.delete(idempotencyKey);
+              }
+              throw persistError;
+            }
+          );
+
+          if (idempotencyKey && idempotencyRecord) {
+            this.pendingIdempotencySaves.set(idempotencyKey, {
+              record: idempotencyRecord,
+              promise: rawSavePromise
+            });
+          }
+
           try {
-            await this.saveRegistry({ throwOnError: true });
+            await rawSavePromise;
           } catch (persistError) {
-            const idx = targetQueue.indexOf(msgPayload);
-            if (idx !== -1) {
-              targetQueue.splice(idx, 1);
-            }
-            if (!hadQueue && targetQueue.length === 0) {
-              this.offlineQueues.delete(targetId);
-            }
-            if (idempotencyKey) {
-              this.idempotencyRecords.delete(idempotencyKey);
-            }
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({
@@ -1209,6 +1261,9 @@ class MedusaServer {
           }
 
           const key = rawKey.trim();
+          if (this.pendingIdempotencySaves.has(key)) {
+            await this.pendingIdempotencySaves.get(key).promise.catch(() => {});
+          }
           const receipt = this.getIdempotencyReceipt(key);
           if (!receipt) {
             res.statusCode = 404;

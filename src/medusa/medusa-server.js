@@ -87,6 +87,45 @@ class MedusaServer {
   }
 
   /**
+   * Formats and logs informational messages with an ISO 8601 timestamp prefix.
+   * @param {...*} args - Arguments to write to stdout.
+   */
+  log(...args) {
+    const timestamp = new Date().toISOString();
+    if (args.length > 0 && typeof args[0] === 'string') {
+      if (args[0].startsWith('\n')) {
+        console.log(`\n[${timestamp}] ${args[0].slice(1)}`, ...args.slice(1));
+        return;
+      }
+      console.log(`[${timestamp}] ${args[0]}`, ...args.slice(1));
+    } else {
+      console.log(`[${timestamp}]`, ...args);
+    }
+  }
+
+  /**
+   * Formats and logs error messages with an ISO 8601 timestamp prefix.
+   * @param {...*} args - Arguments to write to stderr.
+   */
+  logError(...args) {
+    const timestamp = new Date().toISOString();
+    if (args.length > 0 && typeof args[0] === 'string') {
+      console.error(`[${timestamp}] ${args[0]}`, ...args.slice(1));
+    } else {
+      console.error(`[${timestamp}]`, ...args);
+    }
+  }
+
+  /**
+   * Checks whether per-heartbeat debug logging is enabled via the DEBUG environment variable.
+   * @returns {boolean} True when process.env.DEBUG is set to a truthy, non-disabled value.
+   */
+  isDebugEnabled() {
+    const debug = process.env.DEBUG;
+    return Boolean(debug && debug !== '0' && debug.toLowerCase() !== 'false');
+  }
+
+  /**
    * Signs an A2A request using HMAC-SHA256
    * The signature payload is: timestamp + request path
    */
@@ -334,7 +373,7 @@ class MedusaServer {
     const pythonCmd = require('fs').existsSync(venvPython) ? venvPython : 'python3';
     
     const nodeId = `${this.serverMetadata.controllingWorkspace}-spawned-${port}`;
-    console.log(`🚀 Spawning A2A Node: ${nodeId} on port ${port}`);
+    this.log(`🚀 Spawning A2A Node: ${nodeId} on port ${port}`);
     
     const a2aProcess = spawn(pythonCmd, [a2aPath], {
       detached: true,
@@ -387,7 +426,7 @@ class MedusaServer {
       if (result.ok && Array.isArray(result.data)) {
         const node = result.data.find(p => p.id === nodeId && p.status === 'active');
         if (node) {
-          console.log(`✅ Spawned node ${nodeId} is now active. Incrementing approval count.`);
+          this.log(`✅ Spawned node ${nodeId} is now active. Incrementing approval count.`);
           this.spawnApprovalCount++;
           await this.saveRegistry();
           return;
@@ -418,7 +457,7 @@ class MedusaServer {
       
       for (const expectedId of [...this.spawnedChildrenExpected]) {
         if (!liveIds.has(expectedId)) {
-          console.log(`📉 Detected crashed spawned child: ${expectedId}`);
+          this.log(`📉 Detected crashed spawned child: ${expectedId}`);
           this.messageHistory.push({
             id: `sys-${Date.now()}`,
             from: 'system',
@@ -431,18 +470,31 @@ class MedusaServer {
         }
       }
     } catch (e) {
-      console.error('reconcileSpawnedChildren error:', e.message);
+      this.logError('reconcileSpawnedChildren error:', e.message);
     }
   }
 
-  // Update listener heartbeat
-  updateListenerHeartbeat(workspaceId, status = 'active') {
+  /**
+   * Updates listener heartbeat state for a workspace and returns whether the logged status changed.
+   * @param {string} workspaceId - The workspace identifier.
+   * @param {string} [status='active'] - The listener status ('active', 'idle', 'error').
+   * @param {object} [options={}] - Options controlling status change tracking.
+   * @param {boolean} [options.recordLog=true] - Whether to record status as the last logged heartbeat status.
+   * @returns {boolean} True if this heartbeat represents a newly seen status or a status transition.
+   */
+  updateListenerHeartbeat(workspaceId, status = 'active', options = {}) {
     const now = new Date();
+    const recordLog = options.recordLog !== false;
+    const prev = this.listenerStatus.get(workspaceId);
+    const prevLoggedStatus = prev ? prev.lastLoggedStatus : null;
+    const statusChanged = recordLog ? prevLoggedStatus !== status : (!prev || prev.status !== status);
+
     this.listenerStatus.set(workspaceId, {
       lastHeartbeat: now,
       status: status, // 'active', 'idle', 'error'
       autonomousMode: status === 'active',
-      connectionCount: this.wsClients.has(workspaceId) ? this.wsClients.get(workspaceId).size : 0
+      connectionCount: this.wsClients.has(workspaceId) ? this.wsClients.get(workspaceId).size : 0,
+      lastLoggedStatus: recordLog ? status : prevLoggedStatus
     });
     
     // Fix for Issue 59: Refresh the registry lastSeen so consumers know this workspace is alive.
@@ -450,9 +502,13 @@ class MedusaServer {
     if (this.workspaceRegistry.has(workspaceId)) {
       this.workspaceRegistry.get(workspaceId).lastSeen = now;
     }
+
+    return statusChanged;
   }
 
-  // Load workspace registry from disk
+  /**
+   * Loads the workspace registry from disk.
+   */
   async loadRegistry() {
     try {
       await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
@@ -481,17 +537,19 @@ class MedusaServer {
       // Reap any stale workspaces loaded from disk
       this.reapStaleWorkspaces();
       
-      console.log(`🐍 Loaded ${this.workspaceRegistry.size} workspaces from registry (Spawn count: ${this.spawnApprovalCount})`);
+      this.log(`🐍 Loaded ${this.workspaceRegistry.size} workspaces from registry (Spawn count: ${this.spawnApprovalCount})`);
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        console.error('Error loading registry:', error);
+        this.logError('Error loading registry:', error);
       } else {
-        console.log('🐍 Starting with fresh workspace registry');
+        this.log('🐍 Starting with fresh workspace registry');
       }
     }
   }
 
-  // Save workspace registry to disk
+  /**
+   * Saves the workspace registry to disk.
+   */
   async saveRegistry() {
     try {
       const registry = {
@@ -501,11 +559,13 @@ class MedusaServer {
       
       await fs.writeFile(this.workspaceRegistryFile, JSON.stringify(registry, null, 2));
     } catch (error) {
-      console.error('Error saving registry:', error);
+      this.logError('Error saving registry:', error);
     }
   }
 
-  // Reap stale disconnected workspaces based on lastSeen TTL
+  /**
+   * Reaps stale disconnected workspaces based on lastSeen TTL.
+   */
   reapStaleWorkspaces() {
     const now = Date.now();
     // Default TTL: 5 minutes. In test mode: 5 seconds.
@@ -526,8 +586,9 @@ class MedusaServer {
       const lastSeenTime = ws.lastSeen ? new Date(ws.lastSeen).getTime() : now;
       if (now - lastSeenTime > ttl) {
         this.workspaceRegistry.delete(id);
+        this.listenerStatus.delete(id);
         changed = true;
-        console.log(`🧹 TTL-expired and reaped stale workspace: ${id}`);
+        this.log(`🧹 TTL-expired and reaped stale workspace: ${id}`);
       }
     }
 
@@ -740,7 +801,7 @@ class MedusaServer {
           this.workspaceRegistry.set(workspaceId, workspace);
           await this.saveRegistry();
           
-          console.log(`🐍 Registered new workspace: ${name} (${workspaceId})`);
+          this.log(`🐍 Registered new workspace: ${name} (${workspaceId})`);
           
           res.statusCode = 201;
           res.setHeader('Content-Type', 'application/json');
@@ -762,8 +823,9 @@ class MedusaServer {
           const workspaceId = pathname.split('/')[2];
           if (this.workspaceRegistry.has(workspaceId)) {
             this.workspaceRegistry.delete(workspaceId);
+            this.listenerStatus.delete(workspaceId);
             await this.saveRegistry();
-            console.log(`🧹 Deregistered/Deleted workspace: ${workspaceId}`);
+            this.log(`🧹 Deregistered/Deleted workspace: ${workspaceId}`);
             
             // Also cleanup active WebSocket connections
             if (this.wsClients.has(workspaceId)) {
@@ -832,7 +894,7 @@ class MedusaServer {
           const data = await this.readRequestBody(req);
           const { from, context, targets } = data;
           
-          console.log(`🧠 Context shared from ${from} to ${targets && targets.length > 0 ? targets.join(', ') : 'all'}`);
+          this.log(`🧠 Context shared from ${from} to ${targets && targets.length > 0 ? targets.join(', ') : 'all'}`);
           
           const notification = {
             type: 'context_shared',
@@ -1729,7 +1791,7 @@ class MedusaServer {
           // 2. Spawn Rate Limit (Max 1 per 60s)
           const now = Date.now();
           if (now - this.lastSpawnTime < 60000) {
-            console.log('⚠️ Mesh expansion rate limited (60s cooldown)');
+            this.log('⚠️ Mesh expansion rate limited (60s cooldown)');
             this.messageHistory.push({
               id: `sys-${Date.now()}`,
               from: 'system', to: 'dashboard',
@@ -1750,7 +1812,7 @@ class MedusaServer {
           }
           
           if (liveChildren >= 4) {
-            console.log(`❌ Mesh expansion cap hit (${liveChildren} children)`);
+            this.log(`❌ Mesh expansion cap hit (${liveChildren} children)`);
             this.messageHistory.push({
               id: `sys-${Date.now()}`,
               from: 'system', to: 'dashboard',
@@ -1772,7 +1834,7 @@ class MedusaServer {
               status: 'pending'
             });
             
-            console.log(`🛡️ HITL Gate: Spawn request ${requestId} queued for operator approval`);
+            this.log(`🛡️ HITL Gate: Spawn request ${requestId} queued for operator approval`);
             
             // Emit telemetry for Discord/Dashboard
             this.messageHistory.push({
@@ -1825,7 +1887,7 @@ class MedusaServer {
 
           this.spawnedChildrenExpected.delete(node_id);
           this.lastContractTime = Date.now();
-          console.log(`📉 Mesh contraction: Node ${node_id} reported ${kind}`);
+          this.log(`📉 Mesh contraction: Node ${node_id} reported ${kind}`);
           
           this.messageHistory.push({
             id: `sys-${Date.now()}`,
@@ -1870,7 +1932,7 @@ class MedusaServer {
             type: 'telemetry',
           });
 
-          console.log(`✅ Operator approved spawn request ${requestId}`);
+          this.log(`✅ Operator approved spawn request ${requestId}`);
           
           res.statusCode = 200;
           res.end(JSON.stringify({ status: 'approved', nodeId, port }));
@@ -1894,7 +1956,7 @@ class MedusaServer {
           }
           
           this.pendingSpawnRequests.splice(reqIndex, 1);
-          console.log(`❌ Operator denied spawn request ${requestId}`);
+          this.log(`❌ Operator denied spawn request ${requestId}`);
           
           res.statusCode = 200;
           res.end(JSON.stringify({ status: 'denied' }));
@@ -1942,9 +2004,12 @@ class MedusaServer {
     });
   }
 
+  /**
+   * Configures WebSocket connection, registration, heartbeat, and ACK handlers.
+   */
   setupWebSocketHandlers() {
     this.wsServer.on('connection', (ws, req) => {
-      console.log('🔌 WebSocket client connected');
+      this.log('🔌 WebSocket client connected');
       
       let workspaceId = null;
       let isRegistered = false;
@@ -1984,7 +2049,7 @@ class MedusaServer {
             
             this.wsClients.get(workspaceId).set(connectionId, ws);
             isRegistered = true;
-            this.updateListenerHeartbeat(workspaceId, 'active');
+            this.updateListenerHeartbeat(workspaceId, 'active', { recordLog: false });
             
             ws.send(JSON.stringify({
               type: 'registered',
@@ -1993,7 +2058,7 @@ class MedusaServer {
               message: 'WebSocket connection established for real-time messaging'
             }));
             
-            console.log(`🔌 WebSocket registered for workspace: ${workspaceId} (${connectionId})`);
+            this.log(`🔌 WebSocket registered for workspace: ${workspaceId} (${connectionId})`);
             
             // Drain offline queue and deliver immediately over WS!
             if (this.offlineQueues.has(workspaceId)) {
@@ -2031,7 +2096,7 @@ class MedusaServer {
           
           if (message.type === 'listener_heartbeat' && isRegistered) {
             const status = message.status || 'active';
-            this.updateListenerHeartbeat(workspaceId, status);
+            const statusChanged = this.updateListenerHeartbeat(workspaceId, status);
             
             ws.send(JSON.stringify({ 
               type: 'heartbeat_ack', 
@@ -2039,11 +2104,13 @@ class MedusaServer {
               autonomousMode: status === 'active'
             }));
             
-            console.log(`💓 Listener heartbeat from ${workspaceId}: ${status}`);
+            if (statusChanged || this.isDebugEnabled()) {
+              this.log(`💓 Listener heartbeat from ${workspaceId}: ${status}`);
+            }
           }
           
         } catch (error) {
-          console.error('WebSocket message error:', error);
+          this.logError('WebSocket message error:', error);
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'error', message: error.message }));
           }
@@ -2056,25 +2123,34 @@ class MedusaServer {
           connections.delete(connectionId);
           if (connections.size === 0) {
             this.wsClients.delete(workspaceId);
+            this.listenerStatus.delete(workspaceId);
             // Reap on WS close
             this.workspaceRegistry.delete(workspaceId);
             this.saveRegistry();
           }
-          console.log(`🔌 WebSocket disconnected for workspace: ${workspaceId} (${connectionId})`);
+          this.log(`🔌 WebSocket disconnected for workspace: ${workspaceId} (${connectionId})`);
         }
       });
       
       ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        this.logError('WebSocket error:', error);
         if (workspaceId && this.wsClients.has(workspaceId)) {
           const connections = this.wsClients.get(workspaceId);
           connections.delete(connectionId);
-          if (connections.size === 0) this.wsClients.delete(workspaceId);
+          if (connections.size === 0) {
+            this.wsClients.delete(workspaceId);
+            this.listenerStatus.delete(workspaceId);
+          }
         }
       });
     });
   }
 
+  /**
+   * Acknowledges and removes delivered messages from a workspace's offline queue.
+   * @param {string} workspaceId - The workspace identifier.
+   * @param {string[]} messageIds - List of message IDs to acknowledge.
+   */
   ackMessages(workspaceId, messageIds) {
     if (!this.offlineQueues.has(workspaceId)) return;
     const queue = this.offlineQueues.get(workspaceId);
@@ -2084,9 +2160,15 @@ class MedusaServer {
     } else {
       this.offlineQueues.set(workspaceId, updatedQueue);
     }
-    console.log(`✅ ACKed ${messageIds.length} messages for workspace: ${workspaceId}`);
+    this.log(`✅ ACKed ${messageIds.length} messages for workspace: ${workspaceId}`);
   }
 
+  /**
+   * Sends a real-time message payload to all active WebSocket connections for a workspace.
+   * @param {string} workspaceId - Target workspace identifier.
+   * @param {object} messageData - Message payload to serialize and send.
+   * @returns {boolean} True if delivered to at least one open WebSocket connection.
+   */
   sendWebSocketMessage(workspaceId, messageData) {
     const messageKey = `${messageData.messageId || 'msg'}-${workspaceId}`;
     
@@ -2102,7 +2184,7 @@ class MedusaServer {
             ws.send(JSON.stringify(messageData));
             delivered = true;
           } catch (error) {
-            console.error(`WebSocket send error (${connId}):`, error);
+            this.logError(`WebSocket send error (${connId}):`, error);
             connections.delete(connId);
           }
         } else {
@@ -2118,7 +2200,7 @@ class MedusaServer {
         this.messageCache.set(messageKey, Date.now());
         const cacheTimeout = process.env.NODE_ENV === 'test' ? 100 : 5 * 60 * 1000;
         setTimeout(() => this.messageCache.delete(messageKey), cacheTimeout);
-        console.log(`🔌 Message delivered instantly via WebSocket to ${connections.size} connection(s)!`);
+        this.log(`🔌 Message delivered instantly via WebSocket to ${connections.size} connection(s)!`);
         return true;
       }
     }
@@ -2201,8 +2283,12 @@ class MedusaServer {
     });
   }
 
+  /**
+   * Starts the Medusa HTTP protocol server, WebSocket server, and web dashboard.
+   * @returns {Promise<boolean>} Resolves true once all servers are listening.
+   */
   async start() {
-    console.log('🐍 Starting Medusa Chat Protocol...');
+    this.log('🐍 Starting Medusa Chat Protocol...');
     
     try {
       await ProcessLock.cleanupStaleLocks();
@@ -2211,14 +2297,14 @@ class MedusaServer {
       
       const cwd = process.cwd();
       this.serverMetadata.controllingWorkspace = path.basename(cwd);
-      console.log(`🎮 Server controlled by workspace: ${this.serverMetadata.controllingWorkspace}`);
+      this.log(`🎮 Server controlled by workspace: ${this.serverMetadata.controllingWorkspace}`);
       
       await this.loadRegistry();
       
       this.protocolServer = this.createProtocolServer();
       await new Promise(resolve => this.protocolServer.listen(this.protocolPort, this.protocolHost, resolve));
       
-      console.log(`🐍 Medusa Protocol API running at http://${this.protocolHost}:${this.protocolPort}`);
+      this.log(`🐍 Medusa Protocol API running at http://${this.protocolHost}:${this.protocolPort}`);
       
       this.wsServer = new WebSocket.Server({ 
         port: this.protocolPort + 1,
@@ -2229,9 +2315,9 @@ class MedusaServer {
       this.webServer = this.createWebServer();
       await new Promise(resolve => this.webServer.listen(this.webPort, this.webHost, resolve));
       
-      console.log(`🐍 Switchboard running at http://${this.webHost}:${this.webPort}`);
-      console.log(`🔌 WebSocket Server running at ws://${this.protocolHost}:${this.protocolPort + 1}`);
-      console.log('\nThe two medusas are ready to hiss properly! 🐍🔥🐍');
+      this.log(`🐍 Switchboard running at http://${this.webHost}:${this.webPort}`);
+      this.log(`🔌 WebSocket Server running at ws://${this.protocolHost}:${this.protocolPort + 1}`);
+      this.log('\nThe two medusas are ready to hiss properly! 🐍🔥🐍');
       
       this.spawnReconcilerInterval = setInterval(() => {
         this.reconcileSpawnedChildren().catch(() => {});
@@ -2242,14 +2328,17 @@ class MedusaServer {
 
       return true;
     } catch (error) {
-      console.error(`❌ Failed to start Medusa server: ${error.message}`);
+      this.logError(`❌ Failed to start Medusa server: ${error.message}`);
       if (this.processLock) await this.processLock.release();
       throw error;
     }
   }
 
+  /**
+   * Gracefully stops all Medusa servers, intervals, and locks.
+   */
   async stop() {
-    console.log('\n🐍 Medusa shutting down...');
+    this.log('\n🐍 Medusa shutting down...');
     
     if (this.processLock) await this.processLock.release();
     await this.saveRegistry();
@@ -2280,7 +2369,7 @@ class MedusaServer {
     }
     
     await Promise.all(closures);
-    console.log('🐍 Shutdown complete.');
+    this.log('🐍 Shutdown complete.');
   }
 }
 

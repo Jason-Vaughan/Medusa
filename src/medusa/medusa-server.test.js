@@ -248,7 +248,10 @@ describe('MedusaServer', () => {
       jest.spyOn(fs, 'writeFile').mockRejectedValue(new Error('Disk Full'));
       server.workspaceRegistry.set('t1', { id: 't1' });
       await server.saveRegistry();
-      expect(spy).toHaveBeenCalledWith('Error saving registry:', expect.any(Error));
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] Error saving registry:$/),
+        expect.any(Error)
+      );
     });
   });
 
@@ -1199,6 +1202,129 @@ describe('MedusaServer', () => {
           done();
         }
       });
+    });
+
+    test('should log heartbeat only on first beat or status change with ISO 8601 timestamp, and suppress repeats unless DEBUG is set (Issue #66)', async () => {
+      const originalDebug = process.env.DEBUG;
+      delete process.env.DEBUG;
+
+      try {
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const ws = createWebSocket(wsUrl);
+
+        await new Promise((resolve, reject) => {
+          ws.on('open', () => {
+            ws.send(JSON.stringify({ type: 'register', workspaceId: 'hb-ws' }));
+          });
+          ws.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'registered') resolve();
+          });
+          ws.on('error', reject);
+        });
+
+        const sendHeartbeat = (status) => new Promise((resolve) => {
+          const onMsg = (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'heartbeat_ack') {
+              ws.off('message', onMsg);
+              resolve(msg);
+            }
+          };
+          ws.on('message', onMsg);
+          ws.send(JSON.stringify({ type: 'listener_heartbeat', status }));
+        });
+
+        const getHeartbeatLogs = () =>
+          logSpy.mock.calls
+            .map((args) => args[0])
+            .filter((line) => typeof line === 'string' && line.includes('💓 Listener heartbeat from hb-ws'));
+
+        // 1. First heartbeat ('active') should log once with ISO 8601 timestamp prefix
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        let hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+
+        // 2. Repeated heartbeat with unchanged status ('active') produces NO log line
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        await sendHeartbeat('active');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 3. Status change ('active' -> 'idle') produces exactly one log line
+        logSpy.mockClear();
+        await sendHeartbeat('idle');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: idle$/);
+
+        // 4. Repeated 'idle' produces NO log line
+        logSpy.mockClear();
+        await sendHeartbeat('idle');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 5. Status change ('idle' -> 'active') produces one log line
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+
+        // 6. With DEBUG=1, repeated heartbeats with unchanged status ARE logged
+        process.env.DEBUG = '1';
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+
+        // 7. With DEBUG=false or DEBUG=0, repeated heartbeats are NOT logged
+        process.env.DEBUG = 'false';
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 8. After disconnect and reconnect, first heartbeat is treated as newly seen and logged again
+        delete process.env.DEBUG;
+        ws.close();
+        await new Promise((r) => setTimeout(r, 50));
+        expect(server.listenerStatus.has('hb-ws')).toBe(false);
+
+        const wsReconnect = createWebSocket(wsUrl);
+        await new Promise((resolve, reject) => {
+          wsReconnect.on('open', () => {
+            wsReconnect.send(JSON.stringify({ type: 'register', workspaceId: 'hb-ws' }));
+          });
+          wsReconnect.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'registered') resolve();
+          });
+          wsReconnect.on('error', reject);
+        });
+
+        logSpy.mockClear();
+        await new Promise((resolve) => {
+          const onMsg = (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'heartbeat_ack') {
+              wsReconnect.off('message', onMsg);
+              resolve(msg);
+            }
+          };
+          wsReconnect.on('message', onMsg);
+          wsReconnect.send(JSON.stringify({ type: 'listener_heartbeat', status: 'active' }));
+        });
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+      } finally {
+        if (originalDebug === undefined) {
+          delete process.env.DEBUG;
+        } else {
+          process.env.DEBUG = originalDebug;
+        }
+      }
     });
 
     test('should reap workspace from registry on WS close', (done) => {

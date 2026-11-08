@@ -66,6 +66,11 @@ class MedusaServer {
     this.listenerStatus = new Map(); // Track listener heartbeats
     this.messageCache = new Map(); // Cache to prevent message loops
     this.offlineQueues = new Map(); // Queue of offline messages for workspaces
+    this.idempotencyRecords = new Map(); // Durable send idempotency key -> receipt record
+    this.pendingIdempotencySaves = new Map(); // In-flight send idempotency key -> { record, promise }
+    this.isStopping = false;
+    this._savePromise = Promise.resolve();
+    this._saveSeq = 0;
 
     // Swarm Management State (Chunk 34)
     this.lastSpawnTime = 0;
@@ -538,7 +543,8 @@ class MedusaServer {
   }
 
   /**
-   * Loads the workspace registry from disk.
+   * Load workspace registry, durable offline message queues, and send idempotency records from disk.
+   * @returns {Promise<void>}
    */
   async loadRegistry() {
     try {
@@ -549,7 +555,7 @@ class MedusaServer {
       // Handle both old format (direct map) and new format (nested)
       const workspaces = parsed.workspaces || parsed;
       for (const [id, workspace] of Object.entries(workspaces)) {
-        if (id === 'spawnApprovalCount') continue;
+        if (id === 'spawnApprovalCount' || id === 'offlineQueues' || id === 'idempotencyRecords') continue;
         
         // Guard "test-id" behind NODE_ENV === 'test'
         if (id === 'test-id' && process.env.NODE_ENV !== 'test') {
@@ -564,6 +570,22 @@ class MedusaServer {
       }
 
       this.spawnApprovalCount = parsed.spawnApprovalCount || 0;
+
+      if (parsed.offlineQueues && typeof parsed.offlineQueues === 'object') {
+        for (const [workspaceId, messages] of Object.entries(parsed.offlineQueues)) {
+          if (Array.isArray(messages) && messages.length > 0) {
+            this.offlineQueues.set(workspaceId, messages);
+          }
+        }
+      }
+
+      if (parsed.idempotencyRecords && typeof parsed.idempotencyRecords === 'object') {
+        for (const [key, record] of Object.entries(parsed.idempotencyRecords)) {
+          if (record && typeof record === 'object') {
+            this.idempotencyRecords.set(key, record);
+          }
+        }
+      }
       
       // Reap any stale workspaces loaded from disk
       this.reapStaleWorkspaces();
@@ -579,19 +601,151 @@ class MedusaServer {
   }
 
   /**
-   * Saves the workspace registry to disk.
+   * Executes a single atomic write-to-temp-and-rename persistence pass for the workspace
+   * registry, durable offline message queues, and send idempotency records.
+   * @returns {Promise<void>}
+   * @throws {Error} When directory creation, temporary file write, or atomic rename fails
    */
-  async saveRegistry() {
+  async performRegistrySave() {
+    let tmpFile = null;
     try {
       const registry = {
         workspaces: Object.fromEntries(this.workspaceRegistry),
-        spawnApprovalCount: this.spawnApprovalCount
+        spawnApprovalCount: this.spawnApprovalCount,
+        offlineQueues: Object.fromEntries(this.offlineQueues),
+        idempotencyRecords: Object.fromEntries(this.idempotencyRecords)
       };
       
-      await fs.writeFile(this.workspaceRegistryFile, JSON.stringify(registry, null, 2));
+      await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
+      this._saveSeq = (this._saveSeq || 0) + 1;
+      tmpFile = `${this.workspaceRegistryFile}.${process.pid}.${Date.now()}.${this._saveSeq}.tmp`;
+      await fs.writeFile(tmpFile, JSON.stringify(registry, null, 2));
+      await fs.rename(tmpFile, this.workspaceRegistryFile);
     } catch (error) {
       this.logError('Error saving registry:', error);
+      if (tmpFile) {
+        await fs.unlink(tmpFile).catch(() => {});
+      }
+      throw error;
     }
+  }
+
+  /**
+   * Atomically persist workspace registry, durable offline message queues, and send idempotency
+   * records to disk via write-to-temp-and-rename.
+   * @param {object} [options={}] - Persistence options
+   * @param {boolean} [options.throwOnError=false] - Whether to reject when persistence fails
+   * @returns {Promise<void>}
+   */
+  async saveRegistry(options = {}) {
+    const { throwOnError = false } = options;
+    const nextSave = (this._savePromise || Promise.resolve()).then(
+      () => this.performRegistrySave(),
+      () => this.performRegistrySave()
+    );
+    this._savePromise = nextSave.catch(() => {});
+    if (throwOnError) {
+      return nextSave;
+    }
+    return this._savePromise;
+  }
+
+  /**
+   * Extracts and validates an optional caller-supplied send idempotency key from HTTP headers or body.
+   * @param {http.IncomingMessage} req - Incoming HTTP request
+   * @param {object} data - Parsed JSON request body
+   * @returns {{ key: string|null, error: string|null }} Validated key or validation error
+   */
+  extractIdempotencyKey(req, data = {}) {
+    const headerRaw = req && req.headers
+      ? (req.headers['idempotency-key'] !== undefined ? req.headers['idempotency-key'] : req.headers['x-idempotency-key'])
+      : undefined;
+    const bodyRaw = data && (data.idempotencyKey !== undefined ? data.idempotencyKey : data.idempotency_key);
+
+    if (headerRaw === undefined && bodyRaw === undefined) {
+      return { key: null, error: null };
+    }
+
+    if (headerRaw !== undefined && (typeof headerRaw !== 'string' || headerRaw.trim() === '')) {
+      return { key: null, error: 'Invalid Idempotency-Key header: must be a non-empty string' };
+    }
+
+    if (bodyRaw !== undefined && (typeof bodyRaw !== 'string' || bodyRaw.trim() === '')) {
+      return { key: null, error: 'Invalid idempotencyKey: must be a non-empty string' };
+    }
+
+    if (headerRaw !== undefined && bodyRaw !== undefined && headerRaw.trim() !== bodyRaw.trim()) {
+      return { key: null, error: 'Conflicting idempotencyKey between header and request body' };
+    }
+
+    const key = (bodyRaw !== undefined ? bodyRaw : headerRaw).trim();
+    return { key, error: null };
+  }
+
+  /**
+   * Checks whether a send request matches the recipient and payload of an existing idempotency record.
+   * @param {object} record - Stored idempotency record
+   * @param {object} data - Incoming direct message request body
+   * @returns {boolean} True when recipient, sender (if provided), and payload are identical
+   */
+  matchesIdempotencyRecord(record, data = {}) {
+    if (!record || !data || typeof data.to !== 'string' || typeof data.message !== 'string') {
+      return false;
+    }
+
+    let resolvedTargetId = null;
+    try {
+      resolvedTargetId = this.resolveWorkspaceId(data.to);
+    } catch (e) {
+      resolvedTargetId = null;
+    }
+
+    const recipientMatches = resolvedTargetId
+      ? resolvedTargetId === record.targetId
+      : (data.to === record.targetId || (record.to && data.to.toLowerCase() === String(record.to).toLowerCase()));
+
+    const senderMatches = (data.from || null) === (record.from || null);
+    const payloadMatches = data.message === record.message;
+
+    return Boolean(recipientMatches && senderMatches && payloadMatches);
+  }
+
+  /**
+   * Builds a reconciliation receipt for a caller-supplied send idempotency key without mutating state.
+   * @param {string} idempotencyKey - The caller-supplied idempotency key
+   * @returns {object|null} Structured receipt or null if the key is unknown
+   */
+  getIdempotencyReceipt(idempotencyKey) {
+    if (
+      !idempotencyKey ||
+      this.pendingIdempotencySaves.has(idempotencyKey) ||
+      !this.idempotencyRecords.has(idempotencyKey)
+    ) {
+      return null;
+    }
+
+    const record = this.idempotencyRecords.get(idempotencyKey);
+    const queue = this.offlineQueues.get(record.targetId) || [];
+    const inQueue = queue.some(msg => msg.id === record.messageId);
+    const isAcked = Boolean(record.acked || (!inQueue && record.status === 'acked'));
+    const status = isAcked ? 'acked' : (record.delivered ? 'received' : 'queued');
+
+    return {
+      found: true,
+      idempotencyKey: record.idempotencyKey,
+      id: record.messageId,
+      messageId: record.messageId,
+      from: record.from,
+      to: record.targetId,
+      requestedTo: record.to,
+      status,
+      queued: inQueue,
+      delivered: Boolean(record.delivered || isAcked),
+      acked: isAcked,
+      timestamp: record.createdAt,
+      deliveredAt: record.deliveredAt || null,
+      ackedAt: record.ackedAt || null
+    };
   }
 
   /**
@@ -633,7 +787,7 @@ class MedusaServer {
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workspace-ID');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workspace-ID, Idempotency-Key, X-Idempotency-Key');
       
       if (req.method === 'OPTIONS') {
         res.statusCode = 204;
@@ -956,6 +1110,68 @@ class MedusaServer {
       if (pathname === '/messages/direct' && req.method === 'POST') {
         try {
           const data = await this.readRequestBody(req);
+          const { key: idempotencyKey, error: keyError } = this.extractIdempotencyKey(req, data);
+          if (keyError) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: keyError, code: 'INVALID_IDEMPOTENCY_KEY' }));
+            return;
+          }
+
+          if (idempotencyKey && this.pendingIdempotencySaves.has(idempotencyKey)) {
+            const pending = this.pendingIdempotencySaves.get(idempotencyKey);
+            if (!this.matchesIdempotencyRecord(pending.record, data)) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: 'Idempotency key conflict: key already used with different recipient or payload',
+                code: 'IDEMPOTENCY_KEY_CONFLICT',
+                idempotencyKey
+              }));
+              return;
+            }
+
+            try {
+              await pending.promise;
+            } catch (persistError) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: `Failed to persist message to durable Hub queue: ${persistError.message}`,
+                code: 'PERSISTENCE_FAILED'
+              }));
+              return;
+            }
+          }
+
+          if (idempotencyKey && this.idempotencyRecords.has(idempotencyKey)) {
+            const existingRecord = this.idempotencyRecords.get(idempotencyKey);
+            if (!this.matchesIdempotencyRecord(existingRecord, data)) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: 'Idempotency key conflict: key already used with different recipient or payload',
+                code: 'IDEMPOTENCY_KEY_CONFLICT',
+                idempotencyKey
+              }));
+              return;
+            }
+
+            const receipt = this.getIdempotencyReceipt(idempotencyKey);
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              success: true,
+              replayed: true,
+              idempotencyKey,
+              status: receipt.status,
+              id: existingRecord.messageId,
+              messageId: existingRecord.messageId,
+              receipt,
+              message: 'Idempotent replay: returning original message receipt without re-enqueueing.'
+            }));
+            return;
+          }
           
           let targetId;
           try {
@@ -970,7 +1186,7 @@ class MedusaServer {
           if (!targetId) {
             res.statusCode = 404;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: `Peer/Workspace ${data.to} not found.` }));
+            res.end(JSON.stringify({ error: `Peer/Workspace ${data.to} not found. If this is a stale ID, try passing the human-readable name in 'to' instead.` }));
             return;
           }
           
@@ -987,20 +1203,92 @@ class MedusaServer {
             message: data.message,
             timestamp: timestamp
           };
+          if (idempotencyKey) {
+            msgPayload.idempotencyKey = idempotencyKey;
+          }
           
           // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
-          if (!this.offlineQueues.has(targetId)) {
+          const hadQueue = this.offlineQueues.has(targetId);
+          if (!hadQueue) {
             this.offlineQueues.set(targetId, []);
           }
-          this.offlineQueues.get(targetId).push(msgPayload);
+          const targetQueue = this.offlineQueues.get(targetId);
+          targetQueue.push(msgPayload);
+
+          let idempotencyRecord = null;
+          if (idempotencyKey) {
+            idempotencyRecord = {
+              idempotencyKey,
+              messageId: generatedId,
+              from: data.from || null,
+              to: data.to,
+              targetId,
+              message: data.message,
+              status: isOnline ? 'received' : 'queued',
+              delivered: false,
+              acked: false,
+              createdAt: timestamp,
+              deliveredAt: null,
+              ackedAt: null
+            };
+            this.idempotencyRecords.set(idempotencyKey, idempotencyRecord);
+          }
+
+          // Persist queue and idempotency key atomically BEFORE live WebSocket delivery or A2A propagation
+          const rawSavePromise = this.saveRegistry({ throwOnError: true }).then(
+            () => {
+              if (idempotencyKey) {
+                this.pendingIdempotencySaves.delete(idempotencyKey);
+              }
+            },
+            (persistError) => {
+              const idx = targetQueue.indexOf(msgPayload);
+              if (idx !== -1) {
+                targetQueue.splice(idx, 1);
+              }
+              if (!hadQueue && targetQueue.length === 0) {
+                this.offlineQueues.delete(targetId);
+              }
+              if (idempotencyKey) {
+                this.idempotencyRecords.delete(idempotencyKey);
+                this.pendingIdempotencySaves.delete(idempotencyKey);
+              }
+              throw persistError;
+            }
+          );
+
+          if (idempotencyKey && idempotencyRecord) {
+            this.pendingIdempotencySaves.set(idempotencyKey, {
+              record: idempotencyRecord,
+              promise: rawSavePromise
+            });
+          }
+
+          try {
+            await rawSavePromise;
+          } catch (persistError) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              error: `Failed to persist message to durable Hub queue: ${persistError.message}`,
+              code: 'PERSISTENCE_FAILED'
+            }));
+            return;
+          }
 
           if (isOnline) {
-            this.sendWebSocketMessage(targetId, {
+            directDelivered = this.sendWebSocketMessage(targetId, {
               type: 'new_message',
               messageId: generatedId,
               message: msgPayload
             });
-            directDelivered = true;
+            if (directDelivered && idempotencyKey && this.idempotencyRecords.has(idempotencyKey)) {
+              const rec = this.idempotencyRecords.get(idempotencyKey);
+              rec.delivered = true;
+              rec.deliveredAt = timestamp;
+              rec.status = 'received';
+              await this.saveRegistry();
+            }
           }
           
           // Also attempt to propagate through the A2A mesh (fails gracefully if node is down)
@@ -1011,21 +1299,79 @@ class MedusaServer {
           }).catch(() => ({ ok: false, status: 503 }));
           
           if (result.ok && result.data && result.data.id) {
-            msgPayload.id = result.data.id;
+            msgPayload.a2aId = result.data.id;
+          }
+
+          const responsePayload = { 
+            success: true, 
+            status: isOnline ? 'received' : 'queued', 
+            id: msgPayload.id,
+            messageId: msgPayload.id,
+            message: isOnline 
+              ? 'Message delivered directly to workspace via WebSocket.' 
+              : 'Workspace offline. Message queued in Hub inbox.'
+          };
+          if (idempotencyKey) {
+            responsePayload.idempotencyKey = idempotencyKey;
+            responsePayload.replayed = false;
+            responsePayload.receipt = this.getIdempotencyReceipt(idempotencyKey);
           }
 
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ 
-            success: true, 
-            status: isOnline ? 'received' : 'queued', 
-            id: msgPayload.id, 
-            message: isOnline 
-              ? 'Message delivered directly to workspace via WebSocket.' 
-              : 'Workspace offline. Message queued in Hub inbox.'
-          }));
+          res.end(JSON.stringify(responsePayload));
         } catch (error) {
           res.statusCode = 500;
+          res.end(JSON.stringify({ error: error.message }));
+        }
+        return;
+      }
+
+      // Lookup send receipt by idempotency key without creating a message (Issue #67)
+      if ((pathname === '/messages/receipts' || pathname.startsWith('/messages/receipts/') || pathname.startsWith('/messages/idempotency/')) && req.method === 'GET') {
+        try {
+          let rawKey = null;
+          if (pathname === '/messages/receipts') {
+            rawKey = url.searchParams.get('idempotencyKey') || url.searchParams.get('key');
+          } else if (pathname.startsWith('/messages/receipts/')) {
+            rawKey = decodeURIComponent(pathname.slice('/messages/receipts/'.length));
+          } else if (pathname.startsWith('/messages/idempotency/')) {
+            rawKey = decodeURIComponent(pathname.slice('/messages/idempotency/'.length));
+          }
+
+          if (!rawKey || !rawKey.trim()) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              error: 'Missing required idempotencyKey parameter',
+              code: 'INVALID_IDEMPOTENCY_KEY'
+            }));
+            return;
+          }
+
+          const key = rawKey.trim();
+          if (this.pendingIdempotencySaves.has(key)) {
+            await this.pendingIdempotencySaves.get(key).promise.catch(() => {});
+          }
+          const receipt = this.getIdempotencyReceipt(key);
+          if (!receipt) {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              found: false,
+              error: 'Idempotency receipt not found',
+              code: 'RECEIPT_NOT_FOUND',
+              idempotencyKey: key
+            }));
+            return;
+          }
+
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(receipt));
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: error.message }));
         }
         return;
@@ -1045,7 +1391,7 @@ class MedusaServer {
           }
           
           const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
-          this.ackMessages(workspaceId, ids);
+          await this.ackMessages(workspaceId, ids);
           
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
@@ -2094,12 +2440,26 @@ class MedusaServer {
             // Drain offline queue and deliver immediately over WS!
             if (this.offlineQueues.has(workspaceId)) {
               const queuedMsgs = this.offlineQueues.get(workspaceId);
+              let deliveryUpdated = false;
+              const deliveredAt = new Date().toISOString();
               for (const queuedMsg of queuedMsgs) {
                 ws.send(JSON.stringify({
                   type: 'new_message',
                   messageId: queuedMsg.id,
                   message: queuedMsg
                 }));
+                if (queuedMsg.idempotencyKey && this.idempotencyRecords.has(queuedMsg.idempotencyKey)) {
+                  const rec = this.idempotencyRecords.get(queuedMsg.idempotencyKey);
+                  rec.delivered = true;
+                  rec.deliveredAt = rec.deliveredAt || deliveredAt;
+                  if (rec.status === 'queued') {
+                    rec.status = 'received';
+                  }
+                  deliveryUpdated = true;
+                }
+              }
+              if (deliveryUpdated) {
+                this.saveRegistry();
               }
               // Non-destructive: do not delete here. Messages survive until explicitly ACK'd.
             }
@@ -2116,7 +2476,7 @@ class MedusaServer {
             }
             if (workspaceId && (Array.isArray(messageIds) || typeof messageIds === 'string')) {
               const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
-              this.ackMessages(workspaceId, ids);
+              await this.ackMessages(workspaceId, ids);
               ws.send(JSON.stringify({
                 type: 'ack_response',
                 success: true,
@@ -2155,9 +2515,11 @@ class MedusaServer {
           if (connections.size === 0) {
             this.wsClients.delete(workspaceId);
             this.listenerStatus.delete(workspaceId);
-            // Reap on WS close
-            this.workspaceRegistry.delete(workspaceId);
-            this.saveRegistry();
+            // Reap on WS close (unless server is shutting down)
+            if (!this.isStopping) {
+              this.workspaceRegistry.delete(workspaceId);
+              this.saveRegistry();
+            }
           }
           this.log(`🔌 WebSocket disconnected for workspace: ${workspaceId} (${connectionId})`);
         }
@@ -2178,18 +2540,41 @@ class MedusaServer {
   }
 
   /**
-   * Acknowledges and removes delivered messages from a workspace's offline queue.
-   * @param {string} workspaceId - The workspace identifier.
-   * @param {string[]} messageIds - List of message IDs to acknowledge.
+   * Acknowledge delivered messages for a workspace, removing them from the durable queue
+   * and marking any associated idempotency receipts as acked.
+   * @param {string} workspaceId - The acknowledging workspace ID
+   * @param {string[]} messageIds - Array of message IDs to acknowledge
+   * @returns {Promise<void>}
    */
-  ackMessages(workspaceId, messageIds) {
-    if (!this.offlineQueues.has(workspaceId)) return;
-    const queue = this.offlineQueues.get(workspaceId);
-    const updatedQueue = queue.filter(msg => !messageIds.includes(msg.id));
-    if (updatedQueue.length === 0) {
-      this.offlineQueues.delete(workspaceId);
-    } else {
-      this.offlineQueues.set(workspaceId, updatedQueue);
+  async ackMessages(workspaceId, messageIds) {
+    let changed = false;
+    if (this.offlineQueues.has(workspaceId)) {
+      const queue = this.offlineQueues.get(workspaceId);
+      const updatedQueue = queue.filter(msg => !messageIds.includes(msg.id));
+      if (updatedQueue.length !== queue.length) {
+        changed = true;
+      }
+      if (updatedQueue.length === 0) {
+        this.offlineQueues.delete(workspaceId);
+      } else {
+        this.offlineQueues.set(workspaceId, updatedQueue);
+      }
+    }
+
+    const ackedAt = new Date().toISOString();
+    for (const record of this.idempotencyRecords.values()) {
+      if (record.targetId === workspaceId && messageIds.includes(record.messageId) && !record.acked) {
+        record.status = 'acked';
+        record.acked = true;
+        record.delivered = true;
+        record.deliveredAt = record.deliveredAt || ackedAt;
+        record.ackedAt = ackedAt;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await this.saveRegistry();
     }
     this.log(`✅ ACKed ${messageIds.length} messages for workspace: ${workspaceId}`);
   }
@@ -2320,6 +2705,7 @@ class MedusaServer {
    */
   async start() {
     this.log('🐍 Starting Medusa Chat Protocol...');
+    this.isStopping = false;
     
     try {
       await ProcessLock.cleanupStaleLocks();
@@ -2367,9 +2753,11 @@ class MedusaServer {
 
   /**
    * Gracefully stops all Medusa servers, intervals, and locks.
+   * @returns {Promise<void>}
    */
   async stop() {
     this.log('\n🐍 Medusa shutting down...');
+    this.isStopping = true;
     
     if (this.processLock) await this.processLock.release();
     await this.saveRegistry();

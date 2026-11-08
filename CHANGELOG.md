@@ -2,8 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- **Issue #67: Durable Send Idempotency & Receipt Reconciliation.** Added caller-supplied `idempotencyKey` support to `POST /messages/direct`, atomic persistence of `offlineQueues` and `idempotencyRecords` across Hub restarts and session clear/relaunch handoffs, `409 IDEMPOTENCY_KEY_CONFLICT` refusal on mismatched recipient/payload reuse, and read-only receipt reconciliation via `GET /messages/receipts/:idempotencyKey` (#67).
+
 ### Fixed
 - **Issue #66: Heartbeat Log Deduplication and ISO 8601 Timestamps.** Updated `MedusaServer` to log listener heartbeats only when a workspace's status is first seen or changes (`active`/`idle`), gated per-beat logging behind `DEBUG`, cleared listener status upon workspace disconnect/deregistration, and prefixed server log lines with ISO 8601 timestamps (#66).
+- **Issue #64: Preserve Hub Message ID Across A2A Propagation.** Stored the A2A ledger identifier on `msgPayload.a2aId` instead of overwriting `msgPayload.id` in `POST /messages/direct`, preventing ACK and idempotency ID mismatches (#64).
 
 ## [1.0.0-rc2] - 2026-08-16
 

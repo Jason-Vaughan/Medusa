@@ -1744,4 +1744,623 @@ describe('MedusaServer', () => {
       await server.stop();
     });
   });
+
+  describe('Durable Send Idempotency & Receipt Reconciliation (Issue #67 & #64)', () => {
+    let wsUrl;
+
+    const doRequest = (method, pathname, body = null, headers = {}) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        if (body !== null && body !== undefined) {
+          req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
+    };
+
+    beforeEach(async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+      server.workspaceRegistry.set('tc-target', {
+        id: 'tc-target',
+        name: 'TangleClawTarget',
+        path: '/projects/tc',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+      server.workspaceRegistry.set('other-target', {
+        id: 'other-target',
+        name: 'OtherTarget',
+        path: '/projects/other',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    test('persists idempotencyKey atomically with Hub enqueue and decouples A2A id from Hub id (#64, #67)', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { id: 'a2a-ledger-id-999' }
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check suite #2323 passed',
+        idempotencyKey: 'cw-wake-2323'
+      });
+
+      expect(sendRes.status).toBe(200);
+      expect(sendRes.data.success).toBe(true);
+      expect(sendRes.data.replayed).toBe(false);
+      expect(sendRes.data.idempotencyKey).toBe('cw-wake-2323');
+      expect(sendRes.data.id).toBeDefined();
+      expect(sendRes.data.id).not.toBe('a2a-ledger-id-999');
+      expect(sendRes.data.receipt).toMatchObject({
+        found: true,
+        idempotencyKey: 'cw-wake-2323',
+        id: sendRes.data.id,
+        messageId: sendRes.data.id,
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const queue = server.offlineQueues.get('tc-target');
+      expect(queue).toHaveLength(1);
+      expect(queue[0].id).toBe(sendRes.data.id);
+      expect(queue[0].a2aId).toBe('a2a-ledger-id-999');
+
+      // Verify atomic persistence on disk
+      const persisted = JSON.parse(await fs.readFile(tempRegistryFile, 'utf8'));
+      expect(persisted.offlineQueues['tc-target']).toHaveLength(1);
+      expect(persisted.offlineQueues['tc-target'][0].id).toBe(sendRes.data.id);
+      expect(persisted.idempotencyRecords['cw-wake-2323']).toMatchObject({
+        idempotencyKey: 'cw-wake-2323',
+        messageId: sendRes.data.id,
+        targetId: 'tc-target',
+        message: 'Check suite #2323 passed'
+      });
+    });
+
+    test('replaying the same idempotencyKey and identical recipient/payload returns original id without enqueueing a second message', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Terminal check result: green',
+        idempotencyKey: 'cw-replay-1'
+      });
+      expect(first.status).toBe(200);
+      expect(first.data.replayed).toBe(false);
+
+      // Replay via body idempotencyKey
+      const second = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Terminal check result: green',
+        idempotencyKey: 'cw-replay-1'
+      });
+      expect(second.status).toBe(200);
+      expect(second.data.replayed).toBe(true);
+      expect(second.data.id).toBe(first.data.id);
+      expect(second.data.messageId).toBe(first.data.id);
+
+      // Replay via Idempotency-Key HTTP header and workspace name
+      const third = await doRequest(
+        'POST',
+        '/messages/direct',
+        {
+          from: 'tangleclaw-check-watch',
+          to: 'TangleClawTarget',
+          message: 'Terminal check result: green'
+        },
+        { 'Idempotency-Key': 'cw-replay-1' }
+      );
+      expect(third.status).toBe(200);
+      expect(third.data.replayed).toBe(true);
+      expect(third.data.id).toBe(first.data.id);
+
+      // Only one message was ever enqueued
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+    });
+
+    test('reusing an idempotencyKey with a different recipient or payload is refused with 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const initial = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(initial.status).toBe(200);
+
+      // Different payload
+      const diffPayload = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check FAILED',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffPayload.status).toBe(409);
+      expect(diffPayload.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+      expect(diffPayload.data.idempotencyKey).toBe('cw-conflict-key');
+
+      // Different recipient
+      const diffRecipient = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'other-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffRecipient.status).toBe(409);
+      expect(diffRecipient.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Different sender
+      const diffSender = await doRequest('POST', '/messages/direct', {
+        from: 'different-sender',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffSender.status).toBe(409);
+      expect(diffSender.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Invalid/empty idempotencyKey
+      const emptyKey = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: '   '
+      });
+      expect(emptyKey.status).toBe(400);
+      expect(emptyKey.data.code).toBe('INVALID_IDEMPOTENCY_KEY');
+
+      // Queue was not polluted by any rejected conflict
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+      expect(server.offlineQueues.has('other-target')).toBe(false);
+    });
+
+    test('exposes read-only receipt lookup to reconcile unknown send outcome without creating a message', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      // 1. Unknown key returns 404 RECEIPT_NOT_FOUND and creates no message
+      const missingRes = await doRequest('GET', '/messages/receipts/unknown-key-123');
+      expect(missingRes.status).toBe(404);
+      expect(missingRes.data).toMatchObject({
+        found: false,
+        code: 'RECEIPT_NOT_FOUND',
+        idempotencyKey: 'unknown-key-123'
+      });
+      expect(server.offlineQueues.size).toBe(0);
+
+      // 2. Send with idempotencyKey
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-sender',
+        to: 'tc-target',
+        message: 'Reconcile me',
+        idempotencyKey: 'reconcile-key-1'
+      });
+      expect(sendRes.status).toBe(200);
+
+      // 3. Lookup receipt via path and query parameter
+      const lookupPath = await doRequest('GET', '/messages/receipts/reconcile-key-1');
+      expect(lookupPath.status).toBe(200);
+      expect(lookupPath.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'reconcile-key-1',
+        id: sendRes.data.id,
+        messageId: sendRes.data.id,
+        from: 'tc-sender',
+        to: 'tc-target',
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const lookupQuery = await doRequest('GET', '/messages/receipts?idempotencyKey=reconcile-key-1');
+      expect(lookupQuery.status).toBe(200);
+      expect(lookupQuery.data.id).toBe(sendRes.data.id);
+
+      // 4. ACK the message and verify receipt transitions to acked
+      await doRequest('POST', '/messages/ack', {
+        workspaceId: 'tc-target',
+        messageIds: [sendRes.data.id]
+      });
+
+      const lookupAcked = await doRequest('GET', '/messages/receipts/reconcile-key-1');
+      expect(lookupAcked.status).toBe(200);
+      expect(lookupAcked.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'reconcile-key-1',
+        id: sendRes.data.id,
+        status: 'acked',
+        queued: false,
+        delivered: true,
+        acked: true
+      });
+      expect(lookupAcked.data.ackedAt).toEqual(expect.any(String));
+    });
+
+    test('preserves accepted message and identity across Hub restart and hands off across session clear/relaunch', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      // 1. Live session connects before clear/relaunch
+      const wsBeforeClear = createWebSocket(wsUrl);
+      await new Promise((resolve, reject) => {
+        wsBeforeClear.on('open', () => {
+          wsBeforeClear.send(JSON.stringify({
+            type: 'register',
+            workspaceId: 'session-relaunch-ws',
+            name: 'RelaunchSession'
+          }));
+        });
+        wsBeforeClear.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'registered') resolve();
+        });
+        wsBeforeClear.on('error', reject);
+      });
+
+      // 2. Session enters clear/relaunch (WebSocket disconnects) right as or before check-watch sends wake
+      const closePromise = new Promise(resolve => wsBeforeClear.on('close', resolve));
+      wsBeforeClear.close();
+      await closePromise;
+      await new Promise(r => setTimeout(r, 50));
+
+      // Re-register workspace entry (as TangleClaw registry or pre-registered workspace) and enqueue idempotent wake
+      server.workspaceRegistry.set('session-relaunch-ws', {
+        id: 'session-relaunch-ws',
+        name: 'RelaunchSession',
+        path: '/projects/relaunch',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'session-relaunch-ws',
+        message: 'Check #2323 complete: wake session',
+        idempotencyKey: 'wake-across-restart-key'
+      });
+      expect(sendRes.status).toBe(200);
+      const originalMessageId = sendRes.data.id;
+
+      // 3. Simulate full Hub restart: stop server 1 and boot a brand new MedusaServer from tempRegistryFile
+      await server.stop();
+
+      server = new MedusaServer({
+        protocolPort: testPort,
+        webPort: testWebPort,
+        workspaceRegistryFile: tempRegistryFile,
+        a2aBaseUrl: 'http://localhost:3300',
+        a2aSecret: 'test-secret'
+      });
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+      await server.start();
+
+      // 4. Verify receipt lookup and idempotent replay after Hub restart (even before session finishes relaunching)
+      const receiptAfterRestart = await doRequest('GET', '/messages/receipts/wake-across-restart-key');
+      expect(receiptAfterRestart.status).toBe(200);
+      expect(receiptAfterRestart.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'wake-across-restart-key',
+        id: originalMessageId,
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const replayAfterRestart = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'session-relaunch-ws',
+        message: 'Check #2323 complete: wake session',
+        idempotencyKey: 'wake-across-restart-key'
+      });
+      expect(replayAfterRestart.status).toBe(200);
+      expect(replayAfterRestart.data.replayed).toBe(true);
+      expect(replayAfterRestart.data.id).toBe(originalMessageId);
+      expect(server.offlineQueues.get('session-relaunch-ws')).toHaveLength(1);
+
+      // 5. Project session completes clear/relaunch and connects a fresh WebSocket to the restarted Hub
+      const wsAfterRelaunch = createWebSocket(wsUrl);
+      const deliveredToRelaunched = await new Promise((resolve, reject) => {
+        wsAfterRelaunch.on('open', () => {
+          wsAfterRelaunch.send(JSON.stringify({
+            type: 'register',
+            workspaceId: 'session-relaunch-ws',
+            name: 'RelaunchSession'
+          }));
+        });
+        wsAfterRelaunch.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'new_message') {
+            resolve(msg);
+          }
+        });
+        wsAfterRelaunch.on('error', reject);
+      });
+
+      expect(deliveredToRelaunched.messageId).toBe(originalMessageId);
+      expect(deliveredToRelaunched.message.id).toBe(originalMessageId);
+      expect(deliveredToRelaunched.message.message).toBe('Check #2323 complete: wake session');
+      expect(deliveredToRelaunched.message.idempotencyKey).toBe('wake-across-restart-key');
+
+      // 6. Relaunched session ACKs the wake message; verify receipt transitions to acked and no duplicate is left
+      await new Promise((resolve, reject) => {
+        wsAfterRelaunch.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'ack_response') {
+            resolve(msg);
+          }
+        });
+        wsAfterRelaunch.on('error', reject);
+        wsAfterRelaunch.send(JSON.stringify({
+          type: 'ack',
+          messageIds: [originalMessageId]
+        }));
+      });
+
+      expect(server.offlineQueues.has('session-relaunch-ws')).toBe(false);
+      const finalReceipt = await doRequest('GET', '/messages/receipts/wake-across-restart-key');
+      expect(finalReceipt.status).toBe(200);
+      expect(finalReceipt.data).toMatchObject({
+        found: true,
+        id: originalMessageId,
+        status: 'acked',
+        queued: false,
+        delivered: true,
+        acked: true
+      });
+    });
+
+    test('fails POST /messages/direct with 500 PERSISTENCE_FAILED and does not deliver or retain uncommitted state when disk persistence fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, status: 200, data: { id: 'a2a-should-not-run' } });
+      const wsSendSpy = jest.spyOn(server, 'sendWebSocketMessage');
+
+      // Connect a live WebSocket client for tc-target
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-fail', mockWs]]));
+
+      // Point registry file under /dev/null so mkdir/write fails with EEXIST/ENOTDIR
+      const validRegistryFile = server.workspaceRegistryFile;
+      server.workspaceRegistryFile = '/dev/null/medusa-registry.json';
+
+      const failRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Should fail when persistence fails',
+        idempotencyKey: 'fail-persist-key-1'
+      });
+
+      expect(failRes.status).toBe(500);
+      expect(failRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(wsSendSpy).not.toHaveBeenCalled();
+      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('fail-persist-key-1')).toBe(false);
+
+      const receiptRes = await doRequest('GET', '/messages/receipts/fail-persist-key-1');
+      expect(receiptRes.status).toBe(404);
+
+      // Restore valid registry path and verify rename failure also rolls back cleanly
+      server.workspaceRegistryFile = validRegistryFile;
+      jest.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('Simulated rename crash'));
+
+      const renameFailRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Should fail when rename fails',
+        idempotencyKey: 'fail-persist-key-2'
+      });
+
+      expect(renameFailRes.status).toBe(500);
+      expect(renameFailRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(wsSendSpy).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('fail-persist-key-2')).toBe(false);
+    });
+
+    test('persists queue and idempotency key to disk strictly before live WebSocket delivery', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-order', mockWs]]));
+
+      const callOrder = [];
+      let diskSnapshotAtWsDelivery = null;
+
+      const origRename = fs.rename.bind(fs);
+      jest.spyOn(fs, 'rename').mockImplementation(async (oldPath, newPath) => {
+        await origRename(oldPath, newPath);
+        callOrder.push('fs.rename');
+      });
+
+      const origSendWs = server.sendWebSocketMessage.bind(server);
+      jest.spyOn(server, 'sendWebSocketMessage').mockImplementation((workspaceId, messageData) => {
+        callOrder.push('sendWebSocketMessage');
+        diskSnapshotAtWsDelivery = require('fs').readFileSync(tempRegistryFile, 'utf8');
+        return origSendWs(workspaceId, messageData);
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Order of operations check',
+        idempotencyKey: 'order-check-key-1'
+      });
+
+      expect(sendRes.status).toBe(200);
+      expect(callOrder[0]).toBe('fs.rename');
+      expect(callOrder.indexOf('fs.rename')).toBeLessThan(callOrder.indexOf('sendWebSocketMessage'));
+
+      // Verify that at the exact instant sendWebSocketMessage was invoked, both the queue entry
+      // and the idempotency record were already committed to tempRegistryFile on disk
+      const parsedAtDelivery = JSON.parse(diskSnapshotAtWsDelivery);
+      expect(parsedAtDelivery.offlineQueues['tc-target']).toHaveLength(1);
+      expect(parsedAtDelivery.offlineQueues['tc-target'][0].id).toBe(sendRes.data.id);
+      expect(parsedAtDelivery.idempotencyRecords['order-check-key-1']).toMatchObject({
+        idempotencyKey: 'order-check-key-1',
+        messageId: sendRes.data.id,
+        targetId: 'tc-target',
+        message: 'Order of operations check'
+      });
+    });
+
+    test('concurrent replay waits for in-flight initial save and fails if the initial save rejects, never returning a false 200', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-race', mockWs]]));
+
+      // 1. Hold the first save pending via a deferred promise on performRegistrySave
+      let saveEnteredResolve;
+      const saveEntered = new Promise((resolve) => {
+        saveEnteredResolve = resolve;
+      });
+      let rejectPendingSave;
+      const saveSpy = jest.spyOn(server, 'performRegistrySave').mockImplementationOnce(() => {
+        saveEnteredResolve();
+        return new Promise((_resolve, reject) => {
+          rejectPendingSave = reject;
+        });
+      });
+
+      const firstReqPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race wake',
+        idempotencyKey: 'race-key-fail'
+      });
+
+      await saveEntered;
+
+      // Synchronous receipt check while save is still pending must not report a committed receipt
+      expect(server.getIdempotencyReceipt('race-key-fail')).toBeNull();
+
+      let replaySettled = false;
+      const replayReqPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race wake',
+        idempotencyKey: 'race-key-fail'
+      }).then((res) => {
+        replaySettled = true;
+        return res;
+      });
+
+      // Conflicting key reuse while save is pending is still refused with 409
+      const conflictWhilePending = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Different payload while pending',
+        idempotencyKey: 'race-key-fail'
+      });
+      expect(conflictWhilePending.status).toBe(409);
+      expect(conflictWhilePending.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Give the event loop a turn and verify replay has NOT settled while initial save is still pending
+      await new Promise((r) => setTimeout(r, 30));
+      expect(replaySettled).toBe(false);
+
+      // Now reject the in-flight save
+      rejectPendingSave(new Error('ENOSPC: no space left on device'));
+
+      const [firstRes, replayRes] = await Promise.all([firstReqPromise, replayReqPromise]);
+      expect(firstRes.status).toBe(500);
+      expect(firstRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(replayRes.status).toBe(500);
+      expect(replayRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('race-key-fail')).toBe(false);
+
+      const receiptAfterReject = await doRequest('GET', '/messages/receipts/race-key-fail');
+      expect(receiptAfterReject.status).toBe(404);
+
+      // 2. Positive concurrent case: held save succeeds -> first gets 200 (replayed: false),
+      // concurrent replay waits and gets 200 (replayed: true) with identical id
+      saveSpy.mockRestore();
+      const origPerformSave = server.performRegistrySave.bind(server);
+      let saveEntered2Resolve;
+      const saveEntered2 = new Promise((resolve) => {
+        saveEntered2Resolve = resolve;
+      });
+      let resolvePendingSave2;
+      jest.spyOn(server, 'performRegistrySave').mockImplementationOnce(async () => {
+        saveEntered2Resolve();
+        await new Promise((resolve) => {
+          resolvePendingSave2 = resolve;
+        });
+        return origPerformSave();
+      });
+
+      const firstOkPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race success',
+        idempotencyKey: 'race-key-ok'
+      });
+
+      await saveEntered2;
+
+      let replayOkSettled = false;
+      const replayOkPromise = doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Concurrent race success',
+        idempotencyKey: 'race-key-ok'
+      }).then((res) => {
+        replayOkSettled = true;
+        return res;
+      });
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(replayOkSettled).toBe(false);
+
+      resolvePendingSave2();
+
+      const [firstOkRes, replayOkRes] = await Promise.all([firstOkPromise, replayOkPromise]);
+      expect(firstOkRes.status).toBe(200);
+      expect(firstOkRes.data.replayed).toBe(false);
+      expect(replayOkRes.status).toBe(200);
+      expect(replayOkRes.data.replayed).toBe(true);
+      expect(replayOkRes.data.id).toBe(firstOkRes.data.id);
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+    });
+  });
 });

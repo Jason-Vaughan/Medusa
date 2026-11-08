@@ -87,35 +87,48 @@ class MedusaServer {
   }
 
   /**
-   * Formats and logs informational messages with an ISO 8601 timestamp prefix.
-   * @param {...*} args - Arguments to write to stdout.
+   * Formats log arguments into a single string with an ISO 8601 timestamp prefix
+   * on every physical line, including multiline strings and Error stack traces.
+   * @param {...*} args - Arguments to format.
+   * @returns {string} Timestamp-prefixed log text.
    */
-  static log(...args) {
+  static formatLogMessage(...args) {
     const timestamp = new Date().toISOString();
-    if (args.length > 0 && typeof args[0] === 'string') {
-      if (args[0].startsWith('\n')) {
-        console.log(`\n[${timestamp}] ${args[0].slice(1)}`, ...args.slice(1));
-        return;
+    const combined = args.map(arg => {
+      if (arg instanceof Error) {
+        return arg.stack || arg.message || String(arg);
       }
-      console.log(`[${timestamp}] ${args[0]}`, ...args.slice(1));
-    } else {
-      console.log(`[${timestamp}]`, ...args);
-    }
+      if (typeof arg === 'string') {
+        return arg;
+      }
+      if (typeof arg === 'object' && arg !== null) {
+        try {
+          return JSON.stringify(arg);
+        } catch (e) {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    }).join(' ');
+    const rawLines = combined.split(/\r?\n/).filter(line => line.length > 0);
+    const lines = rawLines.length > 0 ? rawLines : [''];
+    return lines.map(line => `[${timestamp}] ${line}`).join('\n');
   }
 
   /**
-   * Formats and logs error messages with an ISO 8601 timestamp prefix.
+   * Formats and logs informational messages with an ISO 8601 timestamp prefix on every line.
+   * @param {...*} args - Arguments to write to stdout.
+   */
+  static log(...args) {
+    console.log(MedusaServer.formatLogMessage(...args));
+  }
+
+  /**
+   * Formats and logs error messages with an ISO 8601 timestamp prefix on every line.
    * @param {...*} args - Arguments to write to stderr.
    */
   static logError(...args) {
-    const timestamp = new Date().toISOString();
-    if (args.length > 0 && typeof args[0] === 'string') {
-      console.error(`[${timestamp}] ${args[0]}`, ...args.slice(1));
-    } else if (args.length > 0 && args[0] instanceof Error) {
-      console.error(`[${timestamp}] ${args[0].stack || args[0].message}`, ...args.slice(1));
-    } else {
-      console.error(`[${timestamp}]`, ...args);
-    }
+    console.error(MedusaServer.formatLogMessage(...args));
   }
 
   /**

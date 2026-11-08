@@ -248,10 +248,15 @@ describe('MedusaServer', () => {
       jest.spyOn(fs, 'writeFile').mockRejectedValue(new Error('Disk Full'));
       server.workspaceRegistry.set('t1', { id: 't1' });
       await server.saveRegistry();
-      expect(spy).toHaveBeenCalledWith(
-        expect.stringMatching(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] Error saving registry:$/),
-        expect.any(Error)
-      );
+      expect(spy).toHaveBeenCalledTimes(1);
+      const loggedOutput = spy.mock.calls[0][0];
+      expect(loggedOutput).toContain('Error saving registry:');
+      expect(loggedOutput).toContain('Disk Full');
+      const lines = loggedOutput.split('\n');
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) {
+        expect(line).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /);
+      }
     });
   });
 
@@ -1641,12 +1646,46 @@ describe('MedusaServer', () => {
       await expect(server.start()).rejects.toThrow('Lock busy');
     });
 
-    test('MedusaServer.runCli should log fatal constructor and start() failures with ISO 8601 timestamps (Issue #66)', async () => {
+    test('MedusaServer.runCli and log/logError should prefix every physical line with an ISO 8601 timestamp (Issue #66)', async () => {
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const mockProcess = {
         on: jest.fn(),
         exit: jest.fn()
       };
+      const isoPrefixRegex = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /;
+
+      // 0a. Direct Error object logged via MedusaServer.logError(new Error('fatal-test'))
+      errorSpy.mockClear();
+      MedusaServer.logError(new Error('fatal-test'));
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const directErrLines = errorSpy.mock.calls[0][0].split('\n');
+      expect(directErrLines.length).toBeGreaterThan(1);
+      expect(directErrLines[0]).toContain('Error: fatal-test');
+      for (const line of directErrLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
+
+      // 0b. Error passed after a string prefix via MedusaServer.logError('Context:', new Error('boom'))
+      errorSpy.mockClear();
+      MedusaServer.logError('Error saving registry:', new Error('disk full'));
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const prefixedErrLines = errorSpy.mock.calls[0][0].split('\n');
+      expect(prefixedErrLines.length).toBeGreaterThan(1);
+      expect(prefixedErrLines[0]).toContain('Error saving registry: Error: disk full');
+      for (const line of prefixedErrLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
+
+      // 0c. Multiline informational message via MedusaServer.log
+      logSpy.mockClear();
+      MedusaServer.log('\nfirst line\nsecond line');
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const infoLines = logSpy.mock.calls[0][0].split('\n');
+      expect(infoLines).toHaveLength(2);
+      for (const line of infoLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
 
       // 1. Constructor failure path (missing A2A_SECRET in production mode)
       const originalNodeEnv = process.env.NODE_ENV;
@@ -1661,9 +1700,12 @@ describe('MedusaServer', () => {
         expect(res1).toBeNull();
         expect(mockProcess.exit).toHaveBeenCalledWith(1);
         expect(errorSpy).toHaveBeenCalledTimes(1);
-        expect(errorSpy.mock.calls[0][0]).toMatch(
-          /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\].*A2A_SECRET environment variable is required/
-        );
+        const ctorErrLines = errorSpy.mock.calls[0][0].split('\n');
+        expect(ctorErrLines.length).toBeGreaterThan(1);
+        expect(ctorErrLines[0]).toContain('A2A_SECRET environment variable is required');
+        for (const line of ctorErrLines) {
+          expect(line).toMatch(isoPrefixRegex);
+        }
       } finally {
         process.env.NODE_ENV = originalNodeEnv;
         if (originalSecret !== undefined) {
@@ -1689,8 +1731,11 @@ describe('MedusaServer', () => {
       expect(mockProcess.exit).toHaveBeenCalledWith(1);
       expect(errorSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
       for (const call of errorSpy.mock.calls) {
-        expect(call[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /);
-        expect(call[0]).toContain('Fatal port/lock error');
+        const lines = call[0].split('\n');
+        expect(lines[0]).toContain('Fatal port/lock error');
+        for (const line of lines) {
+          expect(line).toMatch(isoPrefixRegex);
+        }
       }
     });
 

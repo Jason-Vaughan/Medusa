@@ -1921,5 +1921,99 @@ describe('MedusaServer', () => {
         acked: true
       });
     });
+
+    test('fails POST /messages/direct with 500 PERSISTENCE_FAILED and does not deliver or retain uncommitted state when disk persistence fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, status: 200, data: { id: 'a2a-should-not-run' } });
+      const wsSendSpy = jest.spyOn(server, 'sendWebSocketMessage');
+
+      // Connect a live WebSocket client for tc-target
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-fail', mockWs]]));
+
+      // Point registry file under /dev/null so mkdir/write fails with EEXIST/ENOTDIR
+      const validRegistryFile = server.workspaceRegistryFile;
+      server.workspaceRegistryFile = '/dev/null/medusa-registry.json';
+
+      const failRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Should fail when persistence fails',
+        idempotencyKey: 'fail-persist-key-1'
+      });
+
+      expect(failRes.status).toBe(500);
+      expect(failRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(wsSendSpy).not.toHaveBeenCalled();
+      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('fail-persist-key-1')).toBe(false);
+
+      const receiptRes = await doRequest('GET', '/messages/receipts/fail-persist-key-1');
+      expect(receiptRes.status).toBe(404);
+
+      // Restore valid registry path and verify rename failure also rolls back cleanly
+      server.workspaceRegistryFile = validRegistryFile;
+      jest.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('Simulated rename crash'));
+
+      const renameFailRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Should fail when rename fails',
+        idempotencyKey: 'fail-persist-key-2'
+      });
+
+      expect(renameFailRes.status).toBe(500);
+      expect(renameFailRes.data.code).toBe('PERSISTENCE_FAILED');
+      expect(wsSendSpy).not.toHaveBeenCalled();
+      expect(server.offlineQueues.has('tc-target')).toBe(false);
+      expect(server.idempotencyRecords.has('fail-persist-key-2')).toBe(false);
+    });
+
+    test('persists queue and idempotency key to disk strictly before live WebSocket delivery', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const mockWs = { readyState: WebSocket.OPEN, send: jest.fn(), terminate: jest.fn() };
+      server.wsClients.set('tc-target', new Map([['c-order', mockWs]]));
+
+      const callOrder = [];
+      let diskSnapshotAtWsDelivery = null;
+
+      const origRename = fs.rename.bind(fs);
+      jest.spyOn(fs, 'rename').mockImplementation(async (oldPath, newPath) => {
+        await origRename(oldPath, newPath);
+        callOrder.push('fs.rename');
+      });
+
+      const origSendWs = server.sendWebSocketMessage.bind(server);
+      jest.spyOn(server, 'sendWebSocketMessage').mockImplementation((workspaceId, messageData) => {
+        callOrder.push('sendWebSocketMessage');
+        diskSnapshotAtWsDelivery = require('fs').readFileSync(tempRegistryFile, 'utf8');
+        return origSendWs(workspaceId, messageData);
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'tc-target',
+        message: 'Order of operations check',
+        idempotencyKey: 'order-check-key-1'
+      });
+
+      expect(sendRes.status).toBe(200);
+      expect(callOrder[0]).toBe('fs.rename');
+      expect(callOrder.indexOf('fs.rename')).toBeLessThan(callOrder.indexOf('sendWebSocketMessage'));
+
+      // Verify that at the exact instant sendWebSocketMessage was invoked, both the queue entry
+      // and the idempotency record were already committed to tempRegistryFile on disk
+      const parsedAtDelivery = JSON.parse(diskSnapshotAtWsDelivery);
+      expect(parsedAtDelivery.offlineQueues['tc-target']).toHaveLength(1);
+      expect(parsedAtDelivery.offlineQueues['tc-target'][0].id).toBe(sendRes.data.id);
+      expect(parsedAtDelivery.idempotencyRecords['order-check-key-1']).toMatchObject({
+        idempotencyKey: 'order-check-key-1',
+        messageId: sendRes.data.id,
+        targetId: 'tc-target',
+        message: 'Order of operations check'
+      });
+    });
   });
 });

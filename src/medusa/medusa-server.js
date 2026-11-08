@@ -515,35 +515,52 @@ class MedusaServer {
   }
 
   /**
+   * Executes a single atomic write-to-temp-and-rename persistence pass for the workspace
+   * registry, durable offline message queues, and send idempotency records.
+   * @returns {Promise<void>}
+   * @throws {Error} When directory creation, temporary file write, or atomic rename fails
+   */
+  async performRegistrySave() {
+    let tmpFile = null;
+    try {
+      const registry = {
+        workspaces: Object.fromEntries(this.workspaceRegistry),
+        spawnApprovalCount: this.spawnApprovalCount,
+        offlineQueues: Object.fromEntries(this.offlineQueues),
+        idempotencyRecords: Object.fromEntries(this.idempotencyRecords)
+      };
+      
+      await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
+      this._saveSeq = (this._saveSeq || 0) + 1;
+      tmpFile = `${this.workspaceRegistryFile}.${process.pid}.${Date.now()}.${this._saveSeq}.tmp`;
+      await fs.writeFile(tmpFile, JSON.stringify(registry, null, 2));
+      await fs.rename(tmpFile, this.workspaceRegistryFile);
+    } catch (error) {
+      console.error('Error saving registry:', error);
+      if (tmpFile) {
+        await fs.unlink(tmpFile).catch(() => {});
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Atomically persist workspace registry, durable offline message queues, and send idempotency
    * records to disk via write-to-temp-and-rename.
+   * @param {object} [options={}] - Persistence options
+   * @param {boolean} [options.throwOnError=false] - Whether to reject when persistence fails
    * @returns {Promise<void>}
    */
-  async saveRegistry() {
-    const runSave = async () => {
-      let tmpFile = null;
-      try {
-        const registry = {
-          workspaces: Object.fromEntries(this.workspaceRegistry),
-          spawnApprovalCount: this.spawnApprovalCount,
-          offlineQueues: Object.fromEntries(this.offlineQueues),
-          idempotencyRecords: Object.fromEntries(this.idempotencyRecords)
-        };
-        
-        await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
-        this._saveSeq = (this._saveSeq || 0) + 1;
-        tmpFile = `${this.workspaceRegistryFile}.${process.pid}.${Date.now()}.${this._saveSeq}.tmp`;
-        await fs.writeFile(tmpFile, JSON.stringify(registry, null, 2));
-        await fs.rename(tmpFile, this.workspaceRegistryFile);
-      } catch (error) {
-        console.error('Error saving registry:', error);
-        if (tmpFile) {
-          await fs.unlink(tmpFile).catch(() => {});
-        }
-      }
-    };
-
-    this._savePromise = (this._savePromise || Promise.resolve()).then(runSave, runSave);
+  async saveRegistry(options = {}) {
+    const { throwOnError = false } = options;
+    const nextSave = (this._savePromise || Promise.resolve()).then(
+      () => this.performRegistrySave(),
+      () => this.performRegistrySave()
+    );
+    this._savePromise = nextSave.catch(() => {});
+    if (throwOnError) {
+      return nextSave;
+    }
     return this._savePromise;
   }
 
@@ -1071,18 +1088,12 @@ class MedusaServer {
           }
           
           // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
-          if (!this.offlineQueues.has(targetId)) {
+          const hadQueue = this.offlineQueues.has(targetId);
+          if (!hadQueue) {
             this.offlineQueues.set(targetId, []);
           }
-          this.offlineQueues.get(targetId).push(msgPayload);
-
-          if (isOnline) {
-            directDelivered = this.sendWebSocketMessage(targetId, {
-              type: 'new_message',
-              messageId: generatedId,
-              message: msgPayload
-            });
-          }
+          const targetQueue = this.offlineQueues.get(targetId);
+          targetQueue.push(msgPayload);
 
           if (idempotencyKey) {
             this.idempotencyRecords.set(idempotencyKey, {
@@ -1093,16 +1104,51 @@ class MedusaServer {
               targetId,
               message: data.message,
               status: isOnline ? 'received' : 'queued',
-              delivered: Boolean(directDelivered),
+              delivered: false,
               acked: false,
               createdAt: timestamp,
-              deliveredAt: directDelivered ? timestamp : null,
+              deliveredAt: null,
               ackedAt: null
             });
           }
 
-          // Persist queue and idempotency key atomically before acknowledging send
-          await this.saveRegistry();
+          // Persist queue and idempotency key atomically BEFORE live WebSocket delivery or A2A propagation
+          try {
+            await this.saveRegistry({ throwOnError: true });
+          } catch (persistError) {
+            const idx = targetQueue.indexOf(msgPayload);
+            if (idx !== -1) {
+              targetQueue.splice(idx, 1);
+            }
+            if (!hadQueue && targetQueue.length === 0) {
+              this.offlineQueues.delete(targetId);
+            }
+            if (idempotencyKey) {
+              this.idempotencyRecords.delete(idempotencyKey);
+            }
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              error: `Failed to persist message to durable Hub queue: ${persistError.message}`,
+              code: 'PERSISTENCE_FAILED'
+            }));
+            return;
+          }
+
+          if (isOnline) {
+            directDelivered = this.sendWebSocketMessage(targetId, {
+              type: 'new_message',
+              messageId: generatedId,
+              message: msgPayload
+            });
+            if (directDelivered && idempotencyKey && this.idempotencyRecords.has(idempotencyKey)) {
+              const rec = this.idempotencyRecords.get(idempotencyKey);
+              rec.delivered = true;
+              rec.deliveredAt = timestamp;
+              rec.status = 'received';
+              await this.saveRegistry();
+            }
+          }
           
           // Also attempt to propagate through the A2A mesh (fails gracefully if node is down)
           const result = await this.callA2A('POST', '/a2a/messages/send', {
@@ -2191,6 +2237,9 @@ class MedusaServer {
     });
   }
 
+  /**
+   * Configures WebSocket connection, registration, heartbeat, and ACK handlers.
+   */
   setupWebSocketHandlers() {
     this.wsServer.on('connection', (ws, req) => {
       console.log('🔌 WebSocket client connected');
@@ -2494,6 +2543,10 @@ class MedusaServer {
     });
   }
 
+  /**
+   * Starts the Medusa HTTP protocol server, WebSocket server, and web dashboard.
+   * @returns {Promise<boolean>} Resolves true once all servers are listening.
+   */
   async start() {
     console.log('🐍 Starting Medusa Chat Protocol...');
     this.isStopping = false;
@@ -2542,6 +2595,10 @@ class MedusaServer {
     }
   }
 
+  /**
+   * Gracefully stops all Medusa servers, intervals, and locks.
+   * @returns {Promise<void>}
+   */
   async stop() {
     console.log('\n🐍 Medusa shutting down...');
     this.isStopping = true;

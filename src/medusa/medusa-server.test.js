@@ -1641,6 +1641,59 @@ describe('MedusaServer', () => {
       await expect(server.start()).rejects.toThrow('Lock busy');
     });
 
+    test('MedusaServer.runCli should log fatal constructor and start() failures with ISO 8601 timestamps (Issue #66)', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const mockProcess = {
+        on: jest.fn(),
+        exit: jest.fn()
+      };
+
+      // 1. Constructor failure path (missing A2A_SECRET in production mode)
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.A2A_SECRET;
+      process.env.NODE_ENV = 'production';
+      delete process.env.A2A_SECRET;
+
+      try {
+        errorSpy.mockClear();
+        mockProcess.exit.mockClear();
+        const res1 = await MedusaServer.runCli({}, mockProcess);
+        expect(res1).toBeNull();
+        expect(mockProcess.exit).toHaveBeenCalledWith(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy.mock.calls[0][0]).toMatch(
+          /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\].*A2A_SECRET environment variable is required/
+        );
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        if (originalSecret !== undefined) {
+          process.env.A2A_SECRET = originalSecret;
+        }
+      }
+
+      // 2. Asynchronous server.start() rejection path
+      errorSpy.mockClear();
+      mockProcess.exit.mockClear();
+      ProcessLock.prototype.acquire.mockRejectedValue(new Error('Fatal port/lock error'));
+
+      const res2 = await MedusaServer.runCli(
+        {
+          protocolPort: testPort + 50,
+          webPort: testWebPort + 50,
+          workspaceRegistryFile: tempRegistryFile,
+          a2aSecret: 'test-secret'
+        },
+        mockProcess
+      );
+      expect(res2).toBeNull();
+      expect(mockProcess.exit).toHaveBeenCalledWith(1);
+      expect(errorSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of errorSpy.mock.calls) {
+        expect(call[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /);
+        expect(call[0]).toContain('Fatal port/lock error');
+      }
+    });
+
     test('Server.stop should handle missing servers', async () => {
       // Should not throw
       await server.stop();

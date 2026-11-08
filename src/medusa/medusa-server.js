@@ -90,7 +90,7 @@ class MedusaServer {
    * Formats and logs informational messages with an ISO 8601 timestamp prefix.
    * @param {...*} args - Arguments to write to stdout.
    */
-  log(...args) {
+  static log(...args) {
     const timestamp = new Date().toISOString();
     if (args.length > 0 && typeof args[0] === 'string') {
       if (args[0].startsWith('\n')) {
@@ -107,13 +107,31 @@ class MedusaServer {
    * Formats and logs error messages with an ISO 8601 timestamp prefix.
    * @param {...*} args - Arguments to write to stderr.
    */
-  logError(...args) {
+  static logError(...args) {
     const timestamp = new Date().toISOString();
     if (args.length > 0 && typeof args[0] === 'string') {
       console.error(`[${timestamp}] ${args[0]}`, ...args.slice(1));
+    } else if (args.length > 0 && args[0] instanceof Error) {
+      console.error(`[${timestamp}] ${args[0].stack || args[0].message}`, ...args.slice(1));
     } else {
       console.error(`[${timestamp}]`, ...args);
     }
+  }
+
+  /**
+   * Formats and logs informational messages with an ISO 8601 timestamp prefix.
+   * @param {...*} args - Arguments to write to stdout.
+   */
+  log(...args) {
+    MedusaServer.log(...args);
+  }
+
+  /**
+   * Formats and logs error messages with an ISO 8601 timestamp prefix.
+   * @param {...*} args - Arguments to write to stderr.
+   */
+  logError(...args) {
+    MedusaServer.logError(...args);
   }
 
   /**
@@ -2371,20 +2389,46 @@ class MedusaServer {
     await Promise.all(closures);
     this.log('🐍 Shutdown complete.');
   }
+
+  /**
+   * Instantiates and starts MedusaServer for CLI execution, routing both synchronous
+   * constructor errors (such as missing A2A_SECRET) and asynchronous startup failures
+   * through the ISO 8601 timestamped error logger before exiting with status 1.
+   * @param {object} [options={}] - Server configuration options.
+   * @param {object} [processObj=process] - Process object for signal registration and exit.
+   * @returns {Promise<MedusaServer|null>} The started server instance, or null on fatal startup error.
+   */
+  static async runCli(options = {}, processObj = process) {
+    let server;
+    try {
+      server = new MedusaServer(options);
+    } catch (err) {
+      MedusaServer.logError(err);
+      processObj.exit(1);
+      return null;
+    }
+
+    if (typeof processObj.on === 'function') {
+      processObj.on('SIGINT', async () => {
+        await server.stop();
+        processObj.exit(0);
+      });
+    }
+
+    try {
+      await server.start();
+      return server;
+    } catch (err) {
+      MedusaServer.logError(err);
+      processObj.exit(1);
+      return null;
+    }
+  }
 }
 
 // Start the servers if run directly
 if (require.main === module) {
-  const server = new MedusaServer();
-  server.start().catch(err => {
-    console.error(err);
-    process.exit(1);
-  });
-
-  process.on('SIGINT', async () => {
-    await server.stop();
-    process.exit(0);
-  });
+  MedusaServer.runCli();
 }
 
 // Export for testing

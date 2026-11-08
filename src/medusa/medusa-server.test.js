@@ -1520,4 +1520,406 @@ describe('MedusaServer', () => {
       await server.stop();
     });
   });
+
+  describe('Durable Send Idempotency & Receipt Reconciliation (Issue #67 & #64)', () => {
+    let wsUrl;
+
+    const doRequest = (method, pathname, body = null, headers = {}) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        if (body !== null && body !== undefined) {
+          req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
+    };
+
+    beforeEach(async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+      server.workspaceRegistry.set('tc-target', {
+        id: 'tc-target',
+        name: 'TangleClawTarget',
+        path: '/projects/tc',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+      server.workspaceRegistry.set('other-target', {
+        id: 'other-target',
+        name: 'OtherTarget',
+        path: '/projects/other',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    test('persists idempotencyKey atomically with Hub enqueue and decouples A2A id from Hub id (#64, #67)', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { id: 'a2a-ledger-id-999' }
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check suite #2323 passed',
+        idempotencyKey: 'cw-wake-2323'
+      });
+
+      expect(sendRes.status).toBe(200);
+      expect(sendRes.data.success).toBe(true);
+      expect(sendRes.data.replayed).toBe(false);
+      expect(sendRes.data.idempotencyKey).toBe('cw-wake-2323');
+      expect(sendRes.data.id).toBeDefined();
+      expect(sendRes.data.id).not.toBe('a2a-ledger-id-999');
+      expect(sendRes.data.receipt).toMatchObject({
+        found: true,
+        idempotencyKey: 'cw-wake-2323',
+        id: sendRes.data.id,
+        messageId: sendRes.data.id,
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const queue = server.offlineQueues.get('tc-target');
+      expect(queue).toHaveLength(1);
+      expect(queue[0].id).toBe(sendRes.data.id);
+      expect(queue[0].a2aId).toBe('a2a-ledger-id-999');
+
+      // Verify atomic persistence on disk
+      const persisted = JSON.parse(await fs.readFile(tempRegistryFile, 'utf8'));
+      expect(persisted.offlineQueues['tc-target']).toHaveLength(1);
+      expect(persisted.offlineQueues['tc-target'][0].id).toBe(sendRes.data.id);
+      expect(persisted.idempotencyRecords['cw-wake-2323']).toMatchObject({
+        idempotencyKey: 'cw-wake-2323',
+        messageId: sendRes.data.id,
+        targetId: 'tc-target',
+        message: 'Check suite #2323 passed'
+      });
+    });
+
+    test('replaying the same idempotencyKey and identical recipient/payload returns original id without enqueueing a second message', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Terminal check result: green',
+        idempotencyKey: 'cw-replay-1'
+      });
+      expect(first.status).toBe(200);
+      expect(first.data.replayed).toBe(false);
+
+      // Replay via body idempotencyKey
+      const second = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Terminal check result: green',
+        idempotencyKey: 'cw-replay-1'
+      });
+      expect(second.status).toBe(200);
+      expect(second.data.replayed).toBe(true);
+      expect(second.data.id).toBe(first.data.id);
+      expect(second.data.messageId).toBe(first.data.id);
+
+      // Replay via Idempotency-Key HTTP header and workspace name
+      const third = await doRequest(
+        'POST',
+        '/messages/direct',
+        {
+          from: 'tangleclaw-check-watch',
+          to: 'TangleClawTarget',
+          message: 'Terminal check result: green'
+        },
+        { 'Idempotency-Key': 'cw-replay-1' }
+      );
+      expect(third.status).toBe(200);
+      expect(third.data.replayed).toBe(true);
+      expect(third.data.id).toBe(first.data.id);
+
+      // Only one message was ever enqueued
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+    });
+
+    test('reusing an idempotencyKey with a different recipient or payload is refused with 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      const initial = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(initial.status).toBe(200);
+
+      // Different payload
+      const diffPayload = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check FAILED',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffPayload.status).toBe(409);
+      expect(diffPayload.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+      expect(diffPayload.data.idempotencyKey).toBe('cw-conflict-key');
+
+      // Different recipient
+      const diffRecipient = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'other-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffRecipient.status).toBe(409);
+      expect(diffRecipient.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Different sender
+      const diffSender = await doRequest('POST', '/messages/direct', {
+        from: 'different-sender',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: 'cw-conflict-key'
+      });
+      expect(diffSender.status).toBe(409);
+      expect(diffSender.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+
+      // Invalid/empty idempotencyKey
+      const emptyKey = await doRequest('POST', '/messages/direct', {
+        from: 'tangleclaw-check-watch',
+        to: 'tc-target',
+        message: 'Check passed',
+        idempotencyKey: '   '
+      });
+      expect(emptyKey.status).toBe(400);
+      expect(emptyKey.data.code).toBe('INVALID_IDEMPOTENCY_KEY');
+
+      // Queue was not polluted by any rejected conflict
+      expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
+      expect(server.offlineQueues.has('other-target')).toBe(false);
+    });
+
+    test('exposes read-only receipt lookup to reconcile unknown send outcome without creating a message', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      // 1. Unknown key returns 404 RECEIPT_NOT_FOUND and creates no message
+      const missingRes = await doRequest('GET', '/messages/receipts/unknown-key-123');
+      expect(missingRes.status).toBe(404);
+      expect(missingRes.data).toMatchObject({
+        found: false,
+        code: 'RECEIPT_NOT_FOUND',
+        idempotencyKey: 'unknown-key-123'
+      });
+      expect(server.offlineQueues.size).toBe(0);
+
+      // 2. Send with idempotencyKey
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-sender',
+        to: 'tc-target',
+        message: 'Reconcile me',
+        idempotencyKey: 'reconcile-key-1'
+      });
+      expect(sendRes.status).toBe(200);
+
+      // 3. Lookup receipt via path and query parameter
+      const lookupPath = await doRequest('GET', '/messages/receipts/reconcile-key-1');
+      expect(lookupPath.status).toBe(200);
+      expect(lookupPath.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'reconcile-key-1',
+        id: sendRes.data.id,
+        messageId: sendRes.data.id,
+        from: 'tc-sender',
+        to: 'tc-target',
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const lookupQuery = await doRequest('GET', '/messages/receipts?idempotencyKey=reconcile-key-1');
+      expect(lookupQuery.status).toBe(200);
+      expect(lookupQuery.data.id).toBe(sendRes.data.id);
+
+      // 4. ACK the message and verify receipt transitions to acked
+      await doRequest('POST', '/messages/ack', {
+        workspaceId: 'tc-target',
+        messageIds: [sendRes.data.id]
+      });
+
+      const lookupAcked = await doRequest('GET', '/messages/receipts/reconcile-key-1');
+      expect(lookupAcked.status).toBe(200);
+      expect(lookupAcked.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'reconcile-key-1',
+        id: sendRes.data.id,
+        status: 'acked',
+        queued: false,
+        delivered: true,
+        acked: true
+      });
+      expect(lookupAcked.data.ackedAt).toEqual(expect.any(String));
+    });
+
+    test('preserves accepted message and identity across Hub restart and hands off across session clear/relaunch', async () => {
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+
+      // 1. Live session connects before clear/relaunch
+      const wsBeforeClear = createWebSocket(wsUrl);
+      await new Promise((resolve, reject) => {
+        wsBeforeClear.on('open', () => {
+          wsBeforeClear.send(JSON.stringify({
+            type: 'register',
+            workspaceId: 'session-relaunch-ws',
+            name: 'RelaunchSession'
+          }));
+        });
+        wsBeforeClear.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'registered') resolve();
+        });
+        wsBeforeClear.on('error', reject);
+      });
+
+      // 2. Session enters clear/relaunch (WebSocket disconnects) right as or before check-watch sends wake
+      const closePromise = new Promise(resolve => wsBeforeClear.on('close', resolve));
+      wsBeforeClear.close();
+      await closePromise;
+      await new Promise(r => setTimeout(r, 50));
+
+      // Re-register workspace entry (as TangleClaw registry or pre-registered workspace) and enqueue idempotent wake
+      server.workspaceRegistry.set('session-relaunch-ws', {
+        id: 'session-relaunch-ws',
+        name: 'RelaunchSession',
+        path: '/projects/relaunch',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+
+      const sendRes = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'session-relaunch-ws',
+        message: 'Check #2323 complete: wake session',
+        idempotencyKey: 'wake-across-restart-key'
+      });
+      expect(sendRes.status).toBe(200);
+      const originalMessageId = sendRes.data.id;
+
+      // 3. Simulate full Hub restart: stop server 1 and boot a brand new MedusaServer from tempRegistryFile
+      await server.stop();
+
+      server = new MedusaServer({
+        protocolPort: testPort,
+        webPort: testWebPort,
+        workspaceRegistryFile: tempRegistryFile,
+        a2aBaseUrl: 'http://localhost:3300',
+        a2aSecret: 'test-secret'
+      });
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: false, status: 503 });
+      await server.start();
+
+      // 4. Verify receipt lookup and idempotent replay after Hub restart (even before session finishes relaunching)
+      const receiptAfterRestart = await doRequest('GET', '/messages/receipts/wake-across-restart-key');
+      expect(receiptAfterRestart.status).toBe(200);
+      expect(receiptAfterRestart.data).toMatchObject({
+        found: true,
+        idempotencyKey: 'wake-across-restart-key',
+        id: originalMessageId,
+        status: 'queued',
+        queued: true,
+        acked: false
+      });
+
+      const replayAfterRestart = await doRequest('POST', '/messages/direct', {
+        from: 'tc-check-watch',
+        to: 'session-relaunch-ws',
+        message: 'Check #2323 complete: wake session',
+        idempotencyKey: 'wake-across-restart-key'
+      });
+      expect(replayAfterRestart.status).toBe(200);
+      expect(replayAfterRestart.data.replayed).toBe(true);
+      expect(replayAfterRestart.data.id).toBe(originalMessageId);
+      expect(server.offlineQueues.get('session-relaunch-ws')).toHaveLength(1);
+
+      // 5. Project session completes clear/relaunch and connects a fresh WebSocket to the restarted Hub
+      const wsAfterRelaunch = createWebSocket(wsUrl);
+      const deliveredToRelaunched = await new Promise((resolve, reject) => {
+        wsAfterRelaunch.on('open', () => {
+          wsAfterRelaunch.send(JSON.stringify({
+            type: 'register',
+            workspaceId: 'session-relaunch-ws',
+            name: 'RelaunchSession'
+          }));
+        });
+        wsAfterRelaunch.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'new_message') {
+            resolve(msg);
+          }
+        });
+        wsAfterRelaunch.on('error', reject);
+      });
+
+      expect(deliveredToRelaunched.messageId).toBe(originalMessageId);
+      expect(deliveredToRelaunched.message.id).toBe(originalMessageId);
+      expect(deliveredToRelaunched.message.message).toBe('Check #2323 complete: wake session');
+      expect(deliveredToRelaunched.message.idempotencyKey).toBe('wake-across-restart-key');
+
+      // 6. Relaunched session ACKs the wake message; verify receipt transitions to acked and no duplicate is left
+      await new Promise((resolve, reject) => {
+        wsAfterRelaunch.on('message', (raw) => {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'ack_response') {
+            resolve(msg);
+          }
+        });
+        wsAfterRelaunch.on('error', reject);
+        wsAfterRelaunch.send(JSON.stringify({
+          type: 'ack',
+          messageIds: [originalMessageId]
+        }));
+      });
+
+      expect(server.offlineQueues.has('session-relaunch-ws')).toBe(false);
+      const finalReceipt = await doRequest('GET', '/messages/receipts/wake-across-restart-key');
+      expect(finalReceipt.status).toBe(200);
+      expect(finalReceipt.data).toMatchObject({
+        found: true,
+        id: originalMessageId,
+        status: 'acked',
+        queued: false,
+        delivered: true,
+        acked: true
+      });
+    });
+  });
 });

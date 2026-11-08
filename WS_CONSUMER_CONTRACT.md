@@ -53,6 +53,48 @@ If using the official `MedusaClient.js` library, this is now handled via:
 await client.ackMessages(['uuid-1', 'uuid-2']);
 ```
 
+## Idempotent Direct Send & Receipt Reconciliation
+
+Senders that require exactly-once enqueue semantics across retries or crashes (such as check-watch wake notifications) can supply an `idempotencyKey` (in the JSON body or `Idempotency-Key` header) on `POST /messages/direct`:
+
+`POST http://127.0.0.1:3100/messages/direct`
+```json
+{
+  "from": "sender-workspace",
+  "to": "your-workspace-name",
+  "message": "Wake check result",
+  "idempotencyKey": "check-watch-123"
+}
+```
+
+- **Atomic Persistence**: The Hub persists the `idempotencyKey` record and the durable `offlineQueues` entry atomically to disk before returning. Both the queued message and its identity survive Hub restarts and hand off to the target session across session clear/relaunch when the session re-registers over WebSocket.
+- **Idempotent Replay (`200 OK`)**: Replaying the same `idempotencyKey` with the identical recipient and payload returns the original Hub message `id` (`replayed: true`) and does NOT enqueue or deliver a duplicate message.
+- **Conflict Detection (`409 Conflict`)**: Reusing an `idempotencyKey` with a different recipient or payload is refused with HTTP `409` and `code: "IDEMPOTENCY_KEY_CONFLICT"`.
+- **Read-Only Receipt Lookup**: Senders can reconcile an unknown send outcome without creating another message via:
+
+`GET http://127.0.0.1:3100/messages/receipts/:idempotencyKey`
+
+The server responds with `200 OK` (or `404` with `code: "RECEIPT_NOT_FOUND"` if unknown):
+```json
+{
+  "found": true,
+  "idempotencyKey": "check-watch-123",
+  "id": "uuid-here",
+  "messageId": "uuid-here",
+  "from": "sender-workspace",
+  "to": "your-workspace-name",
+  "status": "queued",
+  "queued": true,
+  "delivered": false,
+  "acked": false,
+  "timestamp": "2026-07-11T12:00:00Z",
+  "deliveredAt": null,
+  "ackedAt": null
+}
+```
+
+If using `MedusaClient.js`, callers can pass `{ idempotencyKey }` to `sendMessage` and query receipts via `getMessageReceipt(idempotencyKey)`.
+
 ## Heartbeats
 
 To keep the connection alive and advertise autonomous mode status, clients should periodically send a `listener_heartbeat`:

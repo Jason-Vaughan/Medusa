@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Issue #66: Heartbeat Log Deduplication and ISO 8601 Timestamps.** Updated `MedusaServer` to log listener heartbeats only when a workspace's status is first seen or changes (`active`/`idle`), gated per-beat logging behind `DEBUG`, cleared listener status upon workspace disconnect/deregistration, and prefixed server log lines with ISO 8601 timestamps (#66).
+
 ## [1.0.0-rc2] - 2026-08-16
 
 ### Added

@@ -248,7 +248,15 @@ describe('MedusaServer', () => {
       jest.spyOn(fs, 'writeFile').mockRejectedValue(new Error('Disk Full'));
       server.workspaceRegistry.set('t1', { id: 't1' });
       await server.saveRegistry();
-      expect(spy).toHaveBeenCalledWith('Error saving registry:', expect.any(Error));
+      expect(spy).toHaveBeenCalledTimes(1);
+      const loggedOutput = spy.mock.calls[0][0];
+      expect(loggedOutput).toContain('Error saving registry:');
+      expect(loggedOutput).toContain('Disk Full');
+      const lines = loggedOutput.split('\n');
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) {
+        expect(line).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /);
+      }
     });
   });
 
@@ -1201,6 +1209,129 @@ describe('MedusaServer', () => {
       });
     });
 
+    test('should log heartbeat only on first beat or status change with ISO 8601 timestamp, and suppress repeats unless DEBUG is set (Issue #66)', async () => {
+      const originalDebug = process.env.DEBUG;
+      delete process.env.DEBUG;
+
+      try {
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const ws = createWebSocket(wsUrl);
+
+        await new Promise((resolve, reject) => {
+          ws.on('open', () => {
+            ws.send(JSON.stringify({ type: 'register', workspaceId: 'hb-ws' }));
+          });
+          ws.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'registered') resolve();
+          });
+          ws.on('error', reject);
+        });
+
+        const sendHeartbeat = (status) => new Promise((resolve) => {
+          const onMsg = (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'heartbeat_ack') {
+              ws.off('message', onMsg);
+              resolve(msg);
+            }
+          };
+          ws.on('message', onMsg);
+          ws.send(JSON.stringify({ type: 'listener_heartbeat', status }));
+        });
+
+        const getHeartbeatLogs = () =>
+          logSpy.mock.calls
+            .map((args) => args[0])
+            .filter((line) => typeof line === 'string' && line.includes('💓 Listener heartbeat from hb-ws'));
+
+        // 1. First heartbeat ('active') should log once with ISO 8601 timestamp prefix
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        let hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+
+        // 2. Repeated heartbeat with unchanged status ('active') produces NO log line
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        await sendHeartbeat('active');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 3. Status change ('active' -> 'idle') produces exactly one log line
+        logSpy.mockClear();
+        await sendHeartbeat('idle');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: idle$/);
+
+        // 4. Repeated 'idle' produces NO log line
+        logSpy.mockClear();
+        await sendHeartbeat('idle');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 5. Status change ('idle' -> 'active') produces one log line
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+
+        // 6. With DEBUG=1, repeated heartbeats with unchanged status ARE logged
+        process.env.DEBUG = '1';
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+
+        // 7. With DEBUG=false or DEBUG=0, repeated heartbeats are NOT logged
+        process.env.DEBUG = 'false';
+        logSpy.mockClear();
+        await sendHeartbeat('active');
+        expect(getHeartbeatLogs()).toHaveLength(0);
+
+        // 8. After disconnect and reconnect, first heartbeat is treated as newly seen and logged again
+        delete process.env.DEBUG;
+        ws.close();
+        await new Promise((r) => setTimeout(r, 50));
+        expect(server.listenerStatus.has('hb-ws')).toBe(false);
+
+        const wsReconnect = createWebSocket(wsUrl);
+        await new Promise((resolve, reject) => {
+          wsReconnect.on('open', () => {
+            wsReconnect.send(JSON.stringify({ type: 'register', workspaceId: 'hb-ws' }));
+          });
+          wsReconnect.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'registered') resolve();
+          });
+          wsReconnect.on('error', reject);
+        });
+
+        logSpy.mockClear();
+        await new Promise((resolve) => {
+          const onMsg = (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'heartbeat_ack') {
+              wsReconnect.off('message', onMsg);
+              resolve(msg);
+            }
+          };
+          wsReconnect.on('message', onMsg);
+          wsReconnect.send(JSON.stringify({ type: 'listener_heartbeat', status: 'active' }));
+        });
+        hbLogs = getHeartbeatLogs();
+        expect(hbLogs).toHaveLength(1);
+        expect(hbLogs[0]).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] 💓 Listener heartbeat from hb-ws: active$/);
+      } finally {
+        if (originalDebug === undefined) {
+          delete process.env.DEBUG;
+        } else {
+          process.env.DEBUG = originalDebug;
+        }
+      }
+    });
+
     test('should reap workspace from registry on WS close', (done) => {
       const ws = createWebSocket(wsUrl);
       ws.on('open', () => {
@@ -1513,6 +1644,99 @@ describe('MedusaServer', () => {
     test('Server.start should handle lock failure', async () => {
       ProcessLock.prototype.acquire.mockRejectedValue(new Error('Lock busy'));
       await expect(server.start()).rejects.toThrow('Lock busy');
+    });
+
+    test('MedusaServer.runCli and log/logError should prefix every physical line with an ISO 8601 timestamp (Issue #66)', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const mockProcess = {
+        on: jest.fn(),
+        exit: jest.fn()
+      };
+      const isoPrefixRegex = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] /;
+
+      // 0a. Direct Error object logged via MedusaServer.logError(new Error('fatal-test'))
+      errorSpy.mockClear();
+      MedusaServer.logError(new Error('fatal-test'));
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const directErrLines = errorSpy.mock.calls[0][0].split('\n');
+      expect(directErrLines.length).toBeGreaterThan(1);
+      expect(directErrLines[0]).toContain('Error: fatal-test');
+      for (const line of directErrLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
+
+      // 0b. Error passed after a string prefix via MedusaServer.logError('Context:', new Error('boom'))
+      errorSpy.mockClear();
+      MedusaServer.logError('Error saving registry:', new Error('disk full'));
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const prefixedErrLines = errorSpy.mock.calls[0][0].split('\n');
+      expect(prefixedErrLines.length).toBeGreaterThan(1);
+      expect(prefixedErrLines[0]).toContain('Error saving registry: Error: disk full');
+      for (const line of prefixedErrLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
+
+      // 0c. Multiline informational message via MedusaServer.log
+      logSpy.mockClear();
+      MedusaServer.log('\nfirst line\nsecond line');
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const infoLines = logSpy.mock.calls[0][0].split('\n');
+      expect(infoLines).toHaveLength(2);
+      for (const line of infoLines) {
+        expect(line).toMatch(isoPrefixRegex);
+      }
+
+      // 1. Constructor failure path (missing A2A_SECRET in production mode)
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.A2A_SECRET;
+      process.env.NODE_ENV = 'production';
+      delete process.env.A2A_SECRET;
+
+      try {
+        errorSpy.mockClear();
+        mockProcess.exit.mockClear();
+        const res1 = await MedusaServer.runCli({}, mockProcess);
+        expect(res1).toBeNull();
+        expect(mockProcess.exit).toHaveBeenCalledWith(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        const ctorErrLines = errorSpy.mock.calls[0][0].split('\n');
+        expect(ctorErrLines.length).toBeGreaterThan(1);
+        expect(ctorErrLines[0]).toContain('A2A_SECRET environment variable is required');
+        for (const line of ctorErrLines) {
+          expect(line).toMatch(isoPrefixRegex);
+        }
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        if (originalSecret !== undefined) {
+          process.env.A2A_SECRET = originalSecret;
+        }
+      }
+
+      // 2. Asynchronous server.start() rejection path
+      errorSpy.mockClear();
+      mockProcess.exit.mockClear();
+      ProcessLock.prototype.acquire.mockRejectedValue(new Error('Fatal port/lock error'));
+
+      const res2 = await MedusaServer.runCli(
+        {
+          protocolPort: testPort + 50,
+          webPort: testWebPort + 50,
+          workspaceRegistryFile: tempRegistryFile,
+          a2aSecret: 'test-secret'
+        },
+        mockProcess
+      );
+      expect(res2).toBeNull();
+      expect(mockProcess.exit).toHaveBeenCalledWith(1);
+      expect(errorSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of errorSpy.mock.calls) {
+        const lines = call[0].split('\n');
+        expect(lines[0]).toContain('Fatal port/lock error');
+        for (const line of lines) {
+          expect(line).toMatch(isoPrefixRegex);
+        }
+      }
     });
 
     test('Server.stop should handle missing servers', async () => {

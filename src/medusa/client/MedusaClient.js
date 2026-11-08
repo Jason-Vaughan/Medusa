@@ -235,6 +235,10 @@ class MedusaClient extends EventEmitter {
   
   /**
    * Send a direct message to another workspace
+   * @param {string} targetWorkspace - Target workspace ID or name
+   * @param {string} message - Message content
+   * @param {object} [metadata={}] - Optional metadata or options (may include idempotencyKey)
+   * @returns {Promise<object>} Server response including message id and optional receipt
    */
   async sendMessage(targetWorkspace, message, metadata = {}) {
     if (!this.workspaceId) {
@@ -242,18 +246,24 @@ class MedusaClient extends EventEmitter {
     }
     
     try {
-      const response = await this.request('POST', '/messages/direct', {
+      const payload = {
         from: this.workspaceId,
         to: targetWorkspace,
         message,
         metadata
-      });
+      };
+      if (metadata && typeof metadata.idempotencyKey === 'string') {
+        payload.idempotencyKey = metadata.idempotencyKey;
+      }
+
+      const response = await this.request('POST', '/messages/direct', payload);
       
       if (response.success) {
         this.emit('messageSent', {
           to: targetWorkspace,
           message,
-          messageId: response.messageId
+          messageId: response.messageId || response.id,
+          idempotencyKey: response.idempotencyKey
         });
         
         return response;
@@ -264,6 +274,18 @@ class MedusaClient extends EventEmitter {
       console.error('🐍 Message send failed:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Retrieve the delivery/enqueue receipt for an idempotent send without creating a message
+   * @param {string} idempotencyKey - Caller-supplied idempotency key
+   * @returns {Promise<object>} Receipt payload from the Medusa Hub
+   */
+  async getMessageReceipt(idempotencyKey) {
+    if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+      throw new Error('idempotencyKey is required');
+    }
+    return this.request('GET', `/messages/receipts/${encodeURIComponent(idempotencyKey.trim())}`);
   }
   
   /**

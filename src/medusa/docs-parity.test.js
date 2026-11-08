@@ -54,4 +54,14 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(docContent).toMatch(/\/workspaces\/:workspaceId\/peek/);
     expect(serverContent).toMatch(/\\\/workspaces\\\/\[\^\\\/\]\+\\\/peek/);
   });
+
+  test('Document and Server implement idempotent send and receipt lookup (Issue #67)', () => {
+    expect(docContent).toMatch(/idempotencyKey/);
+    expect(docContent).toMatch(/IDEMPOTENCY_KEY_CONFLICT/);
+    expect(docContent).toMatch(/\/messages\/receipts\/:idempotencyKey/);
+    expect(serverContent).toMatch(/IDEMPOTENCY_KEY_CONFLICT/);
+    expect(serverContent).toMatch(/\/messages\/receipts/);
+    const clientMethods = Object.getOwnPropertyNames(MedusaClient.prototype);
+    expect(clientMethods).toContain('getMessageReceipt');
+  });
 });

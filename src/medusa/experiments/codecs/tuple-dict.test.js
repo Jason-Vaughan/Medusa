@@ -295,6 +295,38 @@ describe('TupleTableCodec and DictionaryInternCodec (Issue #72)', () => {
       expect(decoded.errors[0]).toMatch(/SYMBOL_CONFLICT/);
     });
 
+    test('rolls a rejected newSymbols batch back atomically, leaving the receiver table untouched', () => {
+      const codec = new DictionaryInternCodec();
+      const receiverTable = new SharedSymbolTable();
+
+      // Self-conflicting batch: token 0 is first seeded as 'A', then immediately contradicted by 'B'.
+      const rejectedBatch = {
+        v: 1,
+        body: { kind: 'task.assign', from: { $ref: 0 }, to: 'Medusa-Lane-A' },
+        newSymbols: [
+          [0, 'A'],
+          [0, 'B']
+        ]
+      };
+
+      const firstAttempt = codec.decode(rejectedBatch, { receiverTable });
+      expect(firstAttempt.ok).toBe(false);
+      expect(firstAttempt.code).toBe('SYMBOL_CONFLICT');
+      // The rejected batch must not have left token 0 seeded as 'A' behind.
+      expect(receiverTable.resolve(0)).toBeUndefined();
+      expect(receiverTable.size()).toBe(0);
+
+      // A later, legitimately-ordered frame mapping token 0 to 'B' must still succeed.
+      const validFrame = {
+        v: 1,
+        body: { kind: 'task.ack', from: { $ref: 0 }, to: 'Medusa-PM' },
+        newSymbols: [[0, 'B']]
+      };
+      const secondAttempt = codec.decode(validFrame, { receiverTable });
+      expect(secondAttempt.ok).toBe(true);
+      expect(secondAttempt.message.from).toBe('B');
+    });
+
     test('SharedSymbolTable.clone produces an independent copy', () => {
       const table = new SharedSymbolTable();
       table.intern('Medusa-PM');

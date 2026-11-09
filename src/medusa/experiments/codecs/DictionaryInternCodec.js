@@ -360,6 +360,12 @@ class DictionaryInternCodec extends BaseCodec {
     }
 
     const table = context.receiverTable instanceof SharedSymbolTable ? context.receiverTable : new SharedSymbolTable();
+    // Snapshotted up front so any failure below (a mid-batch SYMBOL_CONFLICT, or an
+    // UNRESOLVED_SYMBOL_REF found while decoding the body) can restore the shared table to
+    // exactly its pre-call state — decode() is otherwise all-or-nothing for the caller, but
+    // would leave an already-rejected batch's earlier seeds permanently stuck without this.
+    const preCallSnapshot = table.exportSnapshot();
+
     for (const entry of payload.newSymbols || []) {
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [token, value] = entry;
@@ -367,6 +373,7 @@ class DictionaryInternCodec extends BaseCodec {
       const existingTokenForValue = table.tokenFor(value);
 
       if (existingValueForToken !== undefined && existingValueForToken !== value) {
+        table.importSnapshot(preCallSnapshot);
         return {
           ok: false,
           code: 'SYMBOL_CONFLICT',
@@ -379,6 +386,7 @@ class DictionaryInternCodec extends BaseCodec {
         };
       }
       if (existingTokenForValue !== undefined && existingTokenForValue !== token) {
+        table.importSnapshot(preCallSnapshot);
         return {
           ok: false,
           code: 'SYMBOL_CONFLICT',
@@ -399,6 +407,7 @@ class DictionaryInternCodec extends BaseCodec {
     const message = transformForDecode(payload.body, table, errors);
 
     if (errors.length > 0) {
+      table.importSnapshot(preCallSnapshot);
       return {
         ok: false,
         code: 'UNRESOLVED_SYMBOL_REF',

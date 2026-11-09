@@ -81,6 +81,16 @@ class SharedSymbolTable {
   }
 
   /**
+   * Returns the existing token already assigned to `value`, without creating one.
+   *
+   * @param {string} value - Candidate string value.
+   * @returns {number|undefined} The existing token, or `undefined` if `value` is unknown.
+   */
+  tokenFor(value) {
+    return this.valueToToken.get(value);
+  }
+
+  /**
    * Resolves a token back to its original string value.
    *
    * @param {number} token - Token to resolve.
@@ -167,10 +177,27 @@ function internValue(value, table, newSymbols) {
 }
 
 /**
+ * Returns whether `node` is shaped exactly like one of this codec's own wire markers
+ * (a plain object with exactly one key, `$ref` or `$esc`). Any such literal value occurring
+ * naturally in message data would otherwise be indistinguishable from a marker this codec
+ * created itself, so `transformForEncode` escapes it on sight.
+ *
+ * @param {*} node - Value to check.
+ * @returns {boolean}
+ */
+function isMarkerShaped(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return false;
+  const keys = Object.keys(node);
+  return keys.length === 1 && (keys[0] === '$ref' || keys[0] === '$esc');
+}
+
+/**
  * Recursively walks a message tree, replacing string values under `INTERNABLE_KEYS` with
  * `{ $ref: token }` placeholders. Keys outside `INTERNABLE_KEYS` are recursed into unchanged
  * so nested structures (`findings`, `assignments`, `dependencies`, `sharedContext`) are still
- * covered when they themselves carry an internable key.
+ * covered when they themselves carry an internable key. Any literal value already shaped like
+ * `{ $ref: ... }` or `{ $esc: ... }` — wherever it occurs — is wrapped as `{ $esc: <value> }`
+ * first, so it can never be mistaken for a marker this codec created.
  *
  * @param {*} node - Current message subtree.
  * @param {SharedSymbolTable} table - Table to intern new values into.
@@ -182,6 +209,9 @@ function transformForEncode(node, table, newSymbols) {
     return node.map((item) => transformForEncode(item, table, newSymbols));
   }
   if (node && typeof node === 'object') {
+    if (isMarkerShaped(node)) {
+      return { $esc: node };
+    }
     const out = {};
     for (const [key, value] of Object.entries(node)) {
       if (INTERNABLE_KEYS.has(key) && typeof value === 'string') {
@@ -199,7 +229,8 @@ function transformForEncode(node, table, newSymbols) {
 
 /**
  * Recursively walks a decoded message tree, replacing `{ $ref: token }` placeholders with
- * their resolved values. Pushes an error for any token absent from `table`.
+ * their resolved values and unwrapping `{ $esc: value }` markers back to the literal `value`
+ * `transformForEncode` protected. Pushes an error for any token absent from `table`.
  *
  * @param {*} node - Current encoded subtree.
  * @param {SharedSymbolTable} table - Table to resolve tokens against.
@@ -211,7 +242,11 @@ function transformForDecode(node, table, errors) {
     return node.map((item) => transformForDecode(item, table, errors));
   }
   if (node && typeof node === 'object') {
-    if (Object.prototype.hasOwnProperty.call(node, '$ref') && Object.keys(node).length === 1) {
+    const keys = Object.keys(node);
+    if (keys.length === 1 && keys[0] === '$esc') {
+      return node.$esc;
+    }
+    if (keys.length === 1 && keys[0] === '$ref') {
       const resolved = table.resolve(node.$ref);
       if (resolved === undefined) {
         errors.push(`UNRESOLVED_SYMBOL_REF: token $${node.$ref} is not present in the symbol table`);
@@ -328,7 +363,34 @@ class DictionaryInternCodec extends BaseCodec {
     for (const entry of payload.newSymbols || []) {
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [token, value] = entry;
-      if (table.resolve(token) === undefined) {
+      const existingValueForToken = table.resolve(token);
+      const existingTokenForValue = table.tokenFor(value);
+
+      if (existingValueForToken !== undefined && existingValueForToken !== value) {
+        return {
+          ok: false,
+          code: 'SYMBOL_CONFLICT',
+          message: null,
+          humanAuditText: '',
+          errors: [
+            `SYMBOL_CONFLICT: token $${token} already maps to ${JSON.stringify(existingValueForToken)}, but the wire's newSymbols claims it maps to ${JSON.stringify(value)}`
+          ],
+          warnings: []
+        };
+      }
+      if (existingTokenForValue !== undefined && existingTokenForValue !== token) {
+        return {
+          ok: false,
+          code: 'SYMBOL_CONFLICT',
+          message: null,
+          humanAuditText: '',
+          errors: [
+            `SYMBOL_CONFLICT: value ${JSON.stringify(value)} is already interned as token $${existingTokenForValue}, but the wire's newSymbols claims token $${token}`
+          ],
+          warnings: []
+        };
+      }
+      if (existingValueForToken === undefined) {
         table.seed(token, value);
       }
     }

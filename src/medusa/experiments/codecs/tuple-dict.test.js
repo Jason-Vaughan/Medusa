@@ -98,6 +98,26 @@ describe('TupleTableCodec and DictionaryInternCodec (Issue #72)', () => {
       expect(decoded.ok).toBe(true);
       expect(decoded.message).toEqual(message);
     });
+
+    test.each([
+      ['null', null],
+      ['a plain object', { unexpected: 'shape' }],
+      ['a string', 'oops-not-an-array']
+    ])('round-trips a non-array findings value (%s) without coercing it to []', (_label, value) => {
+      const codec = new TupleTableCodec();
+      const message = { kind: 'review.findings', from: 'Medusa-PRR', to: 'Medusa-PM', verdict: 'PASS', findings: value };
+      const decoded = codec.decode(codec.encode(message));
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
+
+    test('round-trips a non-array assignments value (null) without coercing it to []', () => {
+      const codec = new TupleTableCodec();
+      const message = { kind: 'task.assign', from: 'Medusa-PM', to: 'Medusa-Lane-A', assignments: null };
+      const decoded = codec.decode(codec.encode(message));
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
   });
 
   describe('3. TupleTableCodec malformed input rejection', () => {
@@ -130,13 +150,17 @@ describe('TupleTableCodec and DictionaryInternCodec (Issue #72)', () => {
   });
 
   describe('4. DictionaryInternCodec lossless round-trip and interning', () => {
-    test(`round-trips all ${ALL_MESSAGES.length} benchmark messages using a shared symbol table`, () => {
+    test(`round-trips all ${ALL_MESSAGES.length} benchmark messages using independent sender/receiver symbol tables`, () => {
       const codec = new DictionaryInternCodec();
-      const table = new SharedSymbolTable();
+      // Independent tables (not one table reused for both sides) so the receiver can only
+      // ever learn a value through the wire's `newSymbols`, genuinely exercising delivery
+      // across the full corpus rather than trivially hitting an already-populated table.
+      const senderTable = new SharedSymbolTable();
+      const receiverTable = new SharedSymbolTable();
 
       for (const message of ALL_MESSAGES) {
-        const envelope = codec.encode(message, { senderTable: table });
-        const decoded = codec.decode(envelope, { receiverTable: table });
+        const envelope = codec.encode(message, { senderTable });
+        const decoded = codec.decode(envelope, { receiverTable });
         expect(decoded.ok).toBe(true);
         expect(decoded.message).toEqual(message);
       }
@@ -205,6 +229,70 @@ describe('TupleTableCodec and DictionaryInternCodec (Issue #72)', () => {
 
       expect(decoded2.ok).toBe(true);
       expect(decoded2.message).toEqual(second);
+    });
+
+    test('round-trips a literal {$ref: n} object in message data without misinterpreting it as a symbol reference', () => {
+      const codec = new DictionaryInternCodec();
+      const table = new SharedSymbolTable();
+      const message = {
+        kind: 'state.update',
+        from: 'Medusa-PM',
+        to: 'Medusa-Lane-A',
+        weirdPayload: { $ref: 0 }
+      };
+
+      const decoded = codec.decode(codec.encode(message, { senderTable: table }), { receiverTable: table });
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
+
+    test('round-trips a literal {$esc: ...} object in message data', () => {
+      const codec = new DictionaryInternCodec();
+      const table = new SharedSymbolTable();
+      const message = {
+        kind: 'state.update',
+        from: 'Medusa-PM',
+        to: 'Medusa-Lane-A',
+        weirdPayload: { $esc: 'already-escaped-looking' }
+      };
+
+      const decoded = codec.decode(codec.encode(message, { senderTable: table }), { receiverTable: table });
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
+
+    test('rejects decode with SYMBOL_CONFLICT when the wire newSymbols disagrees with an already-known token', () => {
+      const codec = new DictionaryInternCodec();
+      const receiverTable = new SharedSymbolTable();
+      receiverTable.seed(0, 'Medusa-PRR');
+
+      const conflictingPayload = {
+        v: 1,
+        body: { kind: 'task.assign', from: { $ref: 0 }, to: 'Medusa-Lane-A' },
+        newSymbols: [[0, 'Totally-Different-Value']]
+      };
+
+      const decoded = codec.decode(conflictingPayload, { receiverTable });
+      expect(decoded.ok).toBe(false);
+      expect(decoded.code).toBe('SYMBOL_CONFLICT');
+      expect(decoded.errors[0]).toMatch(/SYMBOL_CONFLICT/);
+    });
+
+    test('rejects decode with SYMBOL_CONFLICT when the wire newSymbols claims a new token for an already-interned value', () => {
+      const codec = new DictionaryInternCodec();
+      const receiverTable = new SharedSymbolTable();
+      receiverTable.seed(7, 'Medusa-PM');
+
+      const conflictingPayload = {
+        v: 1,
+        body: { kind: 'task.assign', from: { $ref: 3 }, to: 'Medusa-Lane-A' },
+        newSymbols: [[3, 'Medusa-PM']]
+      };
+
+      const decoded = codec.decode(conflictingPayload, { receiverTable });
+      expect(decoded.ok).toBe(false);
+      expect(decoded.code).toBe('SYMBOL_CONFLICT');
+      expect(decoded.errors[0]).toMatch(/SYMBOL_CONFLICT/);
     });
 
     test('SharedSymbolTable.clone produces an independent copy', () => {

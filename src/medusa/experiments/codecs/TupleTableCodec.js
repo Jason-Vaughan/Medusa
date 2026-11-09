@@ -167,28 +167,32 @@ function decodeTabularRow(rowText, knownKeys) {
 
 /**
  * Encodes a tabular array field (`findings` or `assignments`) into a single slot.
- * Distinguishes an absent field (`''`), a present-but-empty array (`'A'`), and a
- * non-empty array (`'A' + rows joined by ';'`) so round-tripping is lossless.
+ * Distinguishes an absent field (`''`), a present-but-empty array (`'A'`), a non-empty
+ * array (`'A' + rows joined by ';'`), and a present value that is NOT an array (`null`, a
+ * plain object, a primitive) — preserved exactly via a trailing JSON leaf (`'J' + ...`)
+ * rather than silently coerced into `[]` — so round-tripping is lossless for every case.
  *
- * @param {Array<object>|undefined} value - The field's array value, if present.
+ * @param {*} value - The field's value, if present.
  * @param {string[]} knownKeys - Ordered positional field names for each sub-row.
  * @returns {string} Encoded slot text.
  */
 function encodeTabularArrayField(value, knownKeys) {
   if (value === undefined) return '';
-  if (!Array.isArray(value) || value.length === 0) return 'A';
+  if (!Array.isArray(value)) return `J${encodeJsonLeaf(value)}`;
+  if (value.length === 0) return 'A';
   return `A${value.map((item) => encodeTabularRow(item, knownKeys)).join(';')}`;
 }
 
 /**
- * Decodes a slot produced by `encodeTabularArrayField` back into an array (or `undefined`).
+ * Decodes a slot produced by `encodeTabularArrayField` back into its original value.
  *
  * @param {string} slot - Encoded slot text.
  * @param {string[]} knownKeys - Ordered positional field names for each sub-row.
- * @returns {Array<object>|undefined} Decoded array, or `undefined` if the field was absent.
+ * @returns {*} Decoded value, or `undefined` if the field was absent.
  */
 function decodeTabularArrayField(slot, knownKeys) {
   if (slot === undefined || slot === '') return undefined;
+  if (slot[0] === 'J') return decodeJsonLeaf(slot.slice(1));
   const rest = slot.slice(1);
   if (rest === '') return [];
   return splitUnescaped(rest, ';').map((row) => decodeTabularRow(row, knownKeys));

@@ -3,7 +3,8 @@
 /**
  * Pluggable Codec Registry & Fail-Safe Negotiation Layer for Medusa Communication Experiments.
  *
- * Registers Approaches A–E (`nl-baseline-v1`, `compact-json-v1`, `graph-v1`, `graph-delta-v1`, `typed-cmd-v1`)
+ * Registers Approaches A–I (`nl-baseline-v1`, `compact-json-v1`, `graph-v1`, `graph-delta-v1`,
+ * `typed-cmd-v1`, `tuple-table-v1`, `dict-intern-v1`, `json-patch-v1`, `blackboard-ref-v1`)
  * and enforces safe fallback when an unknown codec or unsupported schema version is encountered.
  */
 
@@ -13,11 +14,22 @@ const { CompactJsonCodec, hashSharedContext } = require('./CompactJsonCodec');
 const { GraphCodec, messageToGraph, graphToMessage } = require('./GraphCodec');
 const { GraphDeltaCodec, SharedGraphStore, edgeKey } = require('./GraphDeltaCodec');
 const { TypedCommandCodec, scanCommandArgs } = require('./TypedCommandCodec');
+const { TupleTableCodec } = require('./TupleTableCodec');
+const { DictionaryInternCodec, SharedSymbolTable } = require('./DictionaryInternCodec');
+const { JsonPatchDeltaCodec, FlatStateRegister, computeDiff, applyDiff, canonicalStringify, computeStateDigest } = require('./JsonPatchDeltaCodec');
+const {
+  BlackboardRefCodec,
+  BlackboardStore,
+  HEAVY_FIELDS,
+  artifactHash,
+  artifactPointer,
+  isArtifactPointer
+} = require('./BlackboardRefCodec');
 const { estimateTokens, estimateInferenceCost } = require('./TokenEstimator');
 
 class CodecRegistry {
   /**
-   * Initializes a CodecRegistry with all 5 runtime experimental codecs registered by default.
+   * Initializes a CodecRegistry with all 9 runtime experimental codecs registered by default.
    *
    * @param {object} [options={}] - Registry configuration options.
    */
@@ -29,6 +41,10 @@ class CodecRegistry {
       this.register(new GraphCodec());
       this.register(new GraphDeltaCodec());
       this.register(new TypedCommandCodec());
+      this.register(new TupleTableCodec());
+      this.register(new DictionaryInternCodec());
+      this.register(new JsonPatchDeltaCodec());
+      this.register(new BlackboardRefCodec());
     }
   }
 
@@ -153,6 +169,13 @@ module.exports = {
   GraphDeltaCodec,
   SharedGraphStore,
   TypedCommandCodec,
+  TupleTableCodec,
+  DictionaryInternCodec,
+  SharedSymbolTable,
+  JsonPatchDeltaCodec,
+  FlatStateRegister,
+  BlackboardRefCodec,
+  BlackboardStore,
   VALID_KINDS,
   VALID_VERDICTS,
   formatHumanAuditText,
@@ -162,6 +185,14 @@ module.exports = {
   graphToMessage,
   edgeKey,
   scanCommandArgs,
+  computeDiff,
+  applyDiff,
+  canonicalStringify,
+  computeStateDigest,
+  HEAVY_FIELDS,
+  artifactHash,
+  artifactPointer,
+  isArtifactPointer,
   estimateTokens,
   estimateInferenceCost
 };

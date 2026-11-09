@@ -44,23 +44,18 @@ function generateMarkdownReport(report) {
   lines.push('');
   lines.push('## 2. Per-Scenario Multi-Turn Token Breakdown');
   lines.push('');
-  lines.push(
-    '| Scenario | Msgs | `nl-baseline-v1` | `compact-json-v1` | `graph-v1` | `graph-delta-v1` | `typed-cmd-v1` |'
-  );
-  lines.push('|---|---:|---:|---:|---:|---:|---:|');
+  const allCodecIds = Object.keys(report.byCodec);
+  lines.push(`| Scenario | Msgs | ${allCodecIds.map((id) => `\`${id}\``).join(' | ')} |`);
+  lines.push(`|---|---:|${allCodecIds.map(() => '---:').join('|')}|`);
 
-  const scenariosCount = report.byCodec['nl-baseline-v1'].scenarios.length;
+  const scenariosCount = report.byCodec[allCodecIds[0]].scenarios.length;
   for (let i = 0; i < scenariosCount; i++) {
-    const scId = report.byCodec['nl-baseline-v1'].scenarios[i].scenarioId;
-    const msgCount = report.byCodec['nl-baseline-v1'].scenarios[i].messageCount;
-    const nl = report.byCodec['nl-baseline-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const cj = report.byCodec['compact-json-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const gr = report.byCodec['graph-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const gd = report.byCodec['graph-delta-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const tc = report.byCodec['typed-cmd-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    lines.push(
-      `| \`${scId}\` | ${msgCount} | ${nl.toLocaleString()} | ${cj.toLocaleString()} | ${gr.toLocaleString()} | ${gd.toLocaleString()} | **${tc.toLocaleString()}** |`
+    const scId = report.byCodec[allCodecIds[0]].scenarios[i].scenarioId;
+    const msgCount = report.byCodec[allCodecIds[0]].scenarios[i].messageCount;
+    const cells = allCodecIds.map((id) =>
+      report.byCodec[id].scenarios[i].metrics.totalMultiTurnTokens.toLocaleString()
     );
+    lines.push(`| \`${scId}\` | ${msgCount} | ${cells.join(' | ')} |`);
   }
 
   lines.push('');
@@ -101,18 +96,22 @@ function generateMarkdownReport(report) {
   lines.push('');
   lines.push('## 4. Resilience & State Synchronization Findings (Scenarios 7 & 9)');
   lines.push('');
-  const gdS7 = report.byCodec['graph-delta-v1'].scenarios.find(
-    (s) => s.scenarioId === 'S07-conflicting-shared-state-writes'
-  );
-  const gdS9 = report.byCodec['graph-delta-v1'].scenarios.find(
-    (s) => s.scenarioId === 'S09-disconnect-missed-delta-recovery'
-  );
-  lines.push(
-    `- **Scenario 7 (Concurrent Conflicting Writes):** \`graph-delta-v1\` deterministically detected the stale base version write (\`conflictDetectedDeterministically: ${gdS7.conflictProbe.conflictDetectedDeterministically}\`, code: \`${gdS7.conflictProbe.conflictCode}\`) and recovered cleanly after rebasing onto the coordinator's snapshot (\`recoveredAfterRebase: ${gdS7.conflictProbe.recoveredAfterRebase}\`).`
-  );
-  lines.push(
-    `- **Scenario 9 (Disconnect & Missed Update Recovery):** \`graph-delta-v1\` deterministically flagged the version gap when Turn 2 was missed (\`detectedMissedUpdate: ${gdS9.disconnectProbe.detectedMissedUpdate}\`, code: \`${gdS9.disconnectProbe.errorCode}\`) and restored 100% state digest parity upon snapshot resync (\`recoveredFidelity: ${gdS9.disconnectProbe.recoveredFidelity}\`).`
-  );
+  const DELTA_CODEC_LABELS = {
+    'graph-delta-v1': 'property-graph delta',
+    'json-patch-v1': 'flat state-register JSON Patch delta'
+  };
+  for (const [codecId, label] of Object.entries(DELTA_CODEC_LABELS)) {
+    const s7 = report.byCodec[codecId].scenarios.find((s) => s.scenarioId === 'S07-conflicting-shared-state-writes');
+    const s9 = report.byCodec[codecId].scenarios.find(
+      (s) => s.scenarioId === 'S09-disconnect-missed-delta-recovery'
+    );
+    lines.push(
+      `- **\`${codecId}\` (${label}) — Scenario 7 (Concurrent Conflicting Writes):** deterministically detected the stale base version write (\`conflictDetectedDeterministically: ${s7.conflictProbe.conflictDetectedDeterministically}\`, code: \`${s7.conflictProbe.conflictCode}\`) and recovered cleanly after rebasing onto the coordinator's snapshot (\`recoveredAfterRebase: ${s7.conflictProbe.recoveredAfterRebase}\`).`
+    );
+    lines.push(
+      `- **\`${codecId}\` (${label}) — Scenario 9 (Disconnect & Missed Update Recovery):** deterministically flagged the version gap when Turn 2 was missed (\`detectedMissedUpdate: ${s9.disconnectProbe.detectedMissedUpdate}\`, code: \`${s9.disconnectProbe.errorCode}\`) and restored 100% state digest parity upon snapshot resync (\`recoveredFidelity: ${s9.disconnectProbe.recoveredFidelity}\`).`
+    );
+  }
 
   lines.push('');
   lines.push('---');

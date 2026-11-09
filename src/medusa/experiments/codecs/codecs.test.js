@@ -5,8 +5,9 @@
  *
  * Verifies:
  * 1. Pluggable CodecRegistry & BaseCodec contract (`encode`, `decode`, `validate`, `capabilities`)
- * 2. 100% lossless round-trip semantic preservation across all 5 codecs (`nl-baseline-v1`, `compact-json-v1`,
- *    `graph-v1`, `graph-delta-v1`, `typed-cmd-v1`) and all 10 benchmark scenarios (49 messages)
+ * 2. 100% lossless round-trip semantic preservation across all 9 codecs (`nl-baseline-v1`, `compact-json-v1`,
+ *    `graph-v1`, `graph-delta-v1`, `typed-cmd-v1`, `tuple-table-v1`, `dict-intern-v1`, `json-patch-v1`,
+ *    `blackboard-ref-v1`) and all 10 benchmark scenarios
  * 3. Context deduplication (`ctxRef` / `@ctx:<digest>`) and incremental graph delta omission
  * 4. Optimistic concurrency conflict detection (`VERSION_CONFLICT`, `BASE_DIGEST_MISMATCH`)
  * 5. Disconnect / missed-delta detection (`MISSING_BASE_VERSION`) and snapshot resync recovery
@@ -23,12 +24,18 @@ const {
   GraphDeltaCodec,
   SharedGraphStore,
   TypedCommandCodec,
+  JsonPatchDeltaCodec,
+  FlatStateRegister,
   estimateTokens,
   estimateInferenceCost,
   validateCanonicalMessage
 } = require('./CodecRegistry');
 const { BENCHMARK_SCENARIOS, AUTHORITATIVE_REPO_STATE } = require('../../../../benchmarks/agent-communication/scenarios');
-const { measureSemanticPreservation, runFullBenchmarkSuite } = require('../../../../benchmarks/agent-communication/harness');
+const {
+  createCodecState,
+  measureSemanticPreservation,
+  runFullBenchmarkSuite
+} = require('../../../../benchmarks/agent-communication/harness');
 
 describe('Medusa Agent-to-Agent Communication Codecs (Issue #71)', () => {
   let registry;
@@ -38,14 +45,18 @@ describe('Medusa Agent-to-Agent Communication Codecs (Issue #71)', () => {
   });
 
   describe('1. CodecRegistry & Pluggable Interface', () => {
-    test('registers all 5 candidate communication codecs with complete capabilities manifests', () => {
+    test('registers all 9 candidate communication codecs with complete capabilities manifests', () => {
       const caps = registry.listCapabilities();
       expect(caps.map((c) => c.id)).toEqual([
         'nl-baseline-v1',
         'compact-json-v1',
         'graph-v1',
         'graph-delta-v1',
-        'typed-cmd-v1'
+        'typed-cmd-v1',
+        'tuple-table-v1',
+        'dict-intern-v1',
+        'json-patch-v1',
+        'blackboard-ref-v1'
       ]);
 
       for (const cap of caps) {
@@ -89,20 +100,29 @@ describe('Medusa Agent-to-Agent Communication Codecs (Issue #71)', () => {
     });
   });
 
-  describe('2. Round-Trip Semantic Fidelity Across All 5 Codecs & 10 Scenarios', () => {
-    const codecIds = ['nl-baseline-v1', 'compact-json-v1', 'graph-v1', 'graph-delta-v1', 'typed-cmd-v1'];
+  describe('2. Round-Trip Semantic Fidelity Across All 9 Codecs & 10 Scenarios', () => {
+    const codecIds = [
+      'nl-baseline-v1',
+      'compact-json-v1',
+      'graph-v1',
+      'graph-delta-v1',
+      'typed-cmd-v1',
+      'tuple-table-v1',
+      'dict-intern-v1',
+      'json-patch-v1',
+      'blackboard-ref-v1'
+    ];
 
-    test.each(codecIds)('codec "%s" achieves 100%% field-level semantic preservation across all 49 scenario messages', (codecId) => {
+    test.each(codecIds)('codec "%s" achieves 100%% field-level semantic preservation across every scenario message', (codecId) => {
       const codec = registry.get(codecId);
       for (const scenario of BENCHMARK_SCENARIOS) {
-        const senderStore = new SharedGraphStore();
-        const receiverStore = new SharedGraphStore();
+        const state = createCodecState(codecId);
         const knownContextDigests = new Set();
         const contextCache = new Map();
 
         for (const msg of scenario.messages) {
           const envelope = codec.encode(msg, {
-            senderStore,
+            ...state,
             knownContextDigests,
             contextCache
           });
@@ -114,7 +134,7 @@ describe('Medusa Agent-to-Agent Communication Codecs (Issue #71)', () => {
           expect(envelope.humanAuditText).toContain(msg.kind);
 
           const decoded = codec.decode(envelope, {
-            receiverStore,
+            ...state,
             contextCache
           });
           expect(decoded.ok).toBe(true);
@@ -234,6 +254,57 @@ describe('Medusa Agent-to-Agent Communication Codecs (Issue #71)', () => {
       expect(missed.code).toBe('MISSING_BASE_VERSION');
 
       // Receiver imports snapshot and verifies state digest match
+      receiverStore.importSnapshot(senderStore.exportSnapshot());
+      expect(receiverStore.computeDigest()).toBe(senderStore.computeDigest());
+    });
+
+    test('JsonPatchDeltaCodec detects concurrent conflicting writes (VERSION_CONFLICT) and recovers via snapshot rebase', () => {
+      const jp = new JsonPatchDeltaCodec();
+      const s7 = BENCHMARK_SCENARIOS.find((s) => s.id === 'S07-conflicting-shared-state-writes');
+
+      const coordinatorStore = new FlatStateRegister();
+      const initEnv = jp.encode(s7.messages[0], { senderStore: coordinatorStore });
+      expect(initEnv.metadata.targetVersion).toBe(1);
+
+      const laneAStore = coordinatorStore.clone();
+      const laneBStore = coordinatorStore.clone();
+
+      const deltaA = jp.encode(s7.messages[1], { senderStore: laneAStore });
+      const deltaBStale = jp.encode(s7.messages[2], { senderStore: laneBStore });
+
+      const applyA = jp.decode(deltaA, { receiverStore: coordinatorStore });
+      expect(applyA.ok).toBe(true);
+      expect(coordinatorStore.version).toBe(2);
+
+      const applyBStale = jp.decode(deltaBStale, { receiverStore: coordinatorStore });
+      expect(applyBStale.ok).toBe(false);
+      expect(applyBStale.code).toBe('VERSION_CONFLICT');
+
+      laneBStore.importSnapshot(coordinatorStore.exportSnapshot());
+      const deltaBRebased = jp.encode(s7.messages[2], { senderStore: laneBStore });
+      const applyBRebased = jp.decode(deltaBRebased, { receiverStore: coordinatorStore });
+      expect(applyBRebased.ok).toBe(true);
+      expect(coordinatorStore.version).toBe(3);
+      expect(applyBRebased.message.headRefOid).toBe('9d02e4c');
+    });
+
+    test('JsonPatchDeltaCodec detects missed intermediate deltas (MISSING_BASE_VERSION) and recovers after snapshot sync', () => {
+      const jp = new JsonPatchDeltaCodec();
+      const s9 = BENCHMARK_SCENARIOS.find((s) => s.id === 'S09-disconnect-missed-delta-recovery');
+
+      const senderStore = new FlatStateRegister();
+      const receiverStore = new FlatStateRegister();
+
+      const d1 = jp.encode(s9.messages[0], { senderStore });
+      expect(jp.decode(d1, { receiverStore }).ok).toBe(true);
+
+      jp.encode(s9.messages[1], { senderStore });
+
+      const d3 = jp.encode(s9.messages[2], { senderStore });
+      const missed = jp.decode(d3, { receiverStore });
+      expect(missed.ok).toBe(false);
+      expect(missed.code).toBe('MISSING_BASE_VERSION');
+
       receiverStore.importSnapshot(senderStore.exportSnapshot());
       expect(receiverStore.computeDigest()).toBe(senderStore.computeDigest());
     });

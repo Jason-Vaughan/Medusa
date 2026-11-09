@@ -53,10 +53,10 @@ const HUB_CAPABILITIES = [
   'experimental-codec-envelope-v1'
 ];
 
-const { CodecRegistry, validateCanonicalMessage } = require('./experiments/codecs/CodecRegistry');
+const { CodecRegistry, validateCanonicalMessage, SharedGraphStore } = require('./experiments/codecs/CodecRegistry');
 const { TupleTableCodec } = require('./experiments/codecs/TupleTableCodec');
-const { DictionaryInternCodec } = require('./experiments/codecs/DictionaryInternCodec');
-const { JsonPatchDeltaCodec } = require('./experiments/codecs/JsonPatchDeltaCodec');
+const { DictionaryInternCodec, SharedSymbolTable } = require('./experiments/codecs/DictionaryInternCodec');
+const { JsonPatchDeltaCodec, FlatStateRegister } = require('./experiments/codecs/JsonPatchDeltaCodec');
 const { BlackboardRefCodec, BlackboardStore } = require('./experiments/codecs/BlackboardRefCodec');
 
 /**
@@ -921,13 +921,22 @@ class MedusaServer {
   /**
    * Builds a decode context for `codecEnvelope.codec`, hydrating any snapshot the encoder
    * attached to `codecEnvelope.metadata` so a stateful codec's envelope can be decoded standalone
-   * by a recipient that was never part of the original encoding session (Issue #76 R-Gate Round 2).
-   * Only `blackboard-ref-v1` needs this: its wire payload carries only `@art:` pointers, never the
-   * referenced heavy-field values, so those values must travel separately in `metadata`. The other
-   * 8 codecs embed everything a fresh decode needs directly in their own wire format (e.g.
-   * `json-patch-v1`'s "add" ops from an empty base, `dict-intern-v1`'s inline `newSymbols` on first
-   * use), so a plain context is correct for them — verified by round-tripping each with fresh,
-   * unseeded stores on both ends.
+   * by a recipient that was never part of the original encoding session — including a Turn 2+
+   * envelope whose delta assumes a base state the recipient never saw directly (Issue #76 R-Gate
+   * Round 2 & Round 3):
+   * - `blackboard-ref-v1`: its wire payload carries only `@art:` pointers, never the referenced
+   *   heavy-field values, so those values travel in `metadata.blackboardArtifacts`. Each entry is
+   *   re-hashed via `store.put(value)` rather than trusted at face value — a forged `(hash, value)`
+   *   pair is never stored under the hash it claims, so a pointer referencing it still correctly
+   *   fails as `MISSING_ARTIFACT` instead of resolving to unverified content.
+   * - `json-patch-v1` / `graph-delta-v1`: a Turn 2+ delta's `baseVersion` is > 0, so a fresh
+   *   receiver store would fail `MISSING_BASE_VERSION`. `metadata.patchBaseSnapshot` /
+   *   `graphBaseSnapshot` (captured by the encoder BEFORE its own call mutated the sender's
+   *   store) resyncs a fresh store to that base before decode applies the delta.
+   * - `dict-intern-v1`: a Turn 2+ message may reference symbols interned on an earlier turn and
+   *   omit them from `newSymbols`, so a fresh table would fail `UNRESOLVED_SYMBOL_REF`.
+   *   `metadata.symbolTableSnapshot` (captured by the encoder AFTER its own call, so it reflects
+   *   every symbol known up to and including this turn) resyncs a fresh table before decode.
    * @param {object} codecEnvelope - Envelope to build a decode context for.
    * @param {object} [extraContext={}] - Additional context fields to merge in, taking precedence
    *   over anything hydrated from `codecEnvelope.metadata`.
@@ -935,16 +944,31 @@ class MedusaServer {
    */
   buildCodecDecodeContext(codecEnvelope, extraContext = {}) {
     const context = {};
-    if (codecEnvelope && codecEnvelope.codec === 'blackboard-ref-v1') {
+    const metadata = (codecEnvelope && codecEnvelope.metadata) || {};
+    const codecId = codecEnvelope && codecEnvelope.codec;
+
+    if (codecId === 'blackboard-ref-v1') {
       const store = new BlackboardStore();
-      const snapshot = codecEnvelope.metadata && codecEnvelope.metadata.blackboardArtifacts;
-      if (Array.isArray(snapshot)) {
-        for (const [hash, value] of snapshot) {
-          store.artifacts.set(hash, value);
+      if (Array.isArray(metadata.blackboardArtifacts)) {
+        for (const [, value] of metadata.blackboardArtifacts) {
+          store.put(value);
         }
       }
       context.store = store;
+    } else if (codecId === 'json-patch-v1' && metadata.patchBaseSnapshot) {
+      const receiverStore = new FlatStateRegister();
+      receiverStore.importSnapshot(metadata.patchBaseSnapshot);
+      context.receiverStore = receiverStore;
+    } else if (codecId === 'graph-delta-v1' && metadata.graphBaseSnapshot) {
+      const receiverStore = new SharedGraphStore();
+      receiverStore.importSnapshot(metadata.graphBaseSnapshot);
+      context.receiverStore = receiverStore;
+    } else if (codecId === 'dict-intern-v1' && metadata.symbolTableSnapshot) {
+      const receiverTable = new SharedSymbolTable();
+      receiverTable.importSnapshot(metadata.symbolTableSnapshot);
+      context.receiverTable = receiverTable;
     }
+
     return { ...context, ...extraContext };
   }
 
@@ -967,32 +991,65 @@ class MedusaServer {
   }
 
   /**
-   * Encodes `canonicalMessage` with `codecId` via `this.codecRegistry`, capturing any content a
-   * stateful codec writes into its encode-time store (currently only `blackboard-ref-v1`, whose
-   * heavy fields are written into a `BlackboardStore` rather than the wire payload itself) and
-   * attaching it to `envelope.metadata` so the resulting envelope can be decoded standalone by any
-   * recipient (Issue #76 R-Gate Round 2).
+   * Encodes `canonicalMessage` with `codecId` via `this.codecRegistry` against a fresh,
+   * request-scoped store (the Hub holds no persistent per-pair codec session), capturing
+   * whatever that store needs to make the envelope decodable standalone and attaching it to
+   * `envelope.metadata` (Issue #76 R-Gate Round 2 & Round 3): `blackboardArtifacts` for
+   * `blackboard-ref-v1` (its heavy fields live only in the store, never the wire payload),
+   * `patchBaseSnapshot` / `graphBaseSnapshot` for `json-patch-v1` / `graph-delta-v1` (the
+   * pre-encode, base-version snapshot a receiver resyncs to before applying the delta), and
+   * `symbolTableSnapshot` for `dict-intern-v1` (the post-encode symbol table, so a reused symbol
+   * this message doesn't redefine still resolves). Since this method always starts from a fresh
+   * store, every envelope it produces is already a "Turn 1" by construction — the snapshots are
+   * attached uniformly for consistency with `MedusaClient.encodeWithCodec()`, which a caller CAN
+   * drive multi-turn with a persistent context.
    * @param {string} codecId - Registered codec id.
    * @param {object} canonicalMessage - Canonical semantic message to encode.
    * @returns {{ ok: boolean, envelope?: object, code?: string, error?: string, usedFallback?: boolean }}
    */
   encodeCanonicalMessageWithCodec(codecId, canonicalMessage) {
     const context = {};
-    let store = null;
+    let blackboardStore = null;
+    let patchBaseSnapshot = null;
+    let graphBaseSnapshot = null;
+    let symbolTable = null;
+
     if (codecId === 'blackboard-ref-v1') {
-      store = new BlackboardStore();
-      context.store = store;
+      blackboardStore = new BlackboardStore();
+      context.store = blackboardStore;
+    } else if (codecId === 'json-patch-v1') {
+      const senderStore = new FlatStateRegister();
+      patchBaseSnapshot = senderStore.exportSnapshot();
+      context.senderStore = senderStore;
+    } else if (codecId === 'graph-delta-v1') {
+      const senderStore = new SharedGraphStore();
+      graphBaseSnapshot = senderStore.exportSnapshot();
+      context.senderStore = senderStore;
+    } else if (codecId === 'dict-intern-v1') {
+      symbolTable = new SharedSymbolTable();
+      context.senderTable = symbolTable;
     }
 
     const result = this.codecRegistry.encode(codecId, canonicalMessage, context);
-    if (!result.ok || !store) {
+    if (!result.ok) {
       return result;
     }
 
-    result.envelope.metadata = {
-      ...result.envelope.metadata,
-      blackboardArtifacts: Array.from(store.artifacts.entries())
-    };
+    const metadata = { ...result.envelope.metadata };
+    if (blackboardStore) {
+      metadata.blackboardArtifacts = Array.from(blackboardStore.artifacts.entries());
+    }
+    if (patchBaseSnapshot) {
+      metadata.patchBaseSnapshot = patchBaseSnapshot;
+    }
+    if (graphBaseSnapshot) {
+      metadata.graphBaseSnapshot = graphBaseSnapshot;
+    }
+    if (symbolTable) {
+      metadata.symbolTableSnapshot = symbolTable.exportSnapshot();
+    }
+    result.envelope.metadata = metadata;
+
     return result;
   }
 

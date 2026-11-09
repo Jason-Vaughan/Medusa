@@ -11,10 +11,10 @@ const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const WebSocket = require('ws');
-const { CodecRegistry } = require('../experiments/codecs/CodecRegistry');
+const { CodecRegistry, SharedGraphStore } = require('../experiments/codecs/CodecRegistry');
 const { TupleTableCodec } = require('../experiments/codecs/TupleTableCodec');
-const { DictionaryInternCodec } = require('../experiments/codecs/DictionaryInternCodec');
-const { JsonPatchDeltaCodec } = require('../experiments/codecs/JsonPatchDeltaCodec');
+const { DictionaryInternCodec, SharedSymbolTable } = require('../experiments/codecs/DictionaryInternCodec');
+const { JsonPatchDeltaCodec, FlatStateRegister } = require('../experiments/codecs/JsonPatchDeltaCodec');
 const { BlackboardRefCodec, BlackboardStore } = require('../experiments/codecs/BlackboardRefCodec');
 
 class MedusaClient extends EventEmitter {
@@ -328,15 +328,21 @@ class MedusaClient extends EventEmitter {
   /**
    * Encodes a canonical message with a registered experimental codec, producing a
    * `codecEnvelope` ready to pass as `metadata.codecEnvelope` to `sendMessage` (Issue #76's
-   * opt-in codec negotiation). For `blackboard-ref-v1` — whose wire payload carries only
-   * `@art:` pointers, never the referenced heavy-field values — captures whatever the encode
-   * writes into its `BlackboardStore` and attaches it to `envelope.metadata.blackboardArtifacts`,
-   * so the recipient (the Hub, or another client) can decode the envelope standalone via
-   * `decodeWithCodec()` without a `MISSING_ARTIFACT` error (Issue #76 R-Gate Round 2).
+   * opt-in codec negotiation). Captures whatever a stateful codec needs for the resulting
+   * envelope to decode standalone, attaching it to `envelope.metadata` (Issue #76 R-Gate Round 2
+   * & Round 3): `blackboardArtifacts` for `blackboard-ref-v1` (its heavy fields live only in a
+   * `BlackboardStore`, never the wire payload); `patchBaseSnapshot` / `graphBaseSnapshot` for
+   * `json-patch-v1` / `graph-delta-v1` (captured BEFORE this call mutates `context.senderStore`,
+   * so a Turn 2+ delta's recipient can resync to the correct base version before decode applies
+   * it — a fresh, unsynced store would otherwise fail `MISSING_BASE_VERSION`); `symbolTableSnapshot`
+   * for `dict-intern-v1` (captured AFTER this call, so a Turn 2+ message's re-used-but-undefined
+   * symbol references — omitted from `newSymbols` since the sender already knows them — still
+   * resolve instead of failing `UNRESOLVED_SYMBOL_REF`).
    * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
    * @param {object} canonicalMessage - Canonical semantic message to encode.
-   * @param {object} [context={}] - Optional codec-specific encoding context (e.g. a shared store
-   *   for stateful codecs); omitted for a fresh, stateless encode.
+   * @param {object} [context={}] - Optional codec-specific encoding context. Pass the SAME
+   *   `senderStore` / `senderTable` / `store` across multiple calls to drive a stateful codec
+   *   multi-turn (e.g. incremental `json-patch-v1` deltas); omitted for a fresh, single-turn encode.
    * @returns {{ codec: string, schemaVersion: string, payload: *, wireText: string, humanAuditText: string, metadata: object }}
    * @throws {Error} When `codecId` is not registered or encoding fails.
    */
@@ -348,26 +354,57 @@ class MedusaClient extends EventEmitter {
       effectiveContext = { ...context, store: capturedStore };
     }
 
+    let patchBaseSnapshot = null;
+    if (codecId === 'json-patch-v1') {
+      const senderStore = context.senderStore instanceof FlatStateRegister ? context.senderStore : new FlatStateRegister();
+      patchBaseSnapshot = senderStore.exportSnapshot();
+      effectiveContext = { ...effectiveContext, senderStore };
+    }
+
+    let graphBaseSnapshot = null;
+    if (codecId === 'graph-delta-v1') {
+      const senderStore = context.senderStore instanceof SharedGraphStore ? context.senderStore : new SharedGraphStore();
+      graphBaseSnapshot = senderStore.exportSnapshot();
+      effectiveContext = { ...effectiveContext, senderStore };
+    }
+
+    let symbolTable = null;
+    if (codecId === 'dict-intern-v1') {
+      symbolTable = context.senderTable instanceof SharedSymbolTable ? context.senderTable : new SharedSymbolTable();
+      effectiveContext = { ...effectiveContext, senderTable: symbolTable };
+    }
+
     const result = this.codecRegistry.encode(codecId, canonicalMessage, effectiveContext);
     if (!result.ok) {
       throw new Error(result.error || `Failed to encode message with codec "${codecId}"`);
     }
 
+    const metadata = { ...result.envelope.metadata };
     if (capturedStore) {
-      result.envelope.metadata = {
-        ...result.envelope.metadata,
-        blackboardArtifacts: Array.from(capturedStore.artifacts.entries())
-      };
+      metadata.blackboardArtifacts = Array.from(capturedStore.artifacts.entries());
     }
+    if (patchBaseSnapshot) {
+      metadata.patchBaseSnapshot = patchBaseSnapshot;
+    }
+    if (graphBaseSnapshot) {
+      metadata.graphBaseSnapshot = graphBaseSnapshot;
+    }
+    if (symbolTable) {
+      metadata.symbolTableSnapshot = symbolTable.exportSnapshot();
+    }
+    result.envelope.metadata = metadata;
 
     return result.envelope;
   }
 
   /**
    * Decodes a `codecEnvelope` via this client's own codec registry, hydrating a decode context
-   * from any snapshot attached to `codecEnvelope.metadata` (currently only `blackboard-ref-v1`'s
-   * `blackboardArtifacts`) so a server-encoded or peer-encoded envelope decodes standalone
-   * (Issue #76 R-Gate Round 2). Always decodes from `codecEnvelope.wireText`.
+   * from any snapshot attached to `codecEnvelope.metadata` so a server-encoded, peer-encoded, or
+   * Turn 2+ envelope decodes standalone (Issue #76 R-Gate Round 2 & Round 3). For
+   * `blackboard-ref-v1`, each `blackboardArtifacts` entry is re-hashed via `store.put(value)`
+   * rather than trusted at face value, so a forged `(hash, value)` pair can never be
+   * dereferenced under a hash it doesn't actually hash to. Always decodes from
+   * `codecEnvelope.wireText`.
    * @param {object} codecEnvelope - Envelope to decode (e.g. a received message's `codecEnvelope`).
    * @param {object} [extraContext={}] - Additional context to merge in, taking precedence.
    * @returns {{ ok: boolean, message: object|null, errors: string[], warnings: string[] }}
@@ -377,19 +414,32 @@ class MedusaClient extends EventEmitter {
       return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
     }
 
-    const context = { ...extraContext };
-    if (codecEnvelope.codec === 'blackboard-ref-v1' && !(context.store instanceof BlackboardStore)) {
+    const metadata = codecEnvelope.metadata || {};
+    const context = {};
+
+    if (codecEnvelope.codec === 'blackboard-ref-v1') {
       const store = new BlackboardStore();
-      const snapshot = codecEnvelope.metadata && codecEnvelope.metadata.blackboardArtifacts;
-      if (Array.isArray(snapshot)) {
-        for (const [hash, value] of snapshot) {
-          store.artifacts.set(hash, value);
+      if (Array.isArray(metadata.blackboardArtifacts)) {
+        for (const [, value] of metadata.blackboardArtifacts) {
+          store.put(value);
         }
       }
       context.store = store;
+    } else if (codecEnvelope.codec === 'json-patch-v1' && metadata.patchBaseSnapshot) {
+      const receiverStore = new FlatStateRegister();
+      receiverStore.importSnapshot(metadata.patchBaseSnapshot);
+      context.receiverStore = receiverStore;
+    } else if (codecEnvelope.codec === 'graph-delta-v1' && metadata.graphBaseSnapshot) {
+      const receiverStore = new SharedGraphStore();
+      receiverStore.importSnapshot(metadata.graphBaseSnapshot);
+      context.receiverStore = receiverStore;
+    } else if (codecEnvelope.codec === 'dict-intern-v1' && metadata.symbolTableSnapshot) {
+      const receiverTable = new SharedSymbolTable();
+      receiverTable.importSnapshot(metadata.symbolTableSnapshot);
+      context.receiverTable = receiverTable;
     }
 
-    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, context);
+    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, { ...context, ...extraContext });
   }
 
   /**

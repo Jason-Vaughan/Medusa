@@ -183,4 +183,20 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(clientContent).toMatch(/decodeWithCodec/);
     expect(clientContent).toMatch(/blackboardArtifacts/);
   });
+
+  test('Server and Client agree on multi-turn stateful codec snapshots and digest-safe blackboard hydration (Issue #76 R-Gate Round 3)', () => {
+    expect(docContent).toMatch(/patchBaseSnapshot/);
+    expect(docContent).toMatch(/graphBaseSnapshot/);
+    expect(docContent).toMatch(/symbolTableSnapshot/);
+    expect(docContent).toMatch(/re-hashed on hydration/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    for (const content of [serverContent, clientContent]) {
+      expect(content).toMatch(/patchBaseSnapshot/);
+      expect(content).toMatch(/graphBaseSnapshot/);
+      expect(content).toMatch(/symbolTableSnapshot/);
+      expect(content).toMatch(/store\.put\(value\)/);
+    }
+  });
 });

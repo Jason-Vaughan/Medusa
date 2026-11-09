@@ -2936,6 +2936,112 @@ describe('MedusaServer', () => {
       expect(unknownCodecOnly.data.code).toBe('UNSUPPORTED_CODEC');
     });
 
+    test('R-Gate Round 3: two-turn json-patch-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      const senderStore = {};
+
+      const turn1Envelope = sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
+      }, senderStore);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      const turn2Envelope = sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
+      }, senderStore);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({ kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete' });
+    });
+
+    test('R-Gate Round 3: two-turn dict-intern-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      const senderTable = {};
+
+      const turn1Envelope = sender.encodeWithCodec('dict-intern-v1', {
+        kind: 'task.assign', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      }, senderTable);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      // Turn 2 reuses symbols interned on Turn 1 (same from/scope), so wire-level newSymbols is empty.
+      const turn2Envelope = sender.encodeWithCodec('dict-intern-v1', {
+        kind: 'task.ack', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      }, senderTable);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({
+        kind: 'task.ack', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      });
+    });
+
+    test('R-Gate Round 3: two-turn graph-delta-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      const senderStore = {};
+
+      const turn1Envelope = sender.encodeWithCodec('graph-delta-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
+      }, senderStore);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      const turn2Envelope = sender.encodeWithCodec('graph-delta-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
+      }, senderStore);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({ kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete' });
+    });
+
+    test('R-Gate Round 3: a blackboard-ref-v1 envelope whose metadata.blackboardArtifacts value does not match its @art: digest is rejected', async () => {
+      const envelope = server.encodeCanonicalMessageWithCodec('blackboard-ref-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', scope: ['a.js']
+      }).envelope;
+
+      const forged = JSON.parse(JSON.stringify(envelope));
+      // Claim an entry under a hash that does NOT match the actual content's SHA-256 digest.
+      forged.metadata.blackboardArtifacts = [['deadbeefcafe', 'FORGED VALUE NOT MATCHING ANY REAL @art: POINTER']];
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: forged
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
     test('fully decodes and structurally validates a stateful codec envelope like json-patch-v1 (fresh-context hydration round-trips standalone)', async () => {
       const envelope = server.codecRegistry.encode(
         'json-patch-v1',

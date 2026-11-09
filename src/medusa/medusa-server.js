@@ -1037,7 +1037,10 @@ class MedusaServer {
    * this message doesn't redefine still resolves). Since this method always starts from a fresh
    * store, every envelope it produces is already a "Turn 1" by construction — the snapshots are
    * attached uniformly for consistency with `MedusaClient.encodeWithCodec()`, which a caller CAN
-   * drive multi-turn with a persistent context.
+   * drive multi-turn with a persistent context. Also records `metadata.boundRecipient =
+   * canonicalMessage.to` for every codec (stateful or not), so `validateCodecEnvelope()` has a
+   * codec-independent way to catch an envelope correctly encoded for one recipient but routed to
+   * a different one (Issue #76 R-Gate Round 5).
    * @param {string} codecId - Registered codec id.
    * @param {object} canonicalMessage - Canonical semantic message to encode.
    * @returns {{ ok: boolean, envelope?: object, code?: string, error?: string, usedFallback?: boolean }}
@@ -1074,7 +1077,7 @@ class MedusaServer {
       return result;
     }
 
-    const metadata = { ...result.envelope.metadata };
+    const metadata = { ...result.envelope.metadata, boundRecipient: canonicalMessage && canonicalMessage.to };
     if (blackboardStore) {
       metadata.blackboardArtifacts = Array.from(blackboardStore.artifacts.entries());
     }
@@ -1093,6 +1096,32 @@ class MedusaServer {
   }
 
   /**
+   * Returns true iff `requestedTo` and `candidateTo` name the same workspace: an exact match, a
+   * case-insensitive match, or (when both resolve to a live workspace) the same resolved
+   * workspace id. Used to compare an HTTP request's routing target against a value embedded in
+   * or bound to a codec envelope, which may be a human-readable name rather than the raw id
+   * (Issue #76 R-Gate Round 5).
+   * @param {string} requestedTo - The request's actual recipient (`data.to`).
+   * @param {string} candidateTo - A recipient value found in or bound to a codec envelope.
+   * @returns {boolean}
+   */
+  recipientsMatch(requestedTo, candidateTo) {
+    if (typeof requestedTo !== 'string' || typeof candidateTo !== 'string') {
+      return false;
+    }
+    if (requestedTo === candidateTo || requestedTo.toLowerCase() === candidateTo.toLowerCase()) {
+      return true;
+    }
+    try {
+      const resolvedRequested = this.resolveWorkspaceId(requestedTo);
+      const resolvedCandidate = this.resolveWorkspaceId(candidateTo);
+      return Boolean(resolvedRequested && resolvedCandidate && resolvedRequested === resolvedCandidate);
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  /**
    * Validates a caller-supplied `codecEnvelope` for `POST /messages/direct` (Issue #76):
    * confirms `codecEnvelope.codec` names a codec registered in `this.codecRegistry`, that
    * `wireText` and `humanAuditText` are non-empty strings, that the wire text actually decodes
@@ -1100,12 +1129,16 @@ class MedusaServer {
    * shared-state context from `codecEnvelope.metadata` via `decodeWithCodec()`), and — when the
    * caller also supplied `payload` — that `payload` agrees with what `wireText` actually decodes
    * to, so a valid `payload` can never paper over corrupt or mismatched `wireText` (Issue #76
-   * R-Gate Round 2). When `targetRecipient` is given, also rejects a `patchBaseSnapshot` whose
-   * captured state was addressed to a DIFFERENT recipient — a defense-in-depth backstop for
-   * `MedusaClient`'s own cross-recipient-reuse guard, in case an envelope reaches the Hub by some
-   * other path (Issue #76 R-Gate Round 4). Any error thrown while decoding or hydrating a
-   * malformed `metadata` snapshot is caught and reported as `INVALID_CODEC_ENVELOPE`, never left
-   * to propagate into an uncaught 500.
+   * R-Gate Round 2). When `targetRecipient` is given:
+   * - rejects a `patchBaseSnapshot` whose captured state was addressed to a DIFFERENT
+   *   recipient — a defense-in-depth backstop for `MedusaClient`'s own cross-recipient-reuse
+   *   guard (Issue #76 R-Gate Round 4);
+   * - rejects a `metadata.boundRecipient` that disagrees with `targetRecipient`, and (after
+   *   decoding) a decoded `message.to` that disagrees with `targetRecipient` — the general case
+   *   that applies to every codec, not just the stateful ones: an envelope correctly encoded and
+   *   bound for one recipient must never be routed to a different one (Issue #76 R-Gate Round 5).
+   * Any error thrown while decoding or hydrating a malformed `metadata` snapshot is caught and
+   * reported as `INVALID_CODEC_ENVELOPE`, never left to propagate into an uncaught 500.
    * @param {*} codecEnvelope - Caller-supplied codec envelope.
    * @param {string} [targetRecipient] - The `to` this envelope is actually being sent to.
    * @returns {{ ok: boolean, code?: string, error?: string }}
@@ -1131,9 +1164,21 @@ class MedusaServer {
       codecEnvelope.metadata.patchBaseSnapshot.state;
     if (
       targetRecipient !== undefined && snapshotState && typeof snapshotState === 'object' &&
-      snapshotState.to !== undefined && snapshotState.to !== targetRecipient
+      snapshotState.to !== undefined && !this.recipientsMatch(targetRecipient, snapshotState.to)
     ) {
       return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'Cross-recipient stateful snapshot rejected' };
+    }
+
+    const boundRecipient = codecEnvelope.metadata && codecEnvelope.metadata.boundRecipient;
+    if (
+      targetRecipient !== undefined && boundRecipient !== undefined &&
+      !this.recipientsMatch(targetRecipient, boundRecipient)
+    ) {
+      return {
+        ok: false,
+        code: 'INVALID_CODEC_ENVELOPE',
+        error: `codecEnvelope.metadata.boundRecipient ("${boundRecipient}") does not match the request's recipient ("${targetRecipient}")`
+      };
     }
 
     const decodedFromWire = this.decodeWithCodec(codecEnvelope);
@@ -1151,6 +1196,17 @@ class MedusaServer {
         ok: false,
         code: 'INVALID_CODEC_ENVELOPE',
         error: `codecEnvelope decoded to a structurally invalid canonical message: ${semanticCheck.structuralErrors.join('; ')}`
+      };
+    }
+
+    if (
+      targetRecipient !== undefined &&
+      !this.recipientsMatch(targetRecipient, decodedFromWire.message.to)
+    ) {
+      return {
+        ok: false,
+        code: 'INVALID_CODEC_ENVELOPE',
+        error: `codecEnvelope's decoded message.to ("${decodedFromWire.message.to}") does not match the request's recipient ("${targetRecipient}")`
       };
     }
 
@@ -1600,6 +1656,19 @@ class MedusaServer {
                   ? `codec "${data.codec}" was supplied without a codecEnvelope or canonicalMessage to encode`
                   : `Unknown or unsupported codec ID: "${data.codec}"`,
                 code: isKnownCodec ? 'INVALID_CODEC_ENVELOPE' : 'UNSUPPORTED_CODEC'
+              }));
+              return;
+            }
+
+            if (
+              data.canonicalMessage && typeof data.canonicalMessage.to === 'string' &&
+              !this.recipientsMatch(data.to, data.canonicalMessage.to)
+            ) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: `canonicalMessage.to ("${data.canonicalMessage.to}") does not match the request's recipient ("${data.to}")`,
+                code: 'INVALID_CODEC_ENVELOPE'
               }));
               return;
             }

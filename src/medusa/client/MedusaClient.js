@@ -289,10 +289,28 @@ class MedusaClient extends EventEmitter {
    *   `codec` (a registered codec id), `codecEnvelope` (pre-encoded, e.g. from `encodeWithCodec`),
    *   and/or `canonicalMessage` (raw message for the Hub to encode server-side with `codec`).
    * @returns {Promise<object>} Server response including message id and optional receipt
+   * @throws {Error} With a `CROSS_RECIPIENT_ROUTING_MISMATCH:`-prefixed message when
+   *   `metadata.canonicalMessage.to` or `metadata.codecEnvelope.metadata.boundRecipient`
+   *   disagrees with `targetWorkspace` (Issue #76 R-Gate Round 5) — caught here, before the
+   *   request ever reaches the Hub.
    */
   async sendMessage(targetWorkspace, message, metadata = {}) {
     if (!this.workspaceId) {
       throw new Error('Workspace not registered! Run "medusa register" first.');
+    }
+
+    if (metadata && metadata.canonicalMessage && metadata.canonicalMessage.to !== undefined &&
+      metadata.canonicalMessage.to !== targetWorkspace) {
+      throw new Error(
+        `CROSS_RECIPIENT_ROUTING_MISMATCH: canonicalMessage.to ("${metadata.canonicalMessage.to}") does not match targetWorkspace ("${targetWorkspace}")`
+      );
+    }
+    const boundRecipient = metadata && metadata.codecEnvelope && metadata.codecEnvelope.metadata &&
+      metadata.codecEnvelope.metadata.boundRecipient;
+    if (boundRecipient !== undefined && boundRecipient !== targetWorkspace) {
+      throw new Error(
+        `CROSS_RECIPIENT_ROUTING_MISMATCH: codecEnvelope.metadata.boundRecipient ("${boundRecipient}") does not match targetWorkspace ("${targetWorkspace}")`
+      );
     }
 
     try {
@@ -359,7 +377,10 @@ class MedusaClient extends EventEmitter {
    * it — a fresh, unsynced store would otherwise fail `MISSING_BASE_VERSION`); `symbolTableSnapshot`
    * for `dict-intern-v1` (captured AFTER this call, so a Turn 2+ message's re-used-but-undefined
    * symbol references — omitted from `newSymbols` since the sender already knows them — still
-   * resolve instead of failing `UNRESOLVED_SYMBOL_REF`).
+   * resolve instead of failing `UNRESOLVED_SYMBOL_REF`). Also records `metadata.boundRecipient =
+   * canonicalMessage.to` for every codec, so `sendMessage()` can catch an envelope encoded for
+   * one recipient being routed to a different one before it ever reaches the Hub (Issue #76
+   * R-Gate Round 5).
    * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
    * @param {object} canonicalMessage - Canonical semantic message to encode.
    * @param {object} [context={}] - Optional codec-specific encoding context. Pass the SAME
@@ -407,7 +428,7 @@ class MedusaClient extends EventEmitter {
       throw new Error(result.error || `Failed to encode message with codec "${codecId}"`);
     }
 
-    const metadata = { ...result.envelope.metadata };
+    const metadata = { ...result.envelope.metadata, boundRecipient: canonicalMessage && canonicalMessage.to };
     if (capturedStore) {
       metadata.blackboardArtifacts = Array.from(capturedStore.artifacts.entries());
     }

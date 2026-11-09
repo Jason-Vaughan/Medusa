@@ -2677,6 +2677,14 @@ describe('MedusaServer', () => {
         registeredAt: new Date(),
         lastSeen: new Date()
       });
+      server.workspaceRegistry.set('codec-target-b', {
+        id: 'codec-target-b',
+        name: 'CodecTargetB',
+        path: '/projects/codec-b',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
     });
 
     afterEach(async () => {
@@ -3098,6 +3106,59 @@ describe('MedusaServer', () => {
       });
       expect(badGraph.status).toBe(400);
       expect(badGraph.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 5: an envelope correctly encoded and bound for recipient-A is rejected with 400 when routed to recipient-B, for all 4 stateful codecs', async () => {
+      server.workspaceRegistry.set('recipient-a', {
+        id: 'recipient-a', name: 'RecipientA', path: '', type: 'medusa', registeredAt: new Date(), lastSeen: new Date()
+      });
+
+      const stateful = [
+        ['json-patch-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipient-a', status: 'working' }],
+        ['graph-delta-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipient-a', status: 'working' }],
+        ['dict-intern-v1', { kind: 'task.assign', from: 'sender-ws', to: 'recipient-a', scope: ['a.js'] }],
+        ['blackboard-ref-v1', { kind: 'task.assign', from: 'sender-ws', to: 'recipient-a', scope: ['a.js'] }]
+      ];
+
+      for (const [codecId, canonicalMessage] of stateful) {
+        const envelope = server.encodeCanonicalMessageWithCodec(codecId, canonicalMessage).envelope;
+        expect(envelope.metadata.boundRecipient).toBe('recipient-a');
+
+        const res = await doRequest('POST', '/messages/direct', {
+          from: 'sender-ws', to: 'codec-target-b', codecEnvelope: envelope
+        });
+        expect(res.status).toBe(400);
+        expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      }
+    });
+
+    test('R-Gate Round 5: Hub-side {codec, canonicalMessage} with a mismatched canonicalMessage.to is rejected with 400 before encoding', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target-b',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'wrong recipient' }
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target-b')).toBeUndefined();
+    });
+
+    test('R-Gate Round 5: MedusaClient.sendMessage rejects a cross-recipient canonicalMessage/codecEnvelope before sending', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      sender.workspaceId = 'sender-ws';
+
+      // sendMessage is async, so a synchronous guard throw surfaces as a rejected promise.
+      await expect(sender.sendMessage('codec-target-b', null, {
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target' }
+      })).rejects.toThrow(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+
+      const envelope = sender.encodeWithCodec('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target'
+      });
+      await expect(sender.sendMessage('codec-target-b', null, { codecEnvelope: envelope }))
+        .rejects.toThrow(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
     });
 
     test('R-Gate Round 3: a blackboard-ref-v1 envelope whose metadata.blackboardArtifacts value does not match its @art: digest is rejected', async () => {

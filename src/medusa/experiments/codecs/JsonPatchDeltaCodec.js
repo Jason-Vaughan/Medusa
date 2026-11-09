@@ -125,19 +125,35 @@ function computeDiff(prevState, nextState, basePath = '') {
   return ops;
 }
 
+const VALID_PATCH_OPS = new Set(['add', 'replace', 'remove']);
+const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * Applies an ordered list of RFC 6902 JSON Patch operations to a base state, returning a new,
  * deeply-cloned result (the input `baseState` is never mutated).
  *
+ * Rejects any operation whose `op` is not `"add"`/`"replace"`/`"remove"`, whose `path` is not `""`
+ * (whole-document) or does not start with `"/"`, or whose path touches `__proto__`, `constructor`,
+ * or `prototype` — a patch from an untrusted sender can never traverse or reassign the JS prototype
+ * chain.
+ *
  * @param {*} baseState - State to patch (treated as `{}` when `undefined`).
  * @param {Array<{op: string, path: string, value?: *}>} ops - JSON Patch operations to apply, in order.
  * @returns {*} The patched state.
+ * @throws {Error} With an `INVALID_PATCH_PATH:`-prefixed message when an operation is malformed or unsafe.
  */
 function applyDiff(baseState, ops) {
   let result = JSON.parse(JSON.stringify(baseState === undefined ? {} : baseState));
 
   for (const patchOp of ops || []) {
-    if (!patchOp || typeof patchOp.path !== 'string') continue;
+    if (!patchOp || !VALID_PATCH_OPS.has(patchOp.op)) {
+      throw new Error(
+        `INVALID_PATCH_PATH: op must be one of "add"/"replace"/"remove", got ${JSON.stringify(patchOp && patchOp.op)}`
+      );
+    }
+    if (typeof patchOp.path !== 'string' || (patchOp.path !== '' && !patchOp.path.startsWith('/'))) {
+      throw new Error(`INVALID_PATCH_PATH: path must be "" or start with "/", got ${JSON.stringify(patchOp.path)}`);
+    }
 
     if (patchOp.path === '') {
       result = patchOp.op === 'remove' ? undefined : JSON.parse(JSON.stringify(patchOp.value));
@@ -145,6 +161,12 @@ function applyDiff(baseState, ops) {
     }
 
     const parts = patchOp.path.split('/').slice(1).map(unescapeToken);
+    if (parts.some((part) => FORBIDDEN_PATH_SEGMENTS.has(part))) {
+      throw new Error(
+        `INVALID_PATCH_PATH: path "${patchOp.path}" touches a forbidden segment ("__proto__"/"constructor"/"prototype")`
+      );
+    }
+
     const lastKey = parts.pop();
     let node = result;
     for (const part of parts) {
@@ -162,6 +184,23 @@ function applyDiff(baseState, ops) {
   }
 
   return result;
+}
+
+/**
+ * Computes the canonical 12-hex-char SHA-256 digest of a given version/state pair. Pure
+ * (non-mutating) so a candidate post-patch state can be hashed and verified before it is
+ * committed to a register.
+ *
+ * @param {number} version - Register version to bind into the digest.
+ * @param {*} state - State to bind into the digest.
+ * @returns {string}
+ */
+function computeStateDigest(version, state) {
+  return crypto
+    .createHash('sha256')
+    .update(canonicalStringify({ v: version, s: state }))
+    .digest('hex')
+    .slice(0, 12);
 }
 
 /**
@@ -197,11 +236,7 @@ class FlatStateRegister {
    * @returns {string}
    */
   computeDigest() {
-    return crypto
-      .createHash('sha256')
-      .update(canonicalStringify({ v: this.version, s: this.state }))
-      .digest('hex')
-      .slice(0, 12);
+    return computeStateDigest(this.version, this.state);
   }
 
   /**
@@ -299,19 +334,27 @@ class FlatStateRegister {
       };
     }
 
-    const patched = applyDiff(this.state, ops);
-    this.state = patched;
-    this.version = targetVersion;
+    // 4. Compute the candidate patched state and verify target_hash BEFORE committing anything:
+    // a corrupt or malicious packet must leave this register untouched so a subsequent correct
+    // delta (still based on the unchanged baseVersion/base_hash) can succeed.
+    let patched;
+    try {
+      patched = applyDiff(this.state, ops);
+    } catch (err) {
+      return { ok: false, code: 'INVALID_PATCH_PATH', error: err.message };
+    }
 
-    const postHash = this.computeDigest();
-    if (targetHash && postHash !== targetHash) {
+    const candidateHash = computeStateDigest(targetVersion, patched);
+    if (targetHash && candidateHash !== targetHash) {
       return {
         ok: false,
         code: 'TARGET_HASH_MISMATCH',
-        error: `Post-apply hash mismatch at v${this.version}: expected "${targetHash}", computed "${postHash}"`
+        error: `Post-apply hash mismatch at v${targetVersion}: expected "${targetHash}", computed "${candidateHash}"`
       };
     }
 
+    this.state = patched;
+    this.version = targetVersion;
     this.deltaHistory.push(JSON.parse(JSON.stringify(delta)));
     return { ok: true, state: this.state };
   }
@@ -433,5 +476,6 @@ module.exports = {
   FlatStateRegister,
   computeDiff,
   applyDiff,
-  canonicalStringify
+  canonicalStringify,
+  computeStateDigest
 };

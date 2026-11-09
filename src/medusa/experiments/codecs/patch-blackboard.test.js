@@ -14,6 +14,9 @@
  * 6. Base-state divergence detection (`BASE_HASH_MISMATCH`) and malformed-input rejection.
  * 7. Blackboard content-addressed deduplication, pointer-only token savings, and missing-artifact
  *    (`MISSING_ARTIFACT`) error handling.
+ * 8. R-Gate revision (PR #78): literal `@art:`-shaped strings round-trip losslessly regardless of
+ *    field heaviness, a `TARGET_HASH_MISMATCH` leaves the receiver register untouched, and
+ *    prototype-pollution patch paths are rejected without touching `Object.prototype`.
  */
 
 const { JsonPatchDeltaCodec, FlatStateRegister, computeDiff, applyDiff } = require('./JsonPatchDeltaCodec');
@@ -308,6 +311,99 @@ describe('Flat State-Register Diff & Blackboard Artifact-Reference Codecs (Issue
       const decoded = codec.decode(envelope, { store: receiverStore });
       expect(decoded.ok).toBe(true);
       expect(decoded.message.scope).toEqual(['a.js']);
+    });
+  });
+
+  describe('7. R-Gate revision (PR #78): pointer-shaped literals, atomic rollback, and prototype-pollution rejection', () => {
+    test('a non-heavy field whose literal value looks like an artifact pointer round-trips unchanged', () => {
+      const codec = new BlackboardRefCodec();
+      const store = new BlackboardStore();
+      const message = { kind: 'task.assign', id: '@art:0123456789ab', scope: ['a.js'] };
+
+      const envelope = codec.encode(message, { store });
+      // encode() must never have turned the non-heavy "id" field into a store lookup.
+      expect(store.has('@art:0123456789ab')).toBe(false);
+
+      const decoded = codec.decode(envelope, { store });
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
+
+    test('a heavy field whose literal value looks like an artifact pointer still round-trips exactly', () => {
+      const codec = new BlackboardRefCodec();
+      const store = new BlackboardStore();
+      // "scope" is a HEAVY_FIELD; its literal content happens to look like a pointer string.
+      const message = { kind: 'task.assign', scope: '@art:0123456789ab' };
+
+      const envelope = codec.encode(message, { store });
+      const decoded = codec.decode(envelope, { store });
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual(message);
+    });
+
+    test('TARGET_HASH_MISMATCH leaves the receiver register untouched so a corrected delta still succeeds', () => {
+      const codec = new JsonPatchDeltaCodec();
+      const senderStore = new FlatStateRegister();
+      const receiverStore = new FlatStateRegister();
+
+      const goodDelta = codec.encode({ status: 'working' }, { senderStore });
+      expect(codec.decode(goodDelta, { receiverStore }).ok).toBe(true);
+      const versionBefore = receiverStore.version;
+      const digestBefore = receiverStore.computeDigest();
+
+      // A delta with correct base/version bookkeeping but a tampered (corrupt-in-transit) target_hash.
+      const correctDelta = codec.encode({ status: 'complete' }, { senderStore });
+      const tampered = { ...correctDelta.payload, target_hash: 'deadbeef0000' };
+
+      const rejected = codec.decode(tampered, { receiverStore });
+      expect(rejected.ok).toBe(false);
+      expect(rejected.code).toBe('TARGET_HASH_MISMATCH');
+      // The receiver must be completely untouched: same version, same digest, same state.
+      expect(receiverStore.version).toBe(versionBefore);
+      expect(receiverStore.computeDigest()).toBe(digestBefore);
+      expect(receiverStore.state.status).toBe('working');
+
+      // Because the receiver is untouched, re-decoding the ORIGINAL (untampered) delta still
+      // applies cleanly against the same baseVersion/base_hash.
+      const applied = codec.decode(correctDelta, { receiverStore });
+      expect(applied.ok).toBe(true);
+      expect(applied.message.status).toBe('complete');
+    });
+
+    test('a "/__proto__/polluted" patch path is rejected and never pollutes Object.prototype', () => {
+      expect(Object.prototype.polluted).toBeUndefined();
+
+      expect(() => applyDiff({}, [{ op: 'add', path: '/__proto__/polluted', value: 'evil' }])).toThrow(
+        /INVALID_PATCH_PATH/
+      );
+      expect(Object.prototype.polluted).toBeUndefined();
+
+      const codec = new JsonPatchDeltaCodec();
+      const senderStore = new FlatStateRegister();
+      const receiverStore = new FlatStateRegister();
+      const goodDelta = codec.encode({ status: 'working' }, { senderStore });
+      codec.decode(goodDelta, { receiverStore });
+
+      const maliciousDelta = {
+        v: 1,
+        baseVersion: receiverStore.version,
+        targetVersion: receiverStore.version + 1,
+        base_hash: receiverStore.computeDigest(),
+        target_hash: 'irrelevant',
+        ops: [{ op: 'add', path: '/__proto__/polluted', value: 'evil' }]
+      };
+
+      const decoded = codec.decode(maliciousDelta, { receiverStore });
+      expect(decoded.ok).toBe(false);
+      expect(decoded.code).toBe('INVALID_PATCH_PATH');
+      expect(decoded.errors[0]).toMatch(/INVALID_PATCH_PATH/);
+      expect(Object.prototype.polluted).toBeUndefined();
+      expect(({}).polluted).toBeUndefined();
+    });
+
+    test('applyDiff rejects an unsupported op and a path that does not start with "/"', () => {
+      expect(() => applyDiff({}, [{ op: 'move', path: '/a', value: 1 }])).toThrow(/INVALID_PATCH_PATH/);
+      expect(() => applyDiff({}, [{ op: 'add', path: 'a', value: 1 }])).toThrow(/INVALID_PATCH_PATH/);
     });
   });
 });

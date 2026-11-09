@@ -236,7 +236,10 @@ class BlackboardRefCodec extends BaseCodec {
 
     for (const key of Object.keys(payload.fields)) {
       const value = payload.fields[key];
-      if (isArtifactPointer(value)) {
+      // Only HEAVY_FIELDS are ever pointer-encoded by encode(); a non-heavy field's value is
+      // always transmitted verbatim, even if it happens to look like an "@art:<sha256_12>"
+      // pointer, so it must never be dereferenced (or rejected as missing) here.
+      if (HEAVY_FIELDS.includes(key) && isArtifactPointer(value)) {
         if (!store.has(value)) {
           errors.push(`Missing artifact reference for field "${key}": pointer "${value}" is not in the blackboard store`);
           continue;

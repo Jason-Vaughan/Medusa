@@ -1660,10 +1660,28 @@ class MedusaServer {
               return;
             }
 
+            // Unknown codec takes priority over any canonicalMessage validation below.
+            if (!this.codecRegistry.get(data.codec)) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: `Unknown or unsupported codec ID: "${data.codec}"`, code: 'UNSUPPORTED_CODEC' }));
+              return;
+            }
+
             if (
-              data.canonicalMessage && typeof data.canonicalMessage.to === 'string' &&
-              !this.recipientsMatch(data.to, data.canonicalMessage.to)
+              !data.canonicalMessage || typeof data.canonicalMessage !== 'object' || Array.isArray(data.canonicalMessage) ||
+              !validateCanonicalMessage(data.canonicalMessage).structuralValid
             ) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: 'canonicalMessage is not a structurally valid canonical message',
+                code: 'INVALID_CODEC_ENVELOPE'
+              }));
+              return;
+            }
+
+            if (!this.recipientsMatch(data.to, data.canonicalMessage.to)) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({
@@ -1680,6 +1698,17 @@ class MedusaServer {
               res.end(JSON.stringify({ error: encResult.error, code: encResult.code }));
               return;
             }
+
+            // Run the exact same validation the { codecEnvelope } path enforces, so both paths
+            // guarantee identical invariants (Issue #76 R-Gate Round 7).
+            const postEncodeValidation = this.validateCodecEnvelope(encResult.envelope, data.to);
+            if (!postEncodeValidation.ok) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: postEncodeValidation.error, code: postEncodeValidation.code }));
+              return;
+            }
+
             data.codecEnvelope = encResult.envelope;
             data.codec = encResult.envelope.codec;
           }

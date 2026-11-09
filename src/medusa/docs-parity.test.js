@@ -236,4 +236,11 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(clientContent).not.toMatch(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
     expect(clientContent).toMatch(/no client-side cross-recipient pre-check/i);
   });
+
+  test('Document and Server agree the Hub-side {codec, canonicalMessage} form enforces the same invariants as codecEnvelope (Issue #76 R-Gate Round 7)', () => {
+    expect(docContent).toMatch(/enforces the exact same invariants/);
+    expect(docContent).toMatch(/structurally valid before the Hub ever encodes it/);
+    expect(serverContent).toMatch(/canonicalMessage is not a structurally valid canonical message/);
+    expect(serverContent).toMatch(/Unknown codec takes priority over any canonicalMessage validation/);
+  });
 });

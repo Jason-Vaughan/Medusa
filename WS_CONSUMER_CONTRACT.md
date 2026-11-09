@@ -109,19 +109,19 @@ Two ways to send an encoded payload:
      "codecEnvelope": { "codec": "compact-json-v1", "schemaVersion": "1.0.0", "payload": {}, "wireText": "...", "humanAuditText": "[task.assign] sender -> you", "metadata": {} }
    }
    ```
-2. **`codec` + `canonicalMessage`** — let the Hub encode it server-side:
+2. **`codec` + `canonicalMessage`** — let the Hub encode it server-side. `canonicalMessage` must be a structurally valid canonical message (`kind`, `from`, and `to` are required; `canonicalMessage.to` must match the request's `to`, alias-aware):
    ```json
    {
      "from": "sender-workspace",
      "to": "your-workspace-name",
      "codec": "json-patch-v1",
-     "canonicalMessage": { "kind": "task.ack", "status": "working" }
+     "canonicalMessage": { "kind": "task.ack", "from": "sender-workspace", "to": "your-workspace-name", "status": "working" }
    }
    ```
 
 `message` may be omitted or empty in either form — the Hub falls back to the codec envelope's own `humanAuditText` so legacy clients that only read `message` still see something sensible.
 
-- **Validation**: the Hub checks that `codecEnvelope.codec` names a codec registered in its `CodecRegistry`, that `wireText`/`humanAuditText` are non-empty strings, and that `wireText` — the actual wire bytes, always, regardless of whether `payload` is also present — decodes into a structurally valid canonical message. If `payload` is also supplied, it must agree with what `wireText` decodes to; a valid-looking `payload` can never paper over corrupt, mismatched, or tampered `wireText`. A caller-supplied `codec` must match `codecEnvelope.codec` when both are present. An unknown codec id is refused with `400` `{ "code": "UNSUPPORTED_CODEC" }`; anything else wrong with the envelope (malformed shape, undecodable wire, a payload/wireText mismatch, or a `codec`/`codecEnvelope.codec` mismatch) is `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`.
+- **Validation**: the Hub checks that `codecEnvelope.codec` names a codec registered in its `CodecRegistry`, that `wireText`/`humanAuditText` are non-empty strings, and that `wireText` — the actual wire bytes, always, regardless of whether `payload` is also present — decodes into a structurally valid canonical message. If `payload` is also supplied, it must agree with what `wireText` decodes to; a valid-looking `payload` can never paper over corrupt, mismatched, or tampered `wireText`. A caller-supplied `codec` must match `codecEnvelope.codec` when both are present. An unknown codec id is refused with `400` `{ "code": "UNSUPPORTED_CODEC" }`; anything else wrong with the envelope (malformed shape, undecodable wire, a payload/wireText mismatch, or a `codec`/`codecEnvelope.codec` mismatch) is `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`. The `{ codec, canonicalMessage }` form enforces the exact same invariants: `canonicalMessage` must be structurally valid before the Hub ever encodes it, and the resulting envelope is run back through the identical validation the `codecEnvelope` form gets — unknown `codec` is checked first and always reports `UNSUPPORTED_CODEC`, even when `canonicalMessage` is also invalid.
 - **Stateful codecs decode standalone, Turn 1 and Turn 2+**: `MedusaClient.encodeWithCodec` (and the Hub's own server-side encode) attach a metadata snapshot for each of the 4 stateful codecs, so a recipient with no access to the sender's live store — the Hub's own validation, or a different client entirely — can still decode the envelope:
   - `blackboard-ref-v1`: its wire format carries only `@art:<sha256_12>` pointers, never the referenced heavy-field values, on every turn. `codecEnvelope.metadata.blackboardArtifacts` carries the referenced values; each is re-hashed on hydration (never trusted at face value), so a forged `(hash, value)` pair can never be dereferenced under a hash it doesn't actually hash to.
   - `json-patch-v1` / `graph-delta-v1`: Turn 1 is self-contained (a full "add" diff from an empty base), but a Turn 2+ delta sent with a persistent `context.senderStore` has `baseVersion > 0` — undecodable without first resyncing to that base. `codecEnvelope.metadata.patchBaseSnapshot` / `graphBaseSnapshot` (the base state, captured before that turn's encode) lets a fresh store resync before decode applies the delta.

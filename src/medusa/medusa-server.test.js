@@ -3144,6 +3144,59 @@ describe('MedusaServer', () => {
       expect(server.offlineQueues.get('codec-target-b')).toBeUndefined();
     });
 
+    test('R-Gate Round 7: Hub-side {codec, canonicalMessage} rejects a canonicalMessage.to that is missing or non-string, before encoding', async () => {
+      const missingTo = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', summary: 'no to field' }
+      });
+      expect(missingTo.status).toBe(400);
+      expect(missingTo.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target')).toBeUndefined();
+
+      const nonStringTo = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 123, summary: 'numeric to' }
+      });
+      expect(nonStringTo.status).toBe(400);
+      expect(nonStringTo.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 7: Hub-side {codec, canonicalMessage} rejects a canonicalMessage missing required kind/from, before encoding', async () => {
+      const missingKind = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { from: 'sender-ws', to: 'codec-target', summary: 'no kind' }
+      });
+      expect(missingKind.status).toBe(400);
+      expect(missingKind.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const missingFrom = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', to: 'codec-target', summary: 'no from' }
+      });
+      expect(missingFrom.status).toBe(400);
+      expect(missingFrom.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target')).toBeUndefined();
+    });
+
+    test('R-Gate Round 7: an unknown codec with an invalid canonicalMessage still reports UNSUPPORTED_CODEC, not INVALID_CODEC_ENVELOPE', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nonexistent-codec-v9',
+        canonicalMessage: { summary: 'missing everything required' }
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('UNSUPPORTED_CODEC');
+    });
+
     test('R-Gate Round 6: MedusaClient.sendMessage defers cross-recipient rejection to the Hub (400), not a client-side throw', async () => {
       const MedusaClientModule = require('./client/MedusaClient');
       const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
@@ -3279,7 +3332,7 @@ describe('MedusaServer', () => {
     });
 
     test('maintains #67 idempotency parity: replaying with a different codec id (same canonicalMessage) returns 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
-      const canonicalMessage = { kind: 'task.ack', status: 'working' };
+      const canonicalMessage = { kind: 'task.ack', from: 'sender-ws', to: 'codec-target', status: 'working' };
 
       const first = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws',

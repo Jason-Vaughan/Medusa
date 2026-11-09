@@ -23,6 +23,35 @@ const packagePath = path.join(__dirname, '../../package.json');
 const packageJson = require(packagePath);
 const MEDUSA_VERSION = packageJson.version;
 
+/**
+ * Resolves the Hub's startup commit SHA via `git rev-parse HEAD`, falling back to the
+ * MEDUSA_GIT_SHA environment variable or `"unknown"` when git is unavailable (e.g. a
+ * non-git install, a sandboxed CI runner, or a detached/shallow checkout without history).
+ * @returns {string}
+ */
+function resolveGitSha() {
+  try {
+    const { execSync } = require('child_process');
+    return execSync('git rev-parse HEAD', {
+      cwd: path.join(__dirname, '../..'),
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).toString().trim();
+  } catch (_error) {
+    return process.env.MEDUSA_GIT_SHA || 'unknown';
+  }
+}
+
+const MEDUSA_GIT_SHA = resolveGitSha();
+
+// Capability manifest advertised on GET /version, GET /health, and the WS registration
+// handshake (Issue #70). Extend this list as new Hub-wide capabilities ship.
+const HUB_CAPABILITIES = [
+  'durable-send-idempotency-v1',
+  'iso8601-heartbeat-v1',
+  'version-manifest-v1',
+  'experimental-codecs-v1'
+];
+
 // Medusa Event Bus for real-time coordination
 class MedusaEventBus extends EventEmitter {
   constructor() {
@@ -89,6 +118,10 @@ class MedusaServer {
     this.processLock = null;
     this.loops = new Map();
     this.updateManager = new UpdateManager(this);
+
+    // Hub version/capability manifest state (Issue #70)
+    this.previousKnownVersion = null;
+    this.pendingVersionTransition = null;
   }
 
   /**
@@ -570,6 +603,7 @@ class MedusaServer {
       }
 
       this.spawnApprovalCount = parsed.spawnApprovalCount || 0;
+      this.previousKnownVersion = typeof parsed.lastKnownVersion === 'string' ? parsed.lastKnownVersion : null;
 
       if (parsed.offlineQueues && typeof parsed.offlineQueues === 'object') {
         for (const [workspaceId, messages] of Object.entries(parsed.offlineQueues)) {
@@ -613,7 +647,8 @@ class MedusaServer {
         workspaces: Object.fromEntries(this.workspaceRegistry),
         spawnApprovalCount: this.spawnApprovalCount,
         offlineQueues: Object.fromEntries(this.offlineQueues),
-        idempotencyRecords: Object.fromEntries(this.idempotencyRecords)
+        idempotencyRecords: Object.fromEntries(this.idempotencyRecords),
+        lastKnownVersion: MEDUSA_VERSION
       };
       
       await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
@@ -648,6 +683,50 @@ class MedusaServer {
       return nextSave;
     }
     return this._savePromise;
+  }
+
+  /**
+   * Compares the version persisted on a prior run (`this.previousKnownVersion`, loaded from the
+   * registry file) against the version this process is actually running, so a Hub restart onto
+   * a newer commit can be detected and announced to reconnecting subscribers (Issue #70).
+   * @returns {{ changed: boolean, previousVersion: string|null }}
+   */
+  detectVersionTransition() {
+    const previousVersion = this.previousKnownVersion || null;
+    const changed = previousVersion !== null && previousVersion !== MEDUSA_VERSION;
+    return { changed, previousVersion };
+  }
+
+  /**
+   * Builds the `hub.version_updated` broadcast frame announcing the running Hub's version,
+   * commit SHA, and capability manifest.
+   * @param {string|null} [previousVersion=null] - The version this Hub upgraded from, if known.
+   * @returns {{ type: string, version: string, gitSha: string, previousVersion: string|null, capabilities: string[], timestamp: string }}
+   */
+  buildVersionUpdatedFrame(previousVersion = null) {
+    return {
+      type: 'hub.version_updated',
+      version: MEDUSA_VERSION,
+      gitSha: MEDUSA_GIT_SHA,
+      previousVersion,
+      capabilities: HUB_CAPABILITIES,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Sends a JSON frame to every open WebSocket connection across all registered workspaces.
+   * @param {object} frame - JSON-serializable frame to broadcast.
+   */
+  broadcastToAllClients(frame) {
+    const payload = JSON.stringify(frame);
+    for (const connections of this.wsClients.values()) {
+      for (const ws of connections.values()) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(payload);
+        }
+      }
+    }
   }
 
   /**
@@ -804,13 +883,14 @@ class MedusaServer {
           const a2aHealth = await this.callA2A('GET', '/a2a/gossip/sync');
           const peers = await this.callA2A('GET', '/a2a/gossip/peers');
           const messages = await this.callA2A('GET', '/a2a/messages');
-          
+
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({
             status: 'hissing',
             protocol: 'Medusa-A2A Bridge',
             version: MEDUSA_VERSION,
+            capabilities: HUB_CAPABILITIES,
             workspaces: Array.isArray(peers.data) ? peers.data.length : 0,
             messages: Array.isArray(messages.data) ? messages.data.length : 0,
             uptime: process.uptime(),
@@ -821,6 +901,19 @@ class MedusaServer {
           res.statusCode = 200;
           res.end(JSON.stringify({ status: 'degraded', error: error.message }));
         }
+        return;
+      }
+
+      // Hub version/capability manifest endpoint (Issue #70)
+      if (pathname === '/version' && req.method === 'GET') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          version: MEDUSA_VERSION,
+          gitSha: MEDUSA_GIT_SHA,
+          startedAt: this.serverMetadata.startedAt,
+          capabilities: HUB_CAPABILITIES
+        }));
         return;
       }
 
@@ -2432,10 +2525,19 @@ class MedusaServer {
               type: 'registered',
               workspaceId,
               connectionId,
+              version: MEDUSA_VERSION,
+              gitSha: MEDUSA_GIT_SHA,
+              capabilities: HUB_CAPABILITIES,
               message: 'WebSocket connection established for real-time messaging'
             }));
-            
+
             this.log(`🔌 WebSocket registered for workspace: ${workspaceId} (${connectionId})`);
+
+            // Notify a reconnecting subscriber of a Hub version/capability upgrade it missed
+            // while disconnected (Issue #70).
+            if (this.pendingVersionTransition) {
+              ws.send(JSON.stringify(this.buildVersionUpdatedFrame(this.pendingVersionTransition)));
+            }
             
             // Drain offline queue and deliver immediately over WS!
             if (this.offlineQueues.has(workspaceId)) {
@@ -2723,12 +2825,22 @@ class MedusaServer {
       
       this.log(`🐍 Medusa Protocol API running at http://${this.protocolHost}:${this.protocolPort}`);
       
-      this.wsServer = new WebSocket.Server({ 
+      this.wsServer = new WebSocket.Server({
         port: this.protocolPort + 1,
-        host: this.protocolHost 
+        host: this.protocolHost
       });
       this.setupWebSocketHandlers();
-      
+
+      // Detect a version/commit upgrade since the last recorded run and announce it to any
+      // already-connected subscribers; reconnecting subscribers are notified on registration
+      // below (Issue #70).
+      const versionTransition = this.detectVersionTransition();
+      this.pendingVersionTransition = versionTransition.changed ? versionTransition.previousVersion : null;
+      if (versionTransition.changed) {
+        this.log(`🆙 Hub version transition detected: ${versionTransition.previousVersion} -> ${MEDUSA_VERSION}`);
+        this.broadcastToAllClients(this.buildVersionUpdatedFrame(versionTransition.previousVersion));
+      }
+
       this.webServer = this.createWebServer();
       await new Promise(resolve => this.webServer.listen(this.webPort, this.webHost, resolve));
       

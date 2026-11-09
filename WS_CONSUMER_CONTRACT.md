@@ -106,6 +106,43 @@ To keep the connection alive and advertise autonomous mode status, clients shoul
 ```
 The server will respond with a `heartbeat_ack` confirming the status.
 
+## Hub Version & Capability Manifest
+
+Consumers that need to discover what commit/version/capabilities the running Hub is serving — or be notified when it upgrades — can query:
+
+`GET http://127.0.0.1:3100/version`
+
+The server responds with `200 OK`:
+```json
+{
+  "version": "1.0.0-rc2",
+  "gitSha": "9cc5b5e18a57f45525f6a68bdd3859ca4c0b61ac",
+  "startedAt": "2026-07-11T12:00:00.000Z",
+  "capabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1", "version-manifest-v1", "experimental-codecs-v1"]
+}
+```
+
+`GET /health` also includes the same `capabilities` array alongside its existing fields.
+
+The WebSocket `registered` acknowledgement (sent immediately after a `register` frame) carries the same `version`, `gitSha`, and `capabilities` fields, so a reconnecting consumer always learns what it's talking to without a separate round trip.
+
+### Subscriber Update Notification (`hub.version_updated`)
+
+If the Hub restarts onto a newer commit/version than the one it last recorded, any workspace that registers over WebSocket after that restart receives an additional push notification:
+
+```json
+{
+  "type": "hub.version_updated",
+  "version": "1.0.0-rc2",
+  "gitSha": "9cc5b5e18a57f45525f6a68bdd3859ca4c0b61ac",
+  "previousVersion": "1.0.0-rc",
+  "capabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1", "version-manifest-v1", "experimental-codecs-v1"],
+  "timestamp": "2026-07-11T12:00:00.000Z"
+}
+```
+
+This is sent once per registration following an upgrade, in addition to (not instead of) the normal `registered` ack, so subscribers that were disconnected across the restart still learn what changed. No frame is sent when the Hub restarts onto the same version it was already running.
+
 ## Peek
 
 Consumers can remotely check the state of another workspace without sending a message or altering its execution. This is useful before initiating a blocking request.

@@ -64,4 +64,21 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     const clientMethods = Object.getOwnPropertyNames(MedusaClient.prototype);
     expect(clientMethods).toContain('getMessageReceipt');
   });
+
+  test('Document and Server implement the Hub version/capability manifest endpoint (Issue #70)', () => {
+    expect(docContent).toMatch(/\/version/);
+    expect(docContent).toMatch(/"gitSha":/);
+    expect(docContent).toMatch(/"capabilities":/);
+    expect(serverContent).toMatch(/pathname === '\/version'/);
+    expect(serverContent).toMatch(/MEDUSA_GIT_SHA/);
+    expect(serverContent).toMatch(/HUB_CAPABILITIES/);
+  });
+
+  test('Document and Server implement the hub.version_updated subscriber notification (Issue #70)', () => {
+    expect(docContent).toMatch(/hub\.version_updated/);
+    expect(docContent).toMatch(/previousVersion/);
+    expect(serverContent).toMatch(/hub\.version_updated/);
+    expect(serverContent).toMatch(/previousVersion/);
+    expect(serverContent).toMatch(/detectVersionTransition/);
+  });
 });

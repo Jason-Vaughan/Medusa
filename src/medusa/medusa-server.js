@@ -53,21 +53,21 @@ const HUB_CAPABILITIES = [
   'experimental-codec-envelope-v1'
 ];
 
+const { CodecRegistry, validateCanonicalMessage } = require('./experiments/codecs/CodecRegistry');
+const { TupleTableCodec } = require('./experiments/codecs/TupleTableCodec');
+const { DictionaryInternCodec } = require('./experiments/codecs/DictionaryInternCodec');
+const { JsonPatchDeltaCodec } = require('./experiments/codecs/JsonPatchDeltaCodec');
+const { BlackboardRefCodec, BlackboardStore } = require('./experiments/codecs/BlackboardRefCodec');
+
 /**
  * Builds a `CodecRegistry` pre-loaded with all 9 experimental communication codecs — the 5
  * registered by `CodecRegistry`'s own default constructor, plus `TupleTableCodec`,
  * `DictionaryInternCodec`, `JsonPatchDeltaCodec`, and `BlackboardRefCodec` — without modifying
  * `CodecRegistry.js` itself, so the opt-in Hub codec envelope (Issue #76) can offer every
  * benchmarked codec immediately.
- * @returns {import('./experiments/codecs/CodecRegistry').CodecRegistry}
+ * @returns {CodecRegistry}
  */
 function createHubCodecRegistry() {
-  const { CodecRegistry } = require('./experiments/codecs/CodecRegistry');
-  const { TupleTableCodec } = require('./experiments/codecs/TupleTableCodec');
-  const { DictionaryInternCodec } = require('./experiments/codecs/DictionaryInternCodec');
-  const { JsonPatchDeltaCodec } = require('./experiments/codecs/JsonPatchDeltaCodec');
-  const { BlackboardRefCodec } = require('./experiments/codecs/BlackboardRefCodec');
-
   const registry = new CodecRegistry();
   const extraCodecs = [new TupleTableCodec(), new DictionaryInternCodec(), new JsonPatchDeltaCodec(), new BlackboardRefCodec()];
   for (const codec of extraCodecs) {
@@ -919,12 +919,92 @@ class MedusaServer {
   }
 
   /**
+   * Builds a decode context for `codecEnvelope.codec`, hydrating any snapshot the encoder
+   * attached to `codecEnvelope.metadata` so a stateful codec's envelope can be decoded standalone
+   * by a recipient that was never part of the original encoding session (Issue #76 R-Gate Round 2).
+   * Only `blackboard-ref-v1` needs this: its wire payload carries only `@art:` pointers, never the
+   * referenced heavy-field values, so those values must travel separately in `metadata`. The other
+   * 8 codecs embed everything a fresh decode needs directly in their own wire format (e.g.
+   * `json-patch-v1`'s "add" ops from an empty base, `dict-intern-v1`'s inline `newSymbols` on first
+   * use), so a plain context is correct for them — verified by round-tripping each with fresh,
+   * unseeded stores on both ends.
+   * @param {object} codecEnvelope - Envelope to build a decode context for.
+   * @param {object} [extraContext={}] - Additional context fields to merge in, taking precedence
+   *   over anything hydrated from `codecEnvelope.metadata`.
+   * @returns {object}
+   */
+  buildCodecDecodeContext(codecEnvelope, extraContext = {}) {
+    const context = {};
+    if (codecEnvelope && codecEnvelope.codec === 'blackboard-ref-v1') {
+      const store = new BlackboardStore();
+      const snapshot = codecEnvelope.metadata && codecEnvelope.metadata.blackboardArtifacts;
+      if (Array.isArray(snapshot)) {
+        for (const [hash, value] of snapshot) {
+          store.artifacts.set(hash, value);
+        }
+      }
+      context.store = store;
+    }
+    return { ...context, ...extraContext };
+  }
+
+  /**
+   * Decodes `codecEnvelope` via `this.codecRegistry`, hydrating its decode context from any
+   * snapshot the encoder attached to `codecEnvelope.metadata` (Issue #76 R-Gate Round 2). Always
+   * decodes from `codecEnvelope.wireText` — the actual wire bytes — never from `codecEnvelope`
+   * as a whole object, which would let a codec's object-form `decode()` take its
+   * payload-preferring shortcut and skip validating what was actually transmitted.
+   * @param {object} codecEnvelope - Envelope produced by `encode()` / `encodeCanonicalMessageWithCodec()`.
+   * @param {object} [extraContext={}] - Additional context to merge in, taking precedence.
+   * @returns {{ ok: boolean, code?: string, message: object|null, errors: string[], warnings: string[] }}
+   */
+  decodeWithCodec(codecEnvelope, extraContext = {}) {
+    if (!codecEnvelope || typeof codecEnvelope.wireText !== 'string') {
+      return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
+    }
+    const context = this.buildCodecDecodeContext(codecEnvelope, extraContext);
+    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, context);
+  }
+
+  /**
+   * Encodes `canonicalMessage` with `codecId` via `this.codecRegistry`, capturing any content a
+   * stateful codec writes into its encode-time store (currently only `blackboard-ref-v1`, whose
+   * heavy fields are written into a `BlackboardStore` rather than the wire payload itself) and
+   * attaching it to `envelope.metadata` so the resulting envelope can be decoded standalone by any
+   * recipient (Issue #76 R-Gate Round 2).
+   * @param {string} codecId - Registered codec id.
+   * @param {object} canonicalMessage - Canonical semantic message to encode.
+   * @returns {{ ok: boolean, envelope?: object, code?: string, error?: string, usedFallback?: boolean }}
+   */
+  encodeCanonicalMessageWithCodec(codecId, canonicalMessage) {
+    const context = {};
+    let store = null;
+    if (codecId === 'blackboard-ref-v1') {
+      store = new BlackboardStore();
+      context.store = store;
+    }
+
+    const result = this.codecRegistry.encode(codecId, canonicalMessage, context);
+    if (!result.ok || !store) {
+      return result;
+    }
+
+    result.envelope.metadata = {
+      ...result.envelope.metadata,
+      blackboardArtifacts: Array.from(store.artifacts.entries())
+    };
+    return result;
+  }
+
+  /**
    * Validates a caller-supplied `codecEnvelope` for `POST /messages/direct` (Issue #76):
    * confirms `codecEnvelope.codec` names a codec registered in `this.codecRegistry`, that
-   * `wireText` and `humanAuditText` are non-empty strings, and — for codecs that don't require
-   * persistent shared state, where a Hub-side decode is self-contained and meaningful — that the
-   * envelope actually decodes. Stateful codecs (`requiresSharedState: true`) are only checked
-   * structurally, since the Hub holds no persistent sender/receiver store for them.
+   * `wireText` and `humanAuditText` are non-empty strings, that the wire text actually decodes
+   * into a structurally valid canonical message (for every codec, stateful or not — hydrating
+   * shared-state context from `codecEnvelope.metadata` via `decodeWithCodec()`), and — when the
+   * caller also supplied `payload` — that `payload` agrees with what `wireText` actually decodes
+   * to, so a valid `payload` can never paper over corrupt or mismatched `wireText` (Issue #76
+   * R-Gate Round 2).
    * @param {*} codecEnvelope - Caller-supplied codec envelope.
    * @returns {{ ok: boolean, code?: string, error?: string }}
    */
@@ -945,13 +1025,34 @@ class MedusaServer {
       return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope.humanAuditText must be a non-empty string' };
     }
 
-    if (!codec.capabilities().requiresSharedState) {
-      const decoded = codec.decode(codecEnvelope, {});
-      if (!decoded.ok) {
+    const decodedFromWire = this.decodeWithCodec(codecEnvelope);
+    if (!decodedFromWire.ok) {
+      return {
+        ok: false,
+        code: 'INVALID_CODEC_ENVELOPE',
+        error: `codecEnvelope failed to decode: ${(decodedFromWire.errors || []).join('; ') || 'unknown decode error'}`
+      };
+    }
+
+    const semanticCheck = validateCanonicalMessage(decodedFromWire.message);
+    if (!semanticCheck.structuralValid) {
+      return {
+        ok: false,
+        code: 'INVALID_CODEC_ENVELOPE',
+        error: `codecEnvelope decoded to a structurally invalid canonical message: ${semanticCheck.structuralErrors.join('; ')}`
+      };
+    }
+
+    if (codecEnvelope.payload !== undefined) {
+      const decodedFromPayload = codec.decode(
+        { codec: codecEnvelope.codec, payload: codecEnvelope.payload, wireText: codecEnvelope.wireText },
+        this.buildCodecDecodeContext(codecEnvelope)
+      );
+      if (!decodedFromPayload.ok || JSON.stringify(decodedFromWire.message) !== JSON.stringify(decodedFromPayload.message)) {
         return {
           ok: false,
           code: 'INVALID_CODEC_ENVELOPE',
-          error: `codecEnvelope failed to decode: ${(decoded.errors || []).join('; ') || 'unknown decode error'}`
+          error: 'codecEnvelope.payload does not match decoded wireText'
         };
       }
     }
@@ -1352,6 +1453,19 @@ class MedusaServer {
           // behalf. Resolved BEFORE any idempotency replay check so replay matching compares the
           // same normalized shape every time.
           if (data.codecEnvelope !== undefined && data.codecEnvelope !== null) {
+            if (
+              data.codec !== undefined && data.codec !== null &&
+              data.codecEnvelope && data.codec !== data.codecEnvelope.codec
+            ) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: `codec "${data.codec}" does not match codecEnvelope.codec "${data.codecEnvelope.codec}"`,
+                code: 'INVALID_CODEC_ENVELOPE'
+              }));
+              return;
+            }
+
             const validation = this.validateCodecEnvelope(data.codecEnvelope);
             if (!validation.ok) {
               res.statusCode = 400;
@@ -1359,8 +1473,22 @@ class MedusaServer {
               res.end(JSON.stringify({ error: validation.error, code: validation.code }));
               return;
             }
-          } else if (data.codec && data.canonicalMessage !== undefined) {
-            const encResult = this.codecRegistry.encode(data.codec, data.canonicalMessage, {});
+            data.codec = data.codecEnvelope.codec;
+          } else if (data.codec !== undefined && data.codec !== null) {
+            if (data.canonicalMessage === undefined) {
+              const isKnownCodec = Boolean(this.codecRegistry.get(data.codec));
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                error: isKnownCodec
+                  ? `codec "${data.codec}" was supplied without a codecEnvelope or canonicalMessage to encode`
+                  : `Unknown or unsupported codec ID: "${data.codec}"`,
+                code: isKnownCodec ? 'INVALID_CODEC_ENVELOPE' : 'UNSUPPORTED_CODEC'
+              }));
+              return;
+            }
+
+            const encResult = this.encodeCanonicalMessageWithCodec(data.codec, data.canonicalMessage);
             if (!encResult.ok) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
@@ -1368,6 +1496,7 @@ class MedusaServer {
               return;
             }
             data.codecEnvelope = encResult.envelope;
+            data.codec = encResult.envelope.codec;
           }
 
           if (data.codecEnvelope && (typeof data.message !== 'string' || data.message.length === 0)) {

@@ -15,7 +15,7 @@ const { CodecRegistry } = require('../experiments/codecs/CodecRegistry');
 const { TupleTableCodec } = require('../experiments/codecs/TupleTableCodec');
 const { DictionaryInternCodec } = require('../experiments/codecs/DictionaryInternCodec');
 const { JsonPatchDeltaCodec } = require('../experiments/codecs/JsonPatchDeltaCodec');
-const { BlackboardRefCodec } = require('../experiments/codecs/BlackboardRefCodec');
+const { BlackboardRefCodec, BlackboardStore } = require('../experiments/codecs/BlackboardRefCodec');
 
 class MedusaClient extends EventEmitter {
   constructor(options = {}) {
@@ -328,7 +328,11 @@ class MedusaClient extends EventEmitter {
   /**
    * Encodes a canonical message with a registered experimental codec, producing a
    * `codecEnvelope` ready to pass as `metadata.codecEnvelope` to `sendMessage` (Issue #76's
-   * opt-in codec negotiation).
+   * opt-in codec negotiation). For `blackboard-ref-v1` — whose wire payload carries only
+   * `@art:` pointers, never the referenced heavy-field values — captures whatever the encode
+   * writes into its `BlackboardStore` and attaches it to `envelope.metadata.blackboardArtifacts`,
+   * so the recipient (the Hub, or another client) can decode the envelope standalone via
+   * `decodeWithCodec()` without a `MISSING_ARTIFACT` error (Issue #76 R-Gate Round 2).
    * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
    * @param {object} canonicalMessage - Canonical semantic message to encode.
    * @param {object} [context={}] - Optional codec-specific encoding context (e.g. a shared store
@@ -337,11 +341,55 @@ class MedusaClient extends EventEmitter {
    * @throws {Error} When `codecId` is not registered or encoding fails.
    */
   encodeWithCodec(codecId, canonicalMessage, context = {}) {
-    const result = this.codecRegistry.encode(codecId, canonicalMessage, context);
+    let effectiveContext = context;
+    let capturedStore = context.store instanceof BlackboardStore ? context.store : null;
+    if (codecId === 'blackboard-ref-v1' && !capturedStore) {
+      capturedStore = new BlackboardStore();
+      effectiveContext = { ...context, store: capturedStore };
+    }
+
+    const result = this.codecRegistry.encode(codecId, canonicalMessage, effectiveContext);
     if (!result.ok) {
       throw new Error(result.error || `Failed to encode message with codec "${codecId}"`);
     }
+
+    if (capturedStore) {
+      result.envelope.metadata = {
+        ...result.envelope.metadata,
+        blackboardArtifacts: Array.from(capturedStore.artifacts.entries())
+      };
+    }
+
     return result.envelope;
+  }
+
+  /**
+   * Decodes a `codecEnvelope` via this client's own codec registry, hydrating a decode context
+   * from any snapshot attached to `codecEnvelope.metadata` (currently only `blackboard-ref-v1`'s
+   * `blackboardArtifacts`) so a server-encoded or peer-encoded envelope decodes standalone
+   * (Issue #76 R-Gate Round 2). Always decodes from `codecEnvelope.wireText`.
+   * @param {object} codecEnvelope - Envelope to decode (e.g. a received message's `codecEnvelope`).
+   * @param {object} [extraContext={}] - Additional context to merge in, taking precedence.
+   * @returns {{ ok: boolean, message: object|null, errors: string[], warnings: string[] }}
+   */
+  decodeWithCodec(codecEnvelope, extraContext = {}) {
+    if (!codecEnvelope || typeof codecEnvelope.wireText !== 'string') {
+      return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
+    }
+
+    const context = { ...extraContext };
+    if (codecEnvelope.codec === 'blackboard-ref-v1' && !(context.store instanceof BlackboardStore)) {
+      const store = new BlackboardStore();
+      const snapshot = codecEnvelope.metadata && codecEnvelope.metadata.blackboardArtifacts;
+      if (Array.isArray(snapshot)) {
+        for (const [hash, value] of snapshot) {
+          store.artifacts.set(hash, value);
+        }
+      }
+      context.store = store;
+    }
+
+    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, context);
   }
 
   /**

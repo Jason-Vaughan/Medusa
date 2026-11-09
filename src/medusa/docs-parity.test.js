@@ -140,25 +140,47 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(serverContent).toMatch(/'experimental-codec-envelope-v1'/);
   });
 
-  test('Server exposes all 9 experimental codecs via createHubCodecRegistry() without modifying CodecRegistry.js (Issue #76)', () => {
+  test('Server exposes all 9 experimental codecs via createHubCodecRegistry() (Issue #76)', () => {
     expect(serverContent).toMatch(/function createHubCodecRegistry/);
     expect(serverContent).toMatch(/TupleTableCodec/);
     expect(serverContent).toMatch(/DictionaryInternCodec/);
     expect(serverContent).toMatch(/JsonPatchDeltaCodec/);
     expect(serverContent).toMatch(/BlackboardRefCodec/);
 
-    const codecRegistryPath = path.join(__dirname, 'experiments/codecs/CodecRegistry.js');
-    const codecRegistryContent = fs.readFileSync(codecRegistryPath, 'utf8');
-    expect(codecRegistryContent).not.toMatch(/TupleTableCodec/);
-    expect(codecRegistryContent).not.toMatch(/DictionaryInternCodec/);
+    // Verified at runtime rather than against CodecRegistry.js's own file content: PR #74
+    // (#81) separately registers all 9 codecs directly in CodecRegistry.js, so a negative
+    // file-content assertion here would break the instant both PRs merge together
+    // (R-Gate Round 2, PR #82).
+    const MedusaServer = require('./medusa-server');
+    const server = new MedusaServer({ a2aSecret: 'docs-parity-probe-secret' });
+    const ids = server.codecRegistry.listCapabilities().map((cap) => cap.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'nl-baseline-v1', 'compact-json-v1', 'graph-v1', 'graph-delta-v1', 'typed-cmd-v1',
+        'tuple-table-v1', 'dict-intern-v1', 'json-patch-v1', 'blackboard-ref-v1'
+      ])
+    );
   });
 
-  test('MedusaClient implements encodeWithCodec and forwards codec/codecEnvelope/canonicalMessage (Issue #76)', () => {
+  test('MedusaClient implements encodeWithCodec/decodeWithCodec and forwards codec/codecEnvelope/canonicalMessage (Issue #76)', () => {
     const clientMethods = Object.getOwnPropertyNames(MedusaClient.prototype);
     expect(clientMethods).toContain('encodeWithCodec');
+    expect(clientMethods).toContain('decodeWithCodec');
     const clientPath = path.join(__dirname, 'client/MedusaClient.js');
     const clientContent = fs.readFileSync(clientPath, 'utf8');
     expect(clientContent).toMatch(/metadata\.codecEnvelope/);
     expect(clientContent).toMatch(/metadata\.canonicalMessage/);
+  });
+
+  test('Server and Client agree on wire-authoritative validation and blackboard-ref-v1 metadata hydration (Issue #76 R-Gate Round 2)', () => {
+    expect(serverContent).toMatch(/decodeWithCodec/);
+    expect(serverContent).toMatch(/buildCodecDecodeContext/);
+    expect(serverContent).toMatch(/blackboardArtifacts/);
+    expect(serverContent).toMatch(/codecEnvelope\.payload does not match decoded wireText/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).toMatch(/decodeWithCodec/);
+    expect(clientContent).toMatch(/blackboardArtifacts/);
   });
 });

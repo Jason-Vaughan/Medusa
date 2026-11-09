@@ -1406,10 +1406,276 @@ describe('MedusaServer', () => {
     test('sendWebSocketMessage should cleanup dead connections', async () => {
       const mockWs = { readyState: WebSocket.CLOSED, terminate: jest.fn() };
       server.wsClients.set('test-ws', new Map([['c1', mockWs]]));
-      
+
       const result = server.sendWebSocketMessage('test-ws', { type: 'test', messageId: 'm1' });
       expect(result).toBe(false);
       expect(server.wsClients.has('test-ws')).toBe(false);
+    });
+  });
+
+  describe('Hub Version & Capability Manifest (Issue #70)', () => {
+    let wsUrl;
+    const packageJson = require('../../package.json');
+
+    const doGet = (pathname) => {
+      return new Promise((resolve, reject) => {
+        const req = http.get(`http://localhost:${testPort}${pathname}`, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+      });
+    };
+
+    const waitForMessage = (ws, predicate) => new Promise((resolve, reject) => {
+      const onMsg = (data) => {
+        const msg = JSON.parse(data);
+        if (predicate(msg)) {
+          ws.off('message', onMsg);
+          resolve(msg);
+        }
+      };
+      ws.on('message', onMsg);
+      ws.on('error', reject);
+    });
+
+    const registerAndCollect = async (workspaceId) => {
+      const ws = createWebSocket(wsUrl);
+      const messages = [];
+      await new Promise((resolve, reject) => {
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'register', workspaceId })));
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data);
+          messages.push(msg);
+          if (msg.type === 'registered') resolve();
+        });
+        ws.on('error', reject);
+      });
+      return { ws, messages };
+    };
+
+    test('GET /version exposes version, gitSha, startedAt, and capabilities', async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      const { status, data } = await doGet('/version');
+      expect(status).toBe(200);
+      expect(data.version).toBe(packageJson.version);
+      expect(typeof data.gitSha).toBe('string');
+      expect(data.gitSha.length).toBeGreaterThan(0);
+      expect(data.startedAt).toBe(server.serverMetadata.startedAt);
+      expect(data.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(Array.isArray(data.capabilities)).toBe(true);
+      expect(data.capabilities).toContain('version-manifest-v1');
+      expect(data.capabilities).toContain('durable-send-idempotency-v1');
+    });
+
+    test('GET /health includes gitSha, startedAt, and capabilities without dropping existing fields', async () => {
+      await server.start();
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, data: [] });
+
+      const { status, data } = await doGet('/health');
+      expect(status).toBe(200);
+      expect(data.status).toBe('hissing');
+      expect(data.version).toBe(packageJson.version);
+      expect(typeof data.gitSha).toBe('string');
+      expect(data.gitSha.length).toBeGreaterThan(0);
+      expect(data.startedAt).toBe(server.serverMetadata.startedAt);
+      expect(Array.isArray(data.capabilities)).toBe(true);
+      expect(data.capabilities).toContain('version-manifest-v1');
+    });
+
+    test('WS "registered" ack carries version, gitSha, startedAt, and capabilities', async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      const { messages } = await registerAndCollect('version-manifest-ws');
+      const registered = messages.find((m) => m.type === 'registered');
+      expect(registered.version).toBe(packageJson.version);
+      expect(typeof registered.gitSha).toBe('string');
+      expect(registered.startedAt).toBe(server.serverMetadata.startedAt);
+      expect(registered.capabilities).toEqual(expect.arrayContaining(['version-manifest-v1']));
+    });
+
+    test('does not announce hub.version_updated on a fresh registry with no prior recorded manifest', async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      expect(server.pendingVersionTransition).toBeNull();
+      const { messages } = await registerAndCollect('fresh-ws');
+      expect(messages.find((m) => m.type === 'hub.version_updated')).toBeUndefined();
+    });
+
+    test('detects a version transition recorded on a prior run and announces hub.version_updated to a reconnecting subscriber', async () => {
+      await fs.writeFile(tempRegistryFile, JSON.stringify({
+        workspaces: {},
+        spawnApprovalCount: 0,
+        offlineQueues: {},
+        idempotencyRecords: {},
+        lastKnownVersion: '0.0.1-prior-test-version',
+        lastKnownGitSha: 'deadbeefcafe',
+        lastKnownCapabilities: ['durable-send-idempotency-v1']
+      }));
+
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      expect(server.pendingVersionTransition).toMatchObject({
+        changed: true,
+        previousVersion: '0.0.1-prior-test-version',
+        previousGitSha: 'deadbeefcafe',
+        previousCapabilities: ['durable-send-idempotency-v1']
+      });
+
+      const { messages } = await registerAndCollect('reconnecting-ws');
+      const updated = messages.find((m) => m.type === 'hub.version_updated');
+      expect(updated).toBeDefined();
+      expect(updated.previousVersion).toBe('0.0.1-prior-test-version');
+      expect(updated.previousGitSha).toBe('deadbeefcafe');
+      expect(updated.previousCapabilities).toEqual(['durable-send-idempotency-v1']);
+      expect(updated.version).toBe(packageJson.version);
+      expect(typeof updated.gitSha).toBe('string');
+      expect(updated.capabilities).toEqual(expect.arrayContaining(['version-manifest-v1']));
+      expect(updated.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      // capabilityDelta: everything beyond the single previously-known capability is "added",
+      // nothing from the previous manifest is missing from the current one, so "removed" is empty.
+      expect(updated.capabilityDelta.removed).toEqual([]);
+      expect(updated.capabilityDelta.added).toEqual(
+        expect.arrayContaining(['iso8601-heartbeat-v1', 'version-manifest-v1', 'experimental-codecs-v1'])
+      );
+      expect(updated.capabilityDelta.added).not.toContain('durable-send-idempotency-v1');
+      expect(updated.capabilityDelta.changed).toEqual([]);
+    });
+
+    test('detects a gitSha-only transition (same version, new commit) and announces hub.version_updated', async () => {
+      await fs.writeFile(tempRegistryFile, JSON.stringify({
+        workspaces: {},
+        spawnApprovalCount: 0,
+        offlineQueues: {},
+        idempotencyRecords: {},
+        lastKnownVersion: packageJson.version,
+        lastKnownGitSha: 'old-commit-sha',
+        lastKnownCapabilities: server.previousKnownCapabilities
+      }));
+
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      expect(server.pendingVersionTransition.changed).toBe(true);
+      expect(server.pendingVersionTransition.previousVersion).toBe(packageJson.version);
+      expect(server.pendingVersionTransition.previousGitSha).toBe('old-commit-sha');
+
+      const { messages } = await registerAndCollect('gitsha-change-ws');
+      const updated = messages.find((m) => m.type === 'hub.version_updated');
+      expect(updated).toBeDefined();
+      expect(updated.previousGitSha).toBe('old-commit-sha');
+    });
+
+    test('detects a capabilities-only transition (same version and gitSha) and announces hub.version_updated', async () => {
+      // Mirrors the server's own gitSha resolution so this run's persisted gitSha matches exactly
+      // (isolating the test to a capabilities-only change).
+      let currentGitSha;
+      try {
+        currentGitSha = require('child_process')
+          .execSync('git rev-parse HEAD', { cwd: path.join(__dirname, '../..'), stdio: ['ignore', 'pipe', 'ignore'] })
+          .toString()
+          .trim();
+      } catch (_err) {
+        currentGitSha = 'unknown';
+      }
+
+      await fs.writeFile(tempRegistryFile, JSON.stringify({
+        workspaces: {},
+        spawnApprovalCount: 0,
+        offlineQueues: {},
+        idempotencyRecords: {},
+        lastKnownVersion: packageJson.version,
+        lastKnownGitSha: currentGitSha,
+        lastKnownCapabilities: ['durable-send-idempotency-v1']
+      }));
+
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+
+      expect(server.pendingVersionTransition.changed).toBe(true);
+      expect(server.pendingVersionTransition.previousCapabilities).toEqual(['durable-send-idempotency-v1']);
+
+      const { messages } = await registerAndCollect('capability-change-ws');
+      const updated = messages.find((m) => m.type === 'hub.version_updated');
+      expect(updated).toBeDefined();
+      expect(updated.capabilityDelta.added.length).toBeGreaterThan(0);
+    });
+
+    test('broadcastToAllClients delivers to every open connection and skips closed ones', () => {
+      const openWs = { readyState: WebSocket.OPEN, send: jest.fn() };
+      const closedWs = { readyState: WebSocket.CLOSED, send: jest.fn() };
+      server.wsClients.set('ws-a', new Map([['c1', openWs]]));
+      server.wsClients.set('ws-b', new Map([['c2', closedWs]]));
+
+      server.broadcastToAllClients({ type: 'hub.version_updated', version: '9.9.9' });
+
+      expect(openWs.send).toHaveBeenCalledWith(JSON.stringify({ type: 'hub.version_updated', version: '9.9.9' }));
+      expect(closedWs.send).not.toHaveBeenCalled();
+    });
+
+    test('detectVersionTransition reports unchanged when no prior manifest was recorded', () => {
+      server.previousKnownVersion = null;
+      server.previousKnownGitSha = null;
+      server.previousKnownCapabilities = null;
+      expect(server.detectVersionTransition()).toEqual({
+        changed: false,
+        previousVersion: null,
+        previousGitSha: null,
+        previousCapabilities: null
+      });
+    });
+
+    test('detectVersionTransition reports changed when the persisted version differs from the running version', () => {
+      server.previousKnownVersion = 'some-older-version';
+      server.previousKnownGitSha = null;
+      server.previousKnownCapabilities = null;
+      const result = server.detectVersionTransition();
+      expect(result.changed).toBe(true);
+      expect(result.previousVersion).toBe('some-older-version');
+    });
+
+    test('detectVersionTransition reports changed when only gitSha differs', () => {
+      server.previousKnownVersion = packageJson.version;
+      server.previousKnownGitSha = 'some-older-sha';
+      server.previousKnownCapabilities = null;
+      const result = server.detectVersionTransition();
+      expect(result.changed).toBe(true);
+      expect(result.previousGitSha).toBe('some-older-sha');
+    });
+
+    test('detectVersionTransition reports changed when only capabilities differ', () => {
+      server.previousKnownVersion = packageJson.version;
+      server.previousKnownGitSha = null;
+      server.previousKnownCapabilities = ['durable-send-idempotency-v1'];
+      const result = server.detectVersionTransition();
+      expect(result.changed).toBe(true);
+      expect(result.previousCapabilities).toEqual(['durable-send-idempotency-v1']);
+    });
+
+    test('MedusaServer.computeCapabilityDelta reports added/removed capabilities and an always-empty changed list', () => {
+      const delta = MedusaServer.computeCapabilityDelta(['a', 'b'], ['b', 'c']);
+      expect(delta.added).toEqual(['c']);
+      expect(delta.removed).toEqual(['a']);
+      expect(delta.changed).toEqual([]);
+    });
+
+    test('MedusaServer.computeCapabilityDelta treats a null previous manifest as empty', () => {
+      const delta = MedusaServer.computeCapabilityDelta(null, ['a', 'b']);
+      expect(delta.added).toEqual(['a', 'b']);
+      expect(delta.removed).toEqual([]);
     });
   });
 

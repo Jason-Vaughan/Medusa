@@ -106,6 +106,52 @@ To keep the connection alive and advertise autonomous mode status, clients shoul
 ```
 The server will respond with a `heartbeat_ack` confirming the status.
 
+## Hub Version & Capability Manifest
+
+Consumers that need to discover what commit/version/capabilities the running Hub is serving — or be notified when it upgrades — can query:
+
+`GET http://127.0.0.1:3100/version`
+
+The server responds with `200 OK`:
+```json
+{
+  "version": "1.0.0-rc2",
+  "gitSha": "9cc5b5e18a57f45525f6a68bdd3859ca4c0b61ac",
+  "startedAt": "2026-07-11T12:00:00.000Z",
+  "capabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1", "version-manifest-v1", "experimental-codecs-v1"]
+}
+```
+
+`GET /health` also includes the same `gitSha`, `startedAt`, and `capabilities` fields alongside its existing fields.
+
+The WebSocket `registered` acknowledgement (sent immediately after a `register` frame) carries the same `version`, `gitSha`, `startedAt`, and `capabilities` fields, so a reconnecting consumer always learns what it's talking to without a separate round trip.
+
+### Subscriber Update Notification (`hub.version_updated`)
+
+A Hub restart persists its `version`, `gitSha`, and `capabilities` to disk. On the next boot, if **any** of those three differ from what was persisted — a new release version, a new commit on an unchanged version, or a changed capability set — every workspace that registers over WebSocket after that restart receives an additional push notification:
+
+```json
+{
+  "type": "hub.version_updated",
+  "version": "1.0.0-rc2",
+  "gitSha": "9cc5b5e18a57f45525f6a68bdd3859ca4c0b61ac",
+  "previousVersion": "1.0.0-rc",
+  "previousGitSha": "4d0edc67f6d705b1f4beaed80d0ab88ffaadf7e0",
+  "capabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1", "version-manifest-v1", "experimental-codecs-v1"],
+  "previousCapabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1"],
+  "capabilityDelta": {
+    "added": ["version-manifest-v1", "experimental-codecs-v1"],
+    "removed": [],
+    "changed": []
+  },
+  "timestamp": "2026-07-11T12:00:00.000Z"
+}
+```
+
+`capabilityDelta.changed` is always empty — capabilities are flat identifier strings with no associated value, so a capability is only ever added or removed, never "changed" in place.
+
+This is sent once per registration following an upgrade, in addition to (not instead of) the normal `registered` ack, so subscribers that were disconnected across the restart still learn what changed. No frame is sent when the Hub restarts with an unchanged version, gitSha, and capability set.
+
 ## Peek
 
 Consumers can remotely check the state of another workspace without sending a message or altering its execution. This is useful before initiating a blocking request.

@@ -2,7 +2,7 @@
 
 - **Issue:** [Jason-Vaughan/Medusa#74](https://github.com/Jason-Vaughan/Medusa/issues/74)
 - **Mode:** `offline-deterministic`
-- **Generated At:** `2026-11-09T07:20:40.346Z`
+- **Generated At:** `2026-11-09T07:29:30.363Z`
 
 > Frontier profiles (`claude`, `codex`, `antigravity`) have no live completion endpoint wired into this harness and are always scored deterministically against each codec's own encode/decode output (`mode: frontier-deterministic`) as a reproducible upper-bound baseline. Only the three Monad-1 open-weight models are queried live over HTTP when run with `offline: false`.
 
@@ -13,56 +13,56 @@
 | `claude` | `nl-baseline-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `nl-baseline-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `nl-baseline-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `compact-json-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `compact-json-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `compact-json-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `graph-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `graph-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `graph-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `graph-delta-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `graph-delta-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `graph-delta-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `typed-cmd-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `typed-cmd-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `typed-cmd-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `tuple-table-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `tuple-table-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `tuple-table-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `dict-intern-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `dict-intern-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `dict-intern-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `json-patch-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `json-patch-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `json-patch-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
-| `gpt-oss:120b` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3-coder-next:q4_K_M` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
-| `qwen3.6:35b-a3b` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `claude` | `blackboard-ref-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `codex` | `blackboard-ref-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
 | `antigravity` | `blackboard-ref-v1` | `frontier-deterministic` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `gpt-oss:120b` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `gpt-oss:120b` | `blackboard-ref-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3-coder-next:q4_K_M` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `qwen3-coder-next:q4_K_M` | `blackboard-ref-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `nl-baseline-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `compact-json-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `graph-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `graph-delta-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `typed-cmd-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `tuple-table-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `dict-intern-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
+| `qwen3.6:35b-a3b` | `json-patch-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 | `qwen3.6:35b-a3b` | `blackboard-ref-v1` | `offline` | 100% | 100% | 100% | – | – | – | – | – |
 
 ---

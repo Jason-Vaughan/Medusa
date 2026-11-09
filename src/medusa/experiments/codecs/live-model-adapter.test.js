@@ -15,10 +15,13 @@ const { CodecRegistry } = require('./CodecRegistry');
 const {
   LiveModelAdapter,
   buildPrompt,
+  buildDigestHints,
+  prepareEvaluationContext,
   scoreCandidate,
   generateLiveModelMatrixReport,
   MONAD1_MODELS,
-  FRONTIER_PROFILES
+  FRONTIER_PROFILES,
+  DEFAULT_LIVE_SAMPLE_MESSAGE
 } = require('../../../../benchmarks/agent-communication/live-model-adapter');
 const { BENCHMARK_SCENARIOS } = require('../../../../benchmarks/agent-communication/scenarios');
 const { createCodecState } = require('../../../../benchmarks/agent-communication/harness');
@@ -235,8 +238,8 @@ describe('LiveModelAdapter (Issue #74)', () => {
       await adapter.evaluateMonad1('compact-json-v1', 'gpt-oss:120b', { offline: false, message: SAMPLE_MESSAGE });
       await adapter.evaluateMonad1('compact-json-v1', 'qwen3.6:35b-a3b', { offline: false, message: SAMPLE_MESSAGE });
 
-      expect(captured[0].options.num_predict).toBe(600);
-      expect(captured[1].options.num_predict).toBe(220);
+      expect(captured[0].options.num_predict).toBe(700);
+      expect(captured[1].options.num_predict).toBe(350);
       expect(captured[0].options.temperature).toBe(0);
     });
   });
@@ -345,7 +348,92 @@ describe('LiveModelAdapter (Issue #74)', () => {
     });
   });
 
-  describe('6. Markdown report generation', () => {
+  describe('6. Digest/pointer hints for the 3 crypto-digest codecs', () => {
+    test('buildDigestHints lists the real pre-stored @art: pointers for blackboard-ref-v1', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('blackboard-ref-v1');
+      const evalCtx = prepareEvaluationContext(codec, 'blackboard-ref-v1', DEFAULT_LIVE_SAMPLE_MESSAGE);
+      const hints = buildDigestHints('blackboard-ref-v1', evalCtx);
+
+      expect(hints[0]).toMatch(/Pre-stored blackboard pointers/);
+      const constraintsLine = hints.find((l) => l.trim().startsWith('constraints'));
+      const expectedPointer = evalCtx.referenceEnvelope.payload.fields.constraints;
+      expect(constraintsLine).toContain(expectedPointer);
+      expect(evalCtx.encodeContext.store.has(expectedPointer)).toBe(true);
+    });
+
+    test('buildDigestHints reports the real base_hash/target_hash for json-patch-v1', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('json-patch-v1');
+      const evalCtx = prepareEvaluationContext(codec, 'json-patch-v1', DEFAULT_LIVE_SAMPLE_MESSAGE);
+      const hints = buildDigestHints('json-patch-v1', evalCtx);
+
+      expect(hints[0]).toContain(`base_hash="${evalCtx.referenceEnvelope.payload.base_hash}"`);
+      expect(hints[0]).toContain(`target_hash="${evalCtx.referenceEnvelope.payload.target_hash}"`);
+    });
+
+    test('buildDigestHints reports the real bd/td digests for graph-delta-v1', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('graph-delta-v1');
+      const evalCtx = prepareEvaluationContext(codec, 'graph-delta-v1', DEFAULT_LIVE_SAMPLE_MESSAGE);
+      const hints = buildDigestHints('graph-delta-v1', evalCtx);
+
+      expect(hints[0]).toContain(`bd="${evalCtx.referenceEnvelope.payload.bd}"`);
+      expect(hints[0]).toContain(`td="${evalCtx.referenceEnvelope.payload.td}"`);
+    });
+
+    test('buildDigestHints returns no hints for a codec with no embedded cryptographic digest', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('compact-json-v1');
+      const evalCtx = prepareEvaluationContext(codec, 'compact-json-v1', DEFAULT_LIVE_SAMPLE_MESSAGE);
+      expect(buildDigestHints('compact-json-v1', evalCtx)).toEqual([]);
+    });
+
+    test('buildPrompt embeds the digest hints for a crypto-digest codec', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('json-patch-v1');
+      const evalCtx = prepareEvaluationContext(codec, 'json-patch-v1', DEFAULT_LIVE_SAMPLE_MESSAGE);
+      const prompt = buildPrompt(codec, DEFAULT_LIVE_SAMPLE_MESSAGE, evalCtx, 'json-patch-v1');
+      expect(prompt).toContain('Pre-computed register hashes');
+      expect(prompt).toContain(evalCtx.referenceEnvelope.payload.base_hash);
+    });
+
+    test("evaluateMonad1 defaults to the concise DEFAULT_LIVE_SAMPLE_MESSAGE (not a full scenario message) when none is given", async () => {
+      let capturedBody;
+      const adapter = new LiveModelAdapter({
+        transport: async (url, init) => {
+          capturedBody = JSON.parse(init.body);
+          return { ok: true, json: async () => ({ message: { content: '' }, prompt_eval_count: 1, eval_count: 1, eval_duration: 1 }) };
+        }
+      });
+
+      await adapter.evaluateMonad1('compact-json-v1', 'qwen3.6:35b-a3b', { offline: false });
+      expect(capturedBody.messages[0].content).toContain(JSON.stringify(DEFAULT_LIVE_SAMPLE_MESSAGE));
+    });
+  });
+
+  describe('7. runMatrix groups Monad-1 queries by model to avoid repeated VRAM swaps', () => {
+    test('all Monad-1 rows for model 1 come before any row for model 2', async () => {
+      const seenModels = [];
+      const adapter = new LiveModelAdapter({
+        transport: async (url, init) => {
+          const body = JSON.parse(init.body);
+          seenModels.push(body.model);
+          return { ok: true, json: async () => ({ message: { content: '' }, prompt_eval_count: 1, eval_count: 1, eval_duration: 1 }) };
+        }
+      });
+
+      await adapter.runMatrix({ offline: false, codecIds: ['compact-json-v1', 'tuple-table-v1'] });
+
+      // Grouped by model: every call for MONAD1_MODELS[0] must appear before the first call for
+      // MONAD1_MODELS[1], rather than alternating model-codec-model-codec per codec.
+      const firstIndexOfSecondModel = seenModels.indexOf(MONAD1_MODELS[1]);
+      const lastIndexOfFirstModel = seenModels.lastIndexOf(MONAD1_MODELS[0]);
+      expect(lastIndexOfFirstModel).toBeLessThan(firstIndexOfSecondModel);
+    });
+  });
+
+  describe('8. Markdown report generation', () => {
     test('renders a null-telemetry deterministic row (no model was queried) as "–", not a fabricated number', () => {
       const matrix = {
         generatedAt: '2026-11-09T00:00:00.000Z',

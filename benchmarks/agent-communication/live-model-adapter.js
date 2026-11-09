@@ -21,7 +21,7 @@
  * through the same deterministic path as frontier rows, so `npm test` is 100% offline.
  */
 
-const { CodecRegistry, validateCanonicalMessage } = require('../../src/medusa/experiments/codecs');
+const { CodecRegistry, validateCanonicalMessage, HEAVY_FIELDS, isArtifactPointer } = require('../../src/medusa/experiments/codecs');
 const { BENCHMARK_SCENARIOS } = require('./scenarios');
 const { measureSemanticPreservation, createCodecState } = require('./harness');
 
@@ -30,6 +30,21 @@ const DEFAULT_TIMEOUT_MS = 30000;
 
 const MONAD1_MODELS = ['gpt-oss:120b', 'qwen3-coder-next:q4_K_M', 'qwen3.6:35b-a3b'];
 const FRONTIER_PROFILES = ['claude', 'codex', 'antigravity'];
+
+/**
+ * Concise 7-field canonical message used for live model probes instead of a full 20-field
+ * benchmark scenario message: a `graph-v1`/`nl-baseline-v1` encoding of the latter runs
+ * 450-850 tokens, which truncates well before `numPredict` on a live run.
+ */
+const DEFAULT_LIVE_SAMPLE_MESSAGE = {
+  id: 'live-probe-01',
+  kind: 'task.ack',
+  from: 'Medusa-Lane-B',
+  to: 'Medusa-PM',
+  status: 'working',
+  constraints: ['bind_host=127.0.0.1', 'no_force_push=true'],
+  summary: 'Implementing codec negotiation with full schema validation.'
+};
 
 /**
  * Builds a synchronized encode/decode context pair for a codec, a reference envelope for
@@ -61,6 +76,7 @@ function prepareEvaluationContext(codec, codecId, message) {
     from: 'Medusa-Lane-A',
     to: 'Medusa-PM',
     status: 'working',
+    constraints: ['example_rule=true'],
     summary: 'Example prior turn shown only to demonstrate the wire grammar.'
   };
   const exampleWireText = codec.encode(exampleMessage, createCodecState(codecId)).wireText;
@@ -86,18 +102,54 @@ function stripMarkdownFences(text) {
 }
 
 /**
+ * Builds the precomputed cryptographic digest/pointer hint lines a model cannot derive on its
+ * own (it cannot compute SHA-256 through pure text generation) for the 3 codecs whose wire
+ * format embeds one: `blackboard-ref-v1` (`@art:<sha256_12>` pointers), `json-patch-v1`
+ * (`base_hash`/`target_hash`), and `graph-delta-v1` (`bd`/`td`).
+ *
+ * @param {string} codecId - The codec's `capabilities().id`.
+ * @param {{ encodeContext: object, referenceEnvelope: object }} evalCtx - Context from `prepareEvaluationContext`.
+ * @returns {string[]} Hint lines, or `[]` for a codec with no embedded digest.
+ */
+function buildDigestHints(codecId, evalCtx) {
+  if (codecId === 'blackboard-ref-v1') {
+    const fields = evalCtx.referenceEnvelope.payload.fields;
+    const pointerLines = HEAVY_FIELDS.filter((field) => isArtifactPointer(fields[field])).map(
+      (field) => `  ${field} -> "${fields[field]}"`
+    );
+    if (pointerLines.length === 0) return [];
+    return ['Pre-stored blackboard pointers for this message (use these exact pointer strings, do not invent new ones):', ...pointerLines];
+  }
+
+  if (codecId === 'json-patch-v1') {
+    const { base_hash: baseHash, target_hash: targetHash } = evalCtx.referenceEnvelope.payload;
+    return [`Pre-computed register hashes for this turn: base_hash="${baseHash}", target_hash="${targetHash}"`];
+  }
+
+  if (codecId === 'graph-delta-v1') {
+    const { bd, td } = evalCtx.referenceEnvelope.payload;
+    return [`Pre-computed graph digests for this turn: bd="${bd}", td="${td}"`];
+  }
+
+  return [];
+}
+
+/**
  * Builds the instruction prompt asking a model to reproduce `message` in `codec`'s wire format.
  * When `evalCtx` (from `prepareEvaluationContext`) is supplied, the prompt includes a concrete
  * one-shot example turn so the model can see the exact wire grammar rather than guessing it from
- * a one-line description.
+ * a one-line description, plus precomputed digest/pointer hints for the 3 codecs whose wire
+ * format embeds a cryptographic digest the model has no way to compute itself.
  *
  * @param {object} codec - `BaseCodec` instance.
  * @param {object} message - Canonical semantic message to encode.
  * @param {{ exampleMessage?: object, exampleWireText?: string }} [evalCtx] - Optional context from `prepareEvaluationContext`.
+ * @param {string} [codecId] - The codec's `capabilities().id`, for selecting digest hints. Defaults to `codec.capabilities().id`.
  * @returns {string} Prompt text.
  */
-function buildPrompt(codec, message, evalCtx) {
+function buildPrompt(codec, message, evalCtx, codecId) {
   const caps = codec.capabilities();
+  const resolvedCodecId = codecId || caps.id;
   const lines = [
     `You are encoding an inter-agent coordination message using the "${caps.id}" wire format.`,
     `Format description: ${caps.description}`
@@ -110,6 +162,13 @@ function buildPrompt(codec, message, evalCtx) {
       `Input: ${JSON.stringify(evalCtx.exampleMessage)}`,
       `Wire output: ${evalCtx.exampleWireText}`
     );
+  }
+
+  if (evalCtx && evalCtx.referenceEnvelope) {
+    const hints = buildDigestHints(resolvedCodecId, evalCtx);
+    if (hints.length > 0) {
+      lines.push('', ...hints);
+    }
   }
 
   lines.push(
@@ -318,22 +377,25 @@ class LiveModelAdapter {
   async evaluateMonad1(codecId, model, { offline = true, message } = {}) {
     const codec = this.registry.get(codecId);
     if (!codec) throw new Error(`Unknown codec id: "${codecId}"`);
-    const sample = message || BENCHMARK_SCENARIOS[0].messages[0];
 
     if (offline) {
+      const sample = message || BENCHMARK_SCENARIOS[0].messages[0];
       const decodeContext = createCodecState(codecId);
       return { model, codecId, mode: 'offline', error: null, ...this.evaluateOffline(codec, sample, decodeContext) };
     }
 
+    // The concise 7-field live-probe message, not a full 20-field scenario message: the latter's
+    // graph-v1/nl-baseline-v1 encoding runs 450-850 tokens, which truncates before numPredict.
+    const sample = message || DEFAULT_LIVE_SAMPLE_MESSAGE;
     const evalCtx = prepareEvaluationContext(codec, codecId, sample);
-    const prompt = buildPrompt(codec, sample, evalCtx);
+    const prompt = buildPrompt(codec, sample, evalCtx, codecId);
     // num_predict per Suite A/B findings in docs/research/TANGLECLAW_AIDER_INTEGRATION_FEEDBACK.md:
     // gpt-oss:120b spends ~130-200 tokens on hidden reasoning before its visible reply even with
     // think: false, so it needs a much larger cap than the other two models.
     const result = await this.queryMonad1Model(model, prompt, {
       think: false,
       temperature: 0,
-      numPredict: model === 'gpt-oss:120b' ? 600 : 220
+      numPredict: model === 'gpt-oss:120b' ? 700 : 350
     });
     if (!result.ok) {
       return {
@@ -438,7 +500,13 @@ class LiveModelAdapter {
         // eslint-disable-next-line no-await-in-loop
         rows.push(await this.evaluateFrontierProfile(codecId, profile, { offline }));
       }
-      for (const model of monad1Models) {
+    }
+
+    // Grouped by model (outer loop), not by codec: on a live run this is the order Ollama
+    // actually serves requests in, so each Monad-1 model loads into VRAM once instead of being
+    // swapped in and out once per codec (27 swaps instead of 3).
+    for (const model of monad1Models) {
+      for (const codecId of codecIds) {
         // eslint-disable-next-line no-await-in-loop
         rows.push(await this.evaluateMonad1(codecId, model, { offline }));
       }
@@ -513,10 +581,14 @@ function generateLiveModelMatrixReport(matrix) {
 module.exports = {
   LiveModelAdapter,
   buildPrompt,
+  buildDigestHints,
+  prepareEvaluationContext,
+  stripMarkdownFences,
   scoreCandidate,
   generateLiveModelMatrixReport,
   MONAD1_MODELS,
   FRONTIER_PROFILES,
   DEFAULT_BASE_URL,
-  DEFAULT_TIMEOUT_MS
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_LIVE_SAMPLE_MESSAGE
 };

@@ -44,23 +44,18 @@ function generateMarkdownReport(report) {
   lines.push('');
   lines.push('## 2. Per-Scenario Multi-Turn Token Breakdown');
   lines.push('');
-  lines.push(
-    '| Scenario | Msgs | `nl-baseline-v1` | `compact-json-v1` | `graph-v1` | `graph-delta-v1` | `typed-cmd-v1` |'
-  );
-  lines.push('|---|---:|---:|---:|---:|---:|---:|');
+  const allCodecIds = Object.keys(report.byCodec);
+  lines.push(`| Scenario | Msgs | ${allCodecIds.map((id) => `\`${id}\``).join(' | ')} |`);
+  lines.push(`|---|---:|${allCodecIds.map(() => '---:').join('|')}|`);
 
-  const scenariosCount = report.byCodec['nl-baseline-v1'].scenarios.length;
+  const scenariosCount = report.byCodec[allCodecIds[0]].scenarios.length;
   for (let i = 0; i < scenariosCount; i++) {
-    const scId = report.byCodec['nl-baseline-v1'].scenarios[i].scenarioId;
-    const msgCount = report.byCodec['nl-baseline-v1'].scenarios[i].messageCount;
-    const nl = report.byCodec['nl-baseline-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const cj = report.byCodec['compact-json-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const gr = report.byCodec['graph-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const gd = report.byCodec['graph-delta-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    const tc = report.byCodec['typed-cmd-v1'].scenarios[i].metrics.totalMultiTurnTokens;
-    lines.push(
-      `| \`${scId}\` | ${msgCount} | ${nl.toLocaleString()} | ${cj.toLocaleString()} | ${gr.toLocaleString()} | ${gd.toLocaleString()} | **${tc.toLocaleString()}** |`
+    const scId = report.byCodec[allCodecIds[0]].scenarios[i].scenarioId;
+    const msgCount = report.byCodec[allCodecIds[0]].scenarios[i].messageCount;
+    const cells = allCodecIds.map((id) =>
+      report.byCodec[id].scenarios[i].metrics.totalMultiTurnTokens.toLocaleString()
     );
+    lines.push(`| \`${scId}\` | ${msgCount} | ${cells.join(' | ')} |`);
   }
 
   lines.push('');
@@ -101,18 +96,22 @@ function generateMarkdownReport(report) {
   lines.push('');
   lines.push('## 4. Resilience & State Synchronization Findings (Scenarios 7 & 9)');
   lines.push('');
-  const gdS7 = report.byCodec['graph-delta-v1'].scenarios.find(
-    (s) => s.scenarioId === 'S07-conflicting-shared-state-writes'
-  );
-  const gdS9 = report.byCodec['graph-delta-v1'].scenarios.find(
-    (s) => s.scenarioId === 'S09-disconnect-missed-delta-recovery'
-  );
-  lines.push(
-    `- **Scenario 7 (Concurrent Conflicting Writes):** \`graph-delta-v1\` deterministically detected the stale base version write (\`conflictDetectedDeterministically: ${gdS7.conflictProbe.conflictDetectedDeterministically}\`, code: \`${gdS7.conflictProbe.conflictCode}\`) and recovered cleanly after rebasing onto the coordinator's snapshot (\`recoveredAfterRebase: ${gdS7.conflictProbe.recoveredAfterRebase}\`).`
-  );
-  lines.push(
-    `- **Scenario 9 (Disconnect & Missed Update Recovery):** \`graph-delta-v1\` deterministically flagged the version gap when Turn 2 was missed (\`detectedMissedUpdate: ${gdS9.disconnectProbe.detectedMissedUpdate}\`, code: \`${gdS9.disconnectProbe.errorCode}\`) and restored 100% state digest parity upon snapshot resync (\`recoveredFidelity: ${gdS9.disconnectProbe.recoveredFidelity}\`).`
-  );
+  const DELTA_CODEC_LABELS = {
+    'graph-delta-v1': 'property-graph delta',
+    'json-patch-v1': 'flat state-register JSON Patch delta'
+  };
+  for (const [codecId, label] of Object.entries(DELTA_CODEC_LABELS)) {
+    const s7 = report.byCodec[codecId].scenarios.find((s) => s.scenarioId === 'S07-conflicting-shared-state-writes');
+    const s9 = report.byCodec[codecId].scenarios.find(
+      (s) => s.scenarioId === 'S09-disconnect-missed-delta-recovery'
+    );
+    lines.push(
+      `- **\`${codecId}\` (${label}) — Scenario 7 (Concurrent Conflicting Writes):** deterministically detected the stale base version write (\`conflictDetectedDeterministically: ${s7.conflictProbe.conflictDetectedDeterministically}\`, code: \`${s7.conflictProbe.conflictCode}\`) and recovered cleanly after rebasing onto the coordinator's snapshot (\`recoveredAfterRebase: ${s7.conflictProbe.recoveredAfterRebase}\`).`
+    );
+    lines.push(
+      `- **\`${codecId}\` (${label}) — Scenario 9 (Disconnect & Missed Update Recovery):** deterministically flagged the version gap when Turn 2 was missed (\`detectedMissedUpdate: ${s9.disconnectProbe.detectedMissedUpdate}\`, code: \`${s9.disconnectProbe.errorCode}\`) and restored 100% state digest parity upon snapshot resync (\`recoveredFidelity: ${s9.disconnectProbe.recoveredFidelity}\`).`
+    );
+  }
 
   lines.push('');
   lines.push('---');
@@ -120,16 +119,19 @@ function generateMarkdownReport(report) {
   lines.push('## 5. Evidence-Backed Recommendation');
   lines.push('');
   lines.push(
-    '1. **Primary Winner — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction across both single-turn and 30-turn workflows while remaining **stateless on the wire** (apart from optional `@ctx:<digest>` content-addressed references), human-readable in one line, and immune to version-desync stalls.'
+    "1. **Highest Raw Token Savings — `blackboard-ref-v1` (`BlackboardRefCodec`):** Achieves the highest single-turn output-token savings (`67.01%`) by offloading heavy, repeated fields (`scope`, `constraints`, `findings`, `assignments`, `sharedContext`) to a shared, content-addressed blackboard and transmitting only `@art:<sha256_12>` pointers — at the cost of needing that shared artifact store; it is not usable point-to-point without one."
   );
   lines.push(
-    '2. **Secondary Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.'
+    "2. **Highest Purely Inline Stateless Savings — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction among codecs requiring no shared state on the wire (`65.97%` single-turn, `69.41%` over the 30-turn `S08` exchange), apart from optional `@ctx:<digest>` content-addressed references, remaining human-readable in one line and immune to version-desync stalls."
   );
   lines.push(
-    '3. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.'
+    '3. **Secondary Stateless Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.'
   );
   lines.push(
-    '4. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).'
+    '4. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.'
+  );
+  lines.push(
+    '5. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).'
   );
 
   return lines.join('\n') + '\n';

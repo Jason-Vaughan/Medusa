@@ -119,16 +119,19 @@ function generateMarkdownReport(report) {
   lines.push('## 5. Evidence-Backed Recommendation');
   lines.push('');
   lines.push(
-    '1. **Primary Winner — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction across both single-turn and 30-turn workflows while remaining **stateless on the wire** (apart from optional `@ctx:<digest>` content-addressed references), human-readable in one line, and immune to version-desync stalls.'
+    "1. **Highest Raw Token Savings — `blackboard-ref-v1` (`BlackboardRefCodec`):** Achieves the highest single-turn output-token savings (`67.01%`) by offloading heavy, repeated fields (`scope`, `constraints`, `findings`, `assignments`, `sharedContext`) to a shared, content-addressed blackboard and transmitting only `@art:<sha256_12>` pointers — at the cost of needing that shared artifact store; it is not usable point-to-point without one."
   );
   lines.push(
-    '2. **Secondary Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.'
+    "2. **Highest Purely Inline Stateless Savings — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction among codecs requiring no shared state on the wire (`65.97%` single-turn, `69.41%` over the 30-turn `S08` exchange), apart from optional `@ctx:<digest>` content-addressed references, remaining human-readable in one line and immune to version-desync stalls."
   );
   lines.push(
-    '3. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.'
+    '3. **Secondary Stateless Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.'
   );
   lines.push(
-    '4. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).'
+    '4. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.'
+  );
+  lines.push(
+    '5. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).'
   );
 
   return lines.join('\n') + '\n';

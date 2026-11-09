@@ -4,7 +4,7 @@
 - **Branch:** `experiment/agent-communication-protocols`
 - **Execution Mode:** `deterministic-offline-fixtures (non-LLM)`
 - **Token Measurement Method:** `deterministic-bpe-subword-v1` (subword BPE segmenter — never raw byte count)
-- **Generated At:** `2026-11-09T07:03:11.659Z`
+- **Generated At:** `2026-11-09T07:20:40.254Z`
 
 ---
 
@@ -12,15 +12,15 @@
 
 | Codec ID | Output Tokens | Output Savings vs Baseline | Cumulative Multi-Turn Tokens | Multi-Turn Savings | S08 (30-Turn) Savings | Wire Bytes | Gzip Bytes | Semantic Preservation | Lost Constraints | Total CPU Latency (µs) | Est. Frontier Cost (USD) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `nl-baseline-v1` | 32,951 | **0%** | 371,717 | **0%** | **0%** | 81,927 B | 45,184 B | **100%** | 0 | 2,639.55 µs | $1.5106 |
-| `compact-json-v1` | 14,725 | **55.31%** | 159,082 | **57.2%** | **58.26%** | 28,781 B | 19,347 B | **100%** | 0 | 1,544.6 µs | $0.6539 |
-| `graph-v1` | 76,677 | **-132.7%** | 882,627 | **-137.45%** | **-139.02%** | 144,887 B | 44,668 B | **100%** | 0 | 2,536.54 µs | $3.5680 |
-| `graph-delta-v1` | 31,146 | **5.48%** | 313,103 | **15.77%** | **20.66%** | 62,276 B | 31,137 B | **100%** | 0 | 39,266.59 µs | $1.3131 |
-| `typed-cmd-v1` | 11,213 | **65.97%** | 118,085 | **68.23%** | **69.41%** | 27,077 B | 18,965 B | **100%** | 0 | 2,421.01 µs | $0.4888 |
-| `tuple-table-v1` | 20,137 | **38.89%** | 225,932 | **39.22%** | **39.31%** | 40,133 B | 23,919 B | **100%** | 0 | 2,607 µs | $0.9194 |
-| `dict-intern-v1` | 25,703 | **22%** | 275,065 | **26%** | **27.9%** | 43,248 B | 23,008 B | **100%** | 0 | 1,871.37 µs | $1.1336 |
-| `json-patch-v1` | 17,851 | **45.83%** | 172,637 | **53.56%** | **57.18%** | 33,555 B | 16,366 B | **100%** | 0 | 5,127.96 µs | $0.7321 |
-| `blackboard-ref-v1` | 10,869 | **67.01%** | 125,484 | **66.24%** | **65.96%** | 22,285 B | 16,259 B | **100%** | 0 | 4,556.87 µs | $0.5069 |
+| `nl-baseline-v1` | 32,951 | **0%** | 371,717 | **0%** | **0%** | 81,927 B | 45,184 B | **100%** | 0 | 2,329.79 µs | $1.5106 |
+| `compact-json-v1` | 14,725 | **55.31%** | 159,082 | **57.2%** | **58.26%** | 28,781 B | 19,347 B | **100%** | 0 | 1,419.75 µs | $0.6539 |
+| `graph-v1` | 76,677 | **-132.7%** | 882,627 | **-137.45%** | **-139.02%** | 144,887 B | 44,668 B | **100%** | 0 | 2,025.32 µs | $3.5680 |
+| `graph-delta-v1` | 31,146 | **5.48%** | 313,103 | **15.77%** | **20.66%** | 62,276 B | 31,137 B | **100%** | 0 | 37,226.88 µs | $1.3131 |
+| `typed-cmd-v1` | 11,213 | **65.97%** | 118,085 | **68.23%** | **69.41%** | 27,077 B | 18,965 B | **100%** | 0 | 2,140.76 µs | $0.4888 |
+| `tuple-table-v1` | 20,137 | **38.89%** | 225,932 | **39.22%** | **39.31%** | 40,133 B | 23,919 B | **100%** | 0 | 2,234.29 µs | $0.9194 |
+| `dict-intern-v1` | 25,703 | **22%** | 275,065 | **26%** | **27.9%** | 43,248 B | 23,008 B | **100%** | 0 | 1,573.25 µs | $1.1336 |
+| `json-patch-v1` | 17,851 | **45.83%** | 172,637 | **53.56%** | **57.18%** | 33,555 B | 16,366 B | **100%** | 0 | 4,960.34 µs | $0.7321 |
+| `blackboard-ref-v1` | 10,869 | **67.01%** | 125,484 | **66.24%** | **65.96%** | 22,285 B | 16,259 B | **100%** | 0 | 4,624.18 µs | $0.5069 |
 
 ---
 
@@ -71,7 +71,8 @@ Scenario 10 tests 5 adversarial/hallucinated messages across every codec, compar
 
 ## 5. Evidence-Backed Recommendation
 
-1. **Primary Winner — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction across both single-turn and 30-turn workflows while remaining **stateless on the wire** (apart from optional `@ctx:<digest>` content-addressed references), human-readable in one line, and immune to version-desync stalls.
-2. **Secondary Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.
-3. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.
-4. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).
+1. **Highest Raw Token Savings — `blackboard-ref-v1` (`BlackboardRefCodec`):** Achieves the highest single-turn output-token savings (`67.01%`) by offloading heavy, repeated fields (`scope`, `constraints`, `findings`, `assignments`, `sharedContext`) to a shared, content-addressed blackboard and transmitting only `@art:<sha256_12>` pointers — at the cost of needing that shared artifact store; it is not usable point-to-point without one.
+2. **Highest Purely Inline Stateless Savings — `typed-cmd-v1` (`TypedCommandCodec`):** Achieves the highest token reduction among codecs requiring no shared state on the wire (`65.97%` single-turn, `69.41%` over the 30-turn `S08` exchange), apart from optional `@ctx:<digest>` content-addressed references, remaining human-readable in one line and immune to version-desync stalls.
+3. **Secondary Stateless Winner — `compact-json-v1` (`CompactJsonCodec`):** Best drop-in choice when consumers prefer native `JSON.parse()` without a custom command grammar, delivering nearly identical multi-turn token savings once shared context is deduplicated via `ctxRef`.
+4. **Specialized State Layer — `graph-delta-v1` (`GraphDeltaCodec`):** Substantially outperforms naive full-graph `graph-v1` over long 30-turn exchanges (`S08`) and provides cryptographic state-digest conflict detection, but introduces stateful resync complexity on disconnect. Recommended only for coordinator-managed shared sprint topology, not point-to-point chat.
+5. **Reject Naive Full-Graph Serialization (`graph-v1`) & Unverified Latent Claims:** Naive per-message property graphs (`graph-v1`) carry significant JSON node/edge wrapper overhead compared to `typed-cmd-v1` and `compact-json-v1`, and direct latent vector exchange (`Approach F`) is incompatible with heterogeneous frontier model APIs (`claude`, `codex`, `antigravity`).

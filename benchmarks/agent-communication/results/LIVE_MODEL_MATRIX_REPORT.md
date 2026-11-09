@@ -2,7 +2,7 @@
 
 - **Issue:** [Jason-Vaughan/Medusa#74](https://github.com/Jason-Vaughan/Medusa/issues/74)
 - **Mode:** `offline-deterministic`
-- **Generated At:** `2026-11-09T07:03:06.016Z`
+- **Generated At:** `2026-11-09T07:20:40.346Z`
 
 > Frontier profiles (`claude`, `codex`, `antigravity`) have no live completion endpoint wired into this harness and are always scored deterministically against each codec's own encode/decode output (`mode: frontier-deterministic`) as a reproducible upper-bound baseline. Only the three Monad-1 open-weight models are queried live over HTTP when run with `offline: false`.
 

@@ -21,6 +21,7 @@ const {
   FRONTIER_PROFILES
 } = require('../../../../benchmarks/agent-communication/live-model-adapter');
 const { BENCHMARK_SCENARIOS } = require('../../../../benchmarks/agent-communication/scenarios');
+const { createCodecState } = require('../../../../benchmarks/agent-communication/harness');
 
 const ALL_CODEC_IDS = new CodecRegistry().listCapabilities().map((c) => c.id);
 const SAMPLE_MESSAGE = BENCHMARK_SCENARIOS[0].messages[0];
@@ -51,14 +52,55 @@ describe('LiveModelAdapter (Issue #74)', () => {
       }
     });
 
-    test.each(ALL_CODEC_IDS)('evaluateFrontierProfile scores codec "%s" deterministically with no network access', (codecId) => {
+    test.each(ALL_CODEC_IDS)('evaluateFrontierProfile scores codec "%s" deterministically with no network access', async (codecId) => {
       const adapter = new LiveModelAdapter({ transport: null });
-      const result = adapter.evaluateFrontierProfile(codecId, 'claude', { message: SAMPLE_MESSAGE });
+      const result = await adapter.evaluateFrontierProfile(codecId, 'claude', { message: SAMPLE_MESSAGE });
 
       expect(result.mode).toBe('frontier-deterministic');
       expect(result.schemaAdherencePct).toBe(100);
       expect(result.roundTripSemanticPct).toBe(100);
       expect(result.error).toBeNull();
+    });
+
+    test('evaluateFrontierProfile stays deterministic even with offline:false if no frontierProbe is injected', async () => {
+      const adapter = new LiveModelAdapter({ transport: null });
+      const result = await adapter.evaluateFrontierProfile('compact-json-v1', 'codex', {
+        message: SAMPLE_MESSAGE,
+        offline: false
+      });
+      expect(result.mode).toBe('frontier-deterministic');
+    });
+
+    test('evaluateFrontierProfile scores a genuine injected frontierProbe as frontier-session-probe', async () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('compact-json-v1');
+      let capturedEvalCtx;
+      const adapter = new LiveModelAdapter({
+        registry,
+        frontierProbe: async (codecId, profile, evalCtx) => {
+          capturedEvalCtx = evalCtx;
+          return {
+            content: codec.encode(SAMPLE_MESSAGE, evalCtx.decodeContext).wireText,
+            promptEvalCount: 30,
+            evalCount: 10,
+            wallMs: 200,
+            evalDurationMs: 180,
+            tokPerSec: 55.6
+          };
+        }
+      });
+
+      const result = await adapter.evaluateFrontierProfile('compact-json-v1', 'claude', {
+        message: SAMPLE_MESSAGE,
+        offline: false
+      });
+
+      expect(capturedEvalCtx.exampleWireText).toBeDefined();
+      expect(result.mode).toBe('frontier-session-probe');
+      expect(result.schemaAdherencePct).toBe(100);
+      expect(result.roundTripSemanticPct).toBe(100);
+      expect(result.promptEvalCount).toBe(30);
+      expect(result.tokPerSec).toBe(55.6);
     });
   });
 
@@ -113,6 +155,89 @@ describe('LiveModelAdapter (Issue #74)', () => {
       const prompt = buildPrompt(codec, SAMPLE_MESSAGE);
       expect(prompt).toContain('tuple-table-v1');
       expect(prompt).toContain(JSON.stringify(SAMPLE_MESSAGE));
+    });
+
+    test('buildPrompt includes a one-shot wire-grammar example when evalCtx is supplied', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('tuple-table-v1');
+      const evalCtx = { exampleMessage: { kind: 'task.ack' }, exampleWireText: '@tuple-v1|...' };
+      const prompt = buildPrompt(codec, SAMPLE_MESSAGE, evalCtx);
+      expect(prompt).toContain('Example');
+      expect(prompt).toContain('@tuple-v1|...');
+    });
+
+    test('strips a Markdown code fence wrapped around the model wire output before decoding', async () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('compact-json-v1');
+      const wireText = codec.encode(SAMPLE_MESSAGE).wireText;
+      const fenced = '```json\n' + wireText + '\n```';
+
+      const adapter = new LiveModelAdapter({
+        registry,
+        transport: async () => ({
+          ok: true,
+          json: async () => ({ message: { content: fenced }, prompt_eval_count: 1, eval_count: 1, eval_duration: 1 })
+        })
+      });
+
+      const result = await adapter.evaluateMonad1('compact-json-v1', 'gpt-oss:120b', {
+        offline: false,
+        message: SAMPLE_MESSAGE
+      });
+      expect(result.decodedOk).toBe(true);
+      expect(result.schemaAdherencePct).toBe(100);
+    });
+
+    test.each(['dict-intern-v1', 'json-patch-v1', 'blackboard-ref-v1', 'graph-delta-v1'])(
+      'evaluateMonad1 fairly scores a realistic mocked reply for the stateful codec "%s"',
+      async (codecId) => {
+        const registry = new CodecRegistry();
+        const codec = registry.get(codecId);
+        // Simulate "the model got it right": encode the same sample against a fresh context,
+        // exactly like a model starting a fresh evaluation turn would be expected to produce.
+        const mockWireText = codec.encode(SAMPLE_MESSAGE, createCodecState(codecId)).wireText;
+
+        const adapter = new LiveModelAdapter({
+          registry,
+          transport: async () => ({
+            ok: true,
+            json: async () => ({
+              message: { content: mockWireText },
+              prompt_eval_count: 50,
+              eval_count: 20,
+              eval_duration: 400_000_000
+            })
+          })
+        });
+
+        const result = await adapter.evaluateMonad1(codecId, 'qwen3.6:35b-a3b', {
+          offline: false,
+          message: SAMPLE_MESSAGE
+        });
+
+        expect(result.mode).toBe('live');
+        expect(result.error).toBeNull();
+        expect(result.decodedOk).toBe(true);
+        expect(result.schemaAdherencePct).toBe(100);
+        expect(result.roundTripSemanticPct).toBe(100);
+      }
+    );
+
+    test('evaluateMonad1 requests a larger num_predict for gpt-oss:120b than the other Monad-1 models', async () => {
+      const captured = [];
+      const adapter = new LiveModelAdapter({
+        transport: async (url, init) => {
+          captured.push(JSON.parse(init.body));
+          return { ok: true, json: async () => ({ message: { content: '' }, prompt_eval_count: 1, eval_count: 1, eval_duration: 1 }) };
+        }
+      });
+
+      await adapter.evaluateMonad1('compact-json-v1', 'gpt-oss:120b', { offline: false, message: SAMPLE_MESSAGE });
+      await adapter.evaluateMonad1('compact-json-v1', 'qwen3.6:35b-a3b', { offline: false, message: SAMPLE_MESSAGE });
+
+      expect(captured[0].options.num_predict).toBe(600);
+      expect(captured[1].options.num_predict).toBe(220);
+      expect(captured[0].options.temperature).toBe(0);
     });
   });
 
@@ -203,6 +328,20 @@ describe('LiveModelAdapter (Issue #74)', () => {
       const score = scoreCandidate(codec, SAMPLE_MESSAGE, 'not-a-tuple-record');
       expect(score.decodedOk).toBe(false);
       expect(score.schemaAdherencePct).toBe(0);
+    });
+
+    test('penalizes a decoded candidate that hallucinates an extra field never sent', () => {
+      const registry = new CodecRegistry();
+      const codec = registry.get('tuple-table-v1');
+      // A model that invented a field the sender never sent: encode a MUTATED message (with an
+      // extra field), then score that wire text against the ORIGINAL message actually requested.
+      const hallucinated = { ...SAMPLE_MESSAGE, invented: 'this field was never sent' };
+      const hallucinatedWireText = codec.encode(hallucinated).wireText;
+
+      const score = scoreCandidate(codec, SAMPLE_MESSAGE, hallucinatedWireText);
+      expect(score.decodedOk).toBe(true);
+      expect(score.schemaAdherencePct).toBeLessThan(100);
+      expect(score.roundTripSemanticPct).toBeLessThan(100);
     });
   });
 

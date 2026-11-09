@@ -32,20 +32,93 @@ const MONAD1_MODELS = ['gpt-oss:120b', 'qwen3-coder-next:q4_K_M', 'qwen3.6:35b-a
 const FRONTIER_PROFILES = ['claude', 'codex', 'antigravity'];
 
 /**
+ * Builds a synchronized encode/decode context pair for a codec, a reference envelope for
+ * `message`, and a one-shot example (a DIFFERENT message encoded in its own independent fresh
+ * context) that `buildPrompt` can show the model as a concrete wire-grammar demonstration.
+ *
+ * Both `encodeContext` and `decodeContext` come from `createCodecState`, so for a stateful codec
+ * they start at the identical pre-encode baseline (fresh symbol table / v0 store) — the same
+ * baseline the model is implicitly told it's starting a conversation from, so what `decode()`
+ * checks the model's reply against matches what the model was actually asked to do.
+ *
+ * `blackboard-ref-v1` is a deliberate exception: its wire payload carries only an opaque
+ * `@art:<sha256_12>` pointer for each heavy field, never the underlying value — there is no
+ * self-contained delta a fresh, unseeded decode-side store could ever resolve, unlike every
+ * other stateful codec here (`dict-intern-v1`'s `newSymbols`, `json-patch-v1`/`graph-delta-v1`'s
+ * versioned delta). So for this one codec, `decodeContext.store` is literally the same
+ * `BlackboardStore` instance `encodeContext` just wrote the sample's artifacts into — otherwise
+ * no candidate, model or ground-truth alike, could ever decode successfully.
+ *
+ * @param {object} codec - `BaseCodec` instance.
+ * @param {string} codecId - The codec's `capabilities().id`.
+ * @param {object} message - The target message to evaluate.
+ * @returns {{ encodeContext: object, decodeContext: object, referenceEnvelope: object, exampleMessage: object, exampleWireText: string }}
+ */
+function prepareEvaluationContext(codec, codecId, message) {
+  const exampleMessage = {
+    id: 'example-prior-turn',
+    kind: 'task.ack',
+    from: 'Medusa-Lane-A',
+    to: 'Medusa-PM',
+    status: 'working',
+    summary: 'Example prior turn shown only to demonstrate the wire grammar.'
+  };
+  const exampleWireText = codec.encode(exampleMessage, createCodecState(codecId)).wireText;
+
+  const encodeContext = createCodecState(codecId);
+  const referenceEnvelope = codec.encode(message, encodeContext);
+  const decodeContext = codecId === 'blackboard-ref-v1' ? { store: encodeContext.store } : createCodecState(codecId);
+
+  return { encodeContext, decodeContext, referenceEnvelope, exampleMessage, exampleWireText };
+}
+
+/**
+ * Strips a single leading/trailing Markdown code fence (` ``` ` or ` ```lang `) a model sometimes
+ * wraps its reply in, so `decode()` sees only the wire text itself.
+ *
+ * @param {string} text - Raw model response text.
+ * @returns {string} Fence-stripped, trimmed text.
+ */
+function stripMarkdownFences(text) {
+  const trimmed = String(text).trim();
+  const fenced = trimmed.match(/^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n```$/);
+  return (fenced ? fenced[1] : trimmed).trim();
+}
+
+/**
  * Builds the instruction prompt asking a model to reproduce `message` in `codec`'s wire format.
+ * When `evalCtx` (from `prepareEvaluationContext`) is supplied, the prompt includes a concrete
+ * one-shot example turn so the model can see the exact wire grammar rather than guessing it from
+ * a one-line description.
  *
  * @param {object} codec - `BaseCodec` instance.
  * @param {object} message - Canonical semantic message to encode.
+ * @param {{ exampleMessage?: object, exampleWireText?: string }} [evalCtx] - Optional context from `prepareEvaluationContext`.
  * @returns {string} Prompt text.
  */
-function buildPrompt(codec, message) {
+function buildPrompt(codec, message, evalCtx) {
   const caps = codec.capabilities();
-  return [
+  const lines = [
     `You are encoding an inter-agent coordination message using the "${caps.id}" wire format.`,
-    `Format description: ${caps.description}`,
-    'Reply with ONLY the wire text for this message, no commentary:',
+    `Format description: ${caps.description}`
+  ];
+
+  if (evalCtx && evalCtx.exampleWireText) {
+    lines.push(
+      '',
+      'Example — a different message encoded in this exact wire format (for grammar reference only):',
+      `Input: ${JSON.stringify(evalCtx.exampleMessage)}`,
+      `Wire output: ${evalCtx.exampleWireText}`
+    );
+  }
+
+  lines.push(
+    '',
+    'Now encode this message the same way. Reply with ONLY the wire text, no commentary, no Markdown code fences:',
     JSON.stringify(message)
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 /**
@@ -71,14 +144,17 @@ function scoreCandidate(codec, message, wireText, decodeContext = {}) {
   // Validate the already-decoded message directly (a pure structural check), rather than
   // calling codec.validate() — which would decode() a second time against the same context.
   const structural = validateCanonicalMessage(decoded.message);
-  const schemaAdherencePct = structural.structuralValid ? 100 : 0;
+  const fidelity = measureSemanticPreservation(message, decoded.message);
+  const hallucinatedExtraField = fidelity.mismatches.some((m) => m.startsWith('Extra unexpected field'));
+
+  // A model that invents a field never sent is hallucinating, not just imperfectly structured —
+  // it must never score full schema adherence, even if every field it was asked for is present.
+  const schemaAdherencePct = structural.structuralValid && !hallucinatedExtraField ? 100 : 0;
 
   const constraintRetentionPct =
     message.constraints === undefined || JSON.stringify(message.constraints) === JSON.stringify(decoded.message.constraints)
       ? 100
       : 0;
-
-  const fidelity = measureSemanticPreservation(message, decoded.message);
 
   return {
     schemaAdherencePct,
@@ -99,12 +175,18 @@ class LiveModelAdapter {
    * @param {Function} [options.transport] - `(url, requestInit) => Promise<Response>`-shaped
    *   transport, injected so tests never hit the network. Defaults to global `fetch` if present.
    * @param {CodecRegistry} [options.registry] - Codec registry to evaluate against.
+   * @param {Function} [options.frontierProbe] - Optional `(codecId, profile, evalCtx) =>
+   *   Promise<{content, promptEvalCount?, evalCount?, wallMs?, evalDurationMs?, tokPerSec?}>`
+   *   hook for a genuine recorded or live frontier engine completion. Without it, frontier
+   *   profiles always use the deterministic path — this adapter never fabricates frontier
+   *   session data on its own.
    */
   constructor(options = {}) {
     this.baseUrl = options.baseUrl || DEFAULT_BASE_URL;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
     this.transport = options.transport || (typeof fetch === 'function' ? fetch : null);
     this.registry = options.registry instanceof CodecRegistry ? options.registry : new CodecRegistry();
+    this.frontierProbe = typeof options.frontierProbe === 'function' ? options.frontierProbe : null;
   }
 
   /**
@@ -112,10 +194,13 @@ class LiveModelAdapter {
    *
    * @param {string} model - Ollama model tag (e.g. `"gpt-oss:120b"`).
    * @param {string} prompt - User prompt text.
-   * @param {{ think?: boolean }} [options={}] - `think: false` disables chain-of-thought where supported.
+   * @param {{ think?: boolean, temperature?: number, numPredict?: number }} [options={}] -
+   *   `think: false` disables chain-of-thought where supported; `temperature`/`numPredict` are
+   *   forwarded as Ollama's `options.temperature`/`options.num_predict` (e.g. a higher
+   *   `numPredict` for a model whose hidden reasoning tokens would otherwise truncate the reply).
    * @returns {Promise<{ ok: boolean, content: string, promptEvalCount: number, evalCount: number, wallMs: number, evalDurationMs: number, tokPerSec: number, error: string|null }>}
    */
-  async queryMonad1Model(model, prompt, { think = false } = {}) {
+  async queryMonad1Model(model, prompt, { think = false, temperature, numPredict } = {}) {
     if (typeof this.transport !== 'function') {
       return {
         ok: false,
@@ -134,6 +219,10 @@ class LiveModelAdapter {
     const wallStart = Date.now();
 
     try {
+      const ollamaOptions = {};
+      if (temperature !== undefined) ollamaOptions.temperature = temperature;
+      if (numPredict !== undefined) ollamaOptions.num_predict = numPredict;
+
       const response = await this.transport(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -141,7 +230,8 @@ class LiveModelAdapter {
           model,
           messages: [{ role: 'user', content: prompt }],
           stream: false,
-          think
+          think,
+          ...(Object.keys(ollamaOptions).length > 0 ? { options: ollamaOptions } : {})
         }),
         signal: controller ? controller.signal : undefined
       });
@@ -229,14 +319,22 @@ class LiveModelAdapter {
     const codec = this.registry.get(codecId);
     if (!codec) throw new Error(`Unknown codec id: "${codecId}"`);
     const sample = message || BENCHMARK_SCENARIOS[0].messages[0];
-    const decodeContext = createCodecState(codecId);
 
     if (offline) {
+      const decodeContext = createCodecState(codecId);
       return { model, codecId, mode: 'offline', error: null, ...this.evaluateOffline(codec, sample, decodeContext) };
     }
 
-    const prompt = buildPrompt(codec, sample);
-    const result = await this.queryMonad1Model(model, prompt, { think: false });
+    const evalCtx = prepareEvaluationContext(codec, codecId, sample);
+    const prompt = buildPrompt(codec, sample, evalCtx);
+    // num_predict per Suite A/B findings in docs/research/TANGLECLAW_AIDER_INTEGRATION_FEEDBACK.md:
+    // gpt-oss:120b spends ~130-200 tokens on hidden reasoning before its visible reply even with
+    // think: false, so it needs a much larger cap than the other two models.
+    const result = await this.queryMonad1Model(model, prompt, {
+      think: false,
+      temperature: 0,
+      numPredict: model === 'gpt-oss:120b' ? 600 : 220
+    });
     if (!result.ok) {
       return {
         model,
@@ -255,7 +353,8 @@ class LiveModelAdapter {
       };
     }
 
-    const score = scoreCandidate(codec, sample, result.content.trim(), decodeContext);
+    const cleanedContent = stripMarkdownFences(result.content);
+    const score = scoreCandidate(codec, sample, cleanedContent, evalCtx.decodeContext);
     return {
       model,
       codecId,
@@ -271,26 +370,52 @@ class LiveModelAdapter {
   }
 
   /**
-   * Evaluates one codec against one frontier engine profile. Always runs the deterministic
-   * offline path (`mode: 'frontier-deterministic'`) regardless of any `offline` flag elsewhere,
-   * since no live completion endpoint is wired for frontier engines in this harness.
+   * Evaluates one codec against one frontier engine profile.
+   *
+   * Without a `frontierProbe` hook (the default), always runs the deterministic offline path
+   * (`mode: 'frontier-deterministic'`) regardless of `offline` — this adapter ships no fabricated
+   * "recorded" frontier session data, since no such real recordings exist in this repository.
+   * When the caller injects a real `frontierProbe` (a genuine recorded or live completion from
+   * that engine) AND passes `offline: false`, its result is scored and reported as
+   * `mode: 'frontier-session-probe'`.
    *
    * @param {string} codecId - Registered codec id.
    * @param {string} profile - Frontier engine profile name (`"claude"`/`"codex"`/`"antigravity"`).
-   * @param {{ message?: object }} [options={}] - Evaluation options.
-   * @returns {object} Per-profile, per-codec evaluation result.
+   * @param {{ message?: object, offline?: boolean }} [options={}] - Evaluation options.
+   * @returns {Promise<object>} Per-profile, per-codec evaluation result.
    */
-  evaluateFrontierProfile(codecId, profile, { message } = {}) {
+  async evaluateFrontierProfile(codecId, profile, { message, offline = true } = {}) {
     const codec = this.registry.get(codecId);
     if (!codec) throw new Error(`Unknown codec id: "${codecId}"`);
     const sample = message || BENCHMARK_SCENARIOS[0].messages[0];
-    const decodeContext = createCodecState(codecId);
+
+    if (offline || typeof this.frontierProbe !== 'function') {
+      const decodeContext = createCodecState(codecId);
+      return {
+        model: profile,
+        codecId,
+        mode: 'frontier-deterministic',
+        error: null,
+        ...this.evaluateOffline(codec, sample, decodeContext)
+      };
+    }
+
+    const evalCtx = prepareEvaluationContext(codec, codecId, sample);
+    const probeResult = await this.frontierProbe(codecId, profile, evalCtx);
+    const cleanedContent = stripMarkdownFences(probeResult.content);
+    const score = scoreCandidate(codec, sample, cleanedContent, evalCtx.decodeContext);
+
     return {
       model: profile,
       codecId,
-      mode: 'frontier-deterministic',
-      error: null,
-      ...this.evaluateOffline(codec, sample, decodeContext)
+      mode: 'frontier-session-probe',
+      ...score,
+      promptEvalCount: probeResult.promptEvalCount ?? null,
+      evalCount: probeResult.evalCount ?? null,
+      wallMs: probeResult.wallMs ?? null,
+      evalDurationMs: probeResult.evalDurationMs ?? null,
+      tokPerSec: probeResult.tokPerSec ?? null,
+      error: null
     };
   }
 
@@ -310,7 +435,8 @@ class LiveModelAdapter {
     const rows = [];
     for (const codecId of codecIds) {
       for (const profile of frontierProfiles) {
-        rows.push(this.evaluateFrontierProfile(codecId, profile));
+        // eslint-disable-next-line no-await-in-loop
+        rows.push(await this.evaluateFrontierProfile(codecId, profile, { offline }));
       }
       for (const model of monad1Models) {
         // eslint-disable-next-line no-await-in-loop

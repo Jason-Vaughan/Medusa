@@ -112,6 +112,16 @@ function measureSemanticPreservation(expected, actual) {
     }
   }
 
+  // A decoded message that invents a field the sender never sent is a hallucination, not a
+  // harmless extra — penalize it the same way a mismatched value would be, rather than only
+  // scoring the fields the test already expected to find.
+  for (const key of Object.keys(actual)) {
+    if (expected[key] === undefined && actual[key] !== undefined) {
+      totalFields += 1;
+      mismatches.push(`Extra unexpected field "${key}" in decoded message`);
+    }
+  }
+
   const constraintsPreserved =
     expected.constraints === undefined ||
     JSON.stringify(expected.constraints) === JSON.stringify(actual.constraints);

@@ -289,29 +289,18 @@ class MedusaClient extends EventEmitter {
    *   `codec` (a registered codec id), `codecEnvelope` (pre-encoded, e.g. from `encodeWithCodec`),
    *   and/or `canonicalMessage` (raw message for the Hub to encode server-side with `codec`).
    * @returns {Promise<object>} Server response including message id and optional receipt
-   * @throws {Error} With a `CROSS_RECIPIENT_ROUTING_MISMATCH:`-prefixed message when
-   *   `metadata.canonicalMessage.to` or `metadata.codecEnvelope.metadata.boundRecipient`
-   *   disagrees with `targetWorkspace` (Issue #76 R-Gate Round 5) — caught here, before the
-   *   request ever reaches the Hub.
    */
   async sendMessage(targetWorkspace, message, metadata = {}) {
     if (!this.workspaceId) {
       throw new Error('Workspace not registered! Run "medusa register" first.');
     }
 
-    if (metadata && metadata.canonicalMessage && metadata.canonicalMessage.to !== undefined &&
-      metadata.canonicalMessage.to !== targetWorkspace) {
-      throw new Error(
-        `CROSS_RECIPIENT_ROUTING_MISMATCH: canonicalMessage.to ("${metadata.canonicalMessage.to}") does not match targetWorkspace ("${targetWorkspace}")`
-      );
-    }
-    const boundRecipient = metadata && metadata.codecEnvelope && metadata.codecEnvelope.metadata &&
-      metadata.codecEnvelope.metadata.boundRecipient;
-    if (boundRecipient !== undefined && boundRecipient !== targetWorkspace) {
-      throw new Error(
-        `CROSS_RECIPIENT_ROUTING_MISMATCH: codecEnvelope.metadata.boundRecipient ("${boundRecipient}") does not match targetWorkspace ("${targetWorkspace}")`
-      );
-    }
+    // Deliberately no client-side cross-recipient pre-check here (Issue #76 R-Gate Round 6): the
+    // client has no workspace registry, so it cannot tell a genuine mismatch apart from a
+    // legitimate id/name alias for the same workspace (e.g. canonicalMessage.to is the id while
+    // targetWorkspace is the human-readable name). Only the Hub can resolve that via
+    // MedusaServer.recipientsMatch(), so alias-aware recipient matching is deferred entirely to
+    // the Hub's existing 400 INVALID_CODEC_ENVELOPE rejection on POST /messages/direct.
 
     try {
       const payload = {
@@ -378,9 +367,10 @@ class MedusaClient extends EventEmitter {
    * for `dict-intern-v1` (captured AFTER this call, so a Turn 2+ message's re-used-but-undefined
    * symbol references — omitted from `newSymbols` since the sender already knows them — still
    * resolve instead of failing `UNRESOLVED_SYMBOL_REF`). Also records `metadata.boundRecipient =
-   * canonicalMessage.to` for every codec, so `sendMessage()` can catch an envelope encoded for
-   * one recipient being routed to a different one before it ever reaches the Hub (Issue #76
-   * R-Gate Round 5).
+   * canonicalMessage.to` for every codec, so the Hub (`MedusaServer.validateCodecEnvelope` /
+   * `recipientsMatch`) can reject an envelope routed to a different recipient than it was bound
+   * for — including a legitimate id/name alias, which only the Hub's workspace registry can
+   * resolve (Issue #76 R-Gate Round 5 & Round 6).
    * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
    * @param {object} canonicalMessage - Canonical semantic message to encode.
    * @param {object} [context={}] - Optional codec-specific encoding context. Pass the SAME

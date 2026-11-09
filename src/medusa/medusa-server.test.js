@@ -3144,21 +3144,57 @@ describe('MedusaServer', () => {
       expect(server.offlineQueues.get('codec-target-b')).toBeUndefined();
     });
 
-    test('R-Gate Round 5: MedusaClient.sendMessage rejects a cross-recipient canonicalMessage/codecEnvelope before sending', async () => {
+    test('R-Gate Round 6: MedusaClient.sendMessage defers cross-recipient rejection to the Hub (400), not a client-side throw', async () => {
       const MedusaClientModule = require('./client/MedusaClient');
       const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
       sender.workspaceId = 'sender-ws';
 
-      // sendMessage is async, so a synchronous guard throw surfaces as a rejected promise.
+      // No client-side CROSS_RECIPIENT_ROUTING_MISMATCH throw anymore (Round 6): the client can't
+      // tell a genuine mismatch apart from a legitimate id/name alias, so this request actually
+      // reaches the Hub, which rejects the genuine mismatch with 400. metadata.codec must be
+      // supplied alongside canonicalMessage -- without it the Hub never engages the codec path
+      // at all and this would silently fall through to a plain (non-codec) message send.
       await expect(sender.sendMessage('codec-target-b', null, {
+        codec: 'compact-json-v1',
         canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target' }
-      })).rejects.toThrow(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+      })).rejects.toMatchObject({ status: 400 });
 
       const envelope = sender.encodeWithCodec('compact-json-v1', {
         kind: 'task.assign', from: 'sender-ws', to: 'codec-target'
       });
       await expect(sender.sendMessage('codec-target-b', null, { codecEnvelope: envelope }))
-        .rejects.toThrow(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+        .rejects.toMatchObject({ status: 400 });
+    });
+
+    test('R-Gate Round 6: sendMessage SUCCEEDS when canonicalMessage.to / targetWorkspace are an id/name alias of the same workspace', async () => {
+      // "codec-target" is registered with id "codec-target" and name "CodecTarget" -- a
+      // legitimate alias pair only the Hub's registry (via recipientsMatch) can resolve.
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      sender.workspaceId = 'sender-ws';
+
+      // canonicalMessage.to is the id, targetWorkspace is the human-readable name.
+      // metadata.codec must be present for the Hub to engage the canonicalMessage/recipientsMatch
+      // path at all (otherwise this would just be an ordinary, codec-less message send).
+      const res1 = await sender.sendMessage('CodecTarget', null, {
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target' }
+      });
+      expect(res1.success).toBe(true);
+
+      // Reverse: canonicalMessage.to is the name, targetWorkspace is the id.
+      const res2 = await sender.sendMessage('codec-target', null, {
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.ack', from: 'sender-ws', to: 'CodecTarget' }
+      });
+      expect(res2.success).toBe(true);
+
+      // Same alias pair via a pre-encoded codecEnvelope (bound recipient is the id).
+      const envelope = sender.encodeWithCodec('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target'
+      });
+      const res3 = await sender.sendMessage('CodecTarget', null, { codecEnvelope: envelope });
+      expect(res3.success).toBe(true);
     });
 
     test('R-Gate Round 3: a blackboard-ref-v1 envelope whose metadata.blackboardArtifacts value does not match its @art: digest is rejected', async () => {

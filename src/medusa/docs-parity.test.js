@@ -218,7 +218,6 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
   test('Server and Client agree that an envelope\'s destination must match the request recipient for every codec (Issue #76 R-Gate Round 5)', () => {
     expect(docContent).toMatch(/boundRecipient/);
     expect(docContent).toMatch(/for every codec/);
-    expect(docContent).toMatch(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
 
     const clientPath = path.join(__dirname, 'client/MedusaClient.js');
     const clientContent = fs.readFileSync(clientPath, 'utf8');
@@ -226,6 +225,15 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(serverContent).toMatch(/boundRecipient/);
     expect(serverContent).toMatch(/decoded message\.to/);
     expect(clientContent).toMatch(/boundRecipient/);
-    expect(clientContent).toMatch(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+  });
+
+  test('Server and Client agree that alias-aware recipient matching is the Hub\'s job, not a client-side pre-check (Issue #76 R-Gate Round 6)', () => {
+    expect(docContent).toMatch(/alias-aware/);
+    expect(docContent).toMatch(/does \*\*not\*\* pre-check this client-side/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).not.toMatch(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+    expect(clientContent).toMatch(/no client-side cross-recipient pre-check/i);
   });
 });

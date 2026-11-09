@@ -9,6 +9,9 @@
 - **Issue #66: Heartbeat Log Deduplication and ISO 8601 Timestamps.** Updated `MedusaServer` to log listener heartbeats only when a workspace's status is first seen or changes (`active`/`idle`), gated per-beat logging behind `DEBUG`, cleared listener status upon workspace disconnect/deregistration, and prefixed server log lines with ISO 8601 timestamps (#66).
 - **Issue #64: Preserve Hub Message ID Across A2A Propagation.** Stored the A2A ledger identifier on `msgPayload.a2aId` instead of overwriting `msgPayload.id` in `POST /messages/direct`, preventing ACK and idempotency ID mismatches (#64).
 
+### Internal
+- **Issue #71: Agent-to-Agent Communication Research Framework & Benchmark Suite (`experiment/agent-communication-protocols`).** Added isolated experimental codec framework (`src/medusa/experiments/codecs/`), implementations of `nl-baseline-v1`, `compact-json-v1`, `graph-v1`, `graph-delta-v1`, and `typed-cmd-v1`, direct latent communication feasibility analysis (`docs/research/AGENT_COMMUNICATION_RESEARCH.md`), TangleClaw integration specification (`docs/research/TANGLECLAW_CODEC_INTEGRATION_SPEC.md`), and a reproducible 10-scenario benchmark harness (`benchmarks/agent-communication/`) with 17 unit tests (#71).
+
 ## [1.0.0-rc2] - 2026-08-16
 
 ### Added

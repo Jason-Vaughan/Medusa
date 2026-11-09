@@ -1,0 +1,4607 @@
+{
+  "benchmarkVersion": "1.0.0",
+  "issue": "Jason-Vaughan/Medusa#71",
+  "branch": "experiment/agent-communication-protocols",
+  "executionMode": "deterministic-offline-fixtures (non-LLM)",
+  "tokenEstimationMethod": "deterministic-bpe-subword-v1",
+  "generatedAt": "2026-11-09T01:58:32.652Z",
+  "comparisons": {
+    "nl-baseline-v1": {
+      "codecId": "nl-baseline-v1",
+      "outputTokens": 32951,
+      "outputTokenSavingsPct": 0,
+      "totalMultiTurnTokens": 371717,
+      "multiTurnTokenSavingsPct": 0,
+      "s8LongRunningTokenSavingsPct": 0,
+      "wireBytes": 81927,
+      "wireByteSavingsPct": 0,
+      "gzipBytes": 45184,
+      "gzipByteSavingsPct": 0,
+      "totalCpuLatencyUs": 2502.56,
+      "avgSemanticPreservationPct": 100,
+      "constraintsLostCount": 0,
+      "frontierCostUsd": 1.510563
+    },
+    "compact-json-v1": {
+      "codecId": "compact-json-v1",
+      "outputTokens": 14725,
+      "outputTokenSavingsPct": 55.31,
+      "totalMultiTurnTokens": 159082,
+      "multiTurnTokenSavingsPct": 57.2,
+      "s8LongRunningTokenSavingsPct": 58.26,
+      "wireBytes": 28781,
+      "wireByteSavingsPct": 64.87,
+      "gzipBytes": 19347,
+      "gzipByteSavingsPct": 57.18,
+      "totalCpuLatencyUs": 1616.59,
+      "avgSemanticPreservationPct": 100,
+      "constraintsLostCount": 0,
+      "frontierCostUsd": 0.653946
+    },
+    "graph-v1": {
+      "codecId": "graph-v1",
+      "outputTokens": 76677,
+      "outputTokenSavingsPct": -132.7,
+      "totalMultiTurnTokens": 882627,
+      "multiTurnTokenSavingsPct": -137.45,
+      "s8LongRunningTokenSavingsPct": -139.02,
+      "wireBytes": 144887,
+      "wireByteSavingsPct": -76.85,
+      "gzipBytes": 44668,
+      "gzipByteSavingsPct": 1.14,
+      "totalCpuLatencyUs": 2308.93,
+      "avgSemanticPreservationPct": 100,
+      "constraintsLostCount": 0,
+      "frontierCostUsd": 3.568005
+    },
+    "graph-delta-v1": {
+      "codecId": "graph-delta-v1",
+      "outputTokens": 31146,
+      "outputTokenSavingsPct": 5.48,
+      "totalMultiTurnTokens": 313103,
+      "multiTurnTokenSavingsPct": 15.77,
+      "s8LongRunningTokenSavingsPct": 20.66,
+      "wireBytes": 62276,
+      "wireByteSavingsPct": 23.99,
+      "gzipBytes": 31137,
+      "gzipByteSavingsPct": 31.09,
+      "totalCpuLatencyUs": 38773.89,
+      "avgSemanticPreservationPct": 100,
+      "constraintsLostCount": 0,
+      "frontierCostUsd": 1.313061
+    },
+    "typed-cmd-v1": {
+      "codecId": "typed-cmd-v1",
+      "outputTokens": 11213,
+      "outputTokenSavingsPct": 65.97,
+      "totalMultiTurnTokens": 118085,
+      "multiTurnTokenSavingsPct": 68.23,
+      "s8LongRunningTokenSavingsPct": 69.41,
+      "wireBytes": 27077,
+      "wireByteSavingsPct": 66.95,
+      "gzipBytes": 18965,
+      "gzipByteSavingsPct": 58.03,
+      "totalCpuLatencyUs": 2286.75,
+      "avgSemanticPreservationPct": 100,
+      "constraintsLostCount": 0,
+      "frontierCostUsd": 0.488811
+    }
+  },
+  "byCodec": {
+    "nl-baseline-v1": {
+      "capabilities": {
+        "id": "nl-baseline-v1",
+        "schemaVersion": "1.0.0",
+        "description": "Conventional multi-paragraph English markdown prose (Medusa production baseline)",
+        "supportsDeltas": false,
+        "supportsArtifactRefs": false,
+        "requiresSharedState": false,
+        "losslessRoundTrip": true
+      },
+      "aggregate": {
+        "totalScenarios": 10,
+        "totalMessages": 50,
+        "outputTokens": 32951,
+        "inputTokens": 338766,
+        "totalMultiTurnTokens": 371717,
+        "wireBytes": 81927,
+        "gzipBytes": 45184,
+        "encodeLatencyUs": 964.79,
+        "decodeLatencyUs": 1537.77,
+        "totalCpuLatencyUs": 2502.56,
+        "avgSemanticPreservationPct": 100,
+        "constraintsLostCount": 0,
+        "estimatedCostUsd": {
+          "frontierTierUsd": 1.510563,
+          "balancedTierUsd": 0.588213,
+          "fastTierUsd": 0.117642,
+          "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+        }
+      },
+      "scenarios": [
+        {
+          "scenarioId": "S01-task-assign-ack",
+          "title": "Scenario 1: Simple Task Assignment and Acknowledgment",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1263,
+            "inputTokens": 1892,
+            "totalMultiTurnTokens": 3155,
+            "wireBytes": 3160,
+            "gzipBytes": 1739,
+            "encodeLatencyUs": 201.88,
+            "decodeLatencyUs": 643.25,
+            "totalCpuLatencyUs": 845.13,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.024621,
+              "balancedTierUsd": 0.00868,
+              "fastTierUsd": 0.001736,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s1-msg-01",
+              "wireBytes": 1571,
+              "gzipBytes": 862,
+              "tokens": 629,
+              "encodeUs": 180.63,
+              "decodeUs": 594.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s1-msg-02",
+              "wireBytes": 1589,
+              "gzipBytes": 877,
+              "tokens": 634,
+              "encodeUs": 21.25,
+              "decodeUs": 48.79,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S02-builder-reviewer-handoff",
+          "title": "Scenario 2: Builder-to-Reviewer Formal R-Gate Handoff",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1331,
+            "inputTokens": 1997,
+            "totalMultiTurnTokens": 3328,
+            "wireBytes": 3295,
+            "gzipBytes": 1826,
+            "encodeLatencyUs": 33.58,
+            "decodeLatencyUs": 73.13,
+            "totalCpuLatencyUs": 106.71,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.025956,
+              "balancedTierUsd": 0.009151,
+              "fastTierUsd": 0.00183,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s2-msg-01",
+              "wireBytes": 1651,
+              "gzipBytes": 914,
+              "tokens": 666,
+              "encodeUs": 17.13,
+              "decodeUs": 33.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s2-msg-02",
+              "wireBytes": 1644,
+              "gzipBytes": 912,
+              "tokens": 665,
+              "encodeUs": 16.46,
+              "decodeUs": 39.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S03-review-findings-revision",
+          "title": "Scenario 3: Review Findings (HOLD), Builder Revision, and Round 2 PASS",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 2081,
+            "inputTokens": 4292,
+            "totalMultiTurnTokens": 6373,
+            "wireBytes": 5152,
+            "gzipBytes": 2835,
+            "encodeLatencyUs": 238.96,
+            "decodeLatencyUs": 122.42,
+            "totalCpuLatencyUs": 361.37,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.044091,
+              "balancedTierUsd": 0.01577,
+              "fastTierUsd": 0.003154,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s3-msg-01",
+              "wireBytes": 1905,
+              "gzipBytes": 1021,
+              "tokens": 780,
+              "encodeUs": 19.21,
+              "decodeUs": 82.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-02",
+              "wireBytes": 1624,
+              "gzipBytes": 903,
+              "tokens": 651,
+              "encodeUs": 14.17,
+              "decodeUs": 15.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-03",
+              "wireBytes": 1623,
+              "gzipBytes": 911,
+              "tokens": 650,
+              "encodeUs": 205.58,
+              "decodeUs": 24.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S04-multi-agent-decomposition",
+          "title": "Scenario 4: Multi-Agent Wave Decomposition Across Builders & Architect",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1459,
+            "inputTokens": 2191,
+            "totalMultiTurnTokens": 3650,
+            "wireBytes": 3484,
+            "gzipBytes": 1820,
+            "encodeLatencyUs": 122.33,
+            "decodeLatencyUs": 80.58,
+            "totalCpuLatencyUs": 202.92,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.028458,
+              "balancedTierUsd": 0.010034,
+              "fastTierUsd": 0.002007,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s4-msg-01",
+              "wireBytes": 1746,
+              "gzipBytes": 911,
+              "tokens": 732,
+              "encodeUs": 26.42,
+              "decodeUs": 63.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s4-msg-02",
+              "wireBytes": 1738,
+              "gzipBytes": 909,
+              "tokens": 727,
+              "encodeUs": 95.92,
+              "decodeUs": 17.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S05-dependency-scheduling-negotiation",
+          "title": "Scenario 5: Cross-Lane Dependency & File Collision Negotiation",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1290,
+            "inputTokens": 1928,
+            "totalMultiTurnTokens": 3218,
+            "wireBytes": 3249,
+            "gzipBytes": 1811,
+            "encodeLatencyUs": 51.96,
+            "decodeLatencyUs": 112,
+            "totalCpuLatencyUs": 163.96,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.025134,
+              "balancedTierUsd": 0.00886,
+              "fastTierUsd": 0.001772,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s5-msg-01",
+              "wireBytes": 1617,
+              "gzipBytes": 905,
+              "tokens": 638,
+              "encodeUs": 25.17,
+              "decodeUs": 45.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s5-msg-02",
+              "wireBytes": 1632,
+              "gzipBytes": 906,
+              "tokens": 652,
+              "encodeUs": 26.79,
+              "decodeUs": 66.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S06-architect-decision-escalation",
+          "title": "Scenario 6: Architectural Escalation & Binding A-Gate Verdict",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1140,
+            "inputTokens": 1705,
+            "totalMultiTurnTokens": 2845,
+            "wireBytes": 2948,
+            "gzipBytes": 1677,
+            "encodeLatencyUs": 51.21,
+            "decodeLatencyUs": 32.17,
+            "totalCpuLatencyUs": 83.38,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.022215,
+              "balancedTierUsd": 0.007831,
+              "fastTierUsd": 0.001566,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s6-msg-01",
+              "wireBytes": 1470,
+              "gzipBytes": 833,
+              "tokens": 565,
+              "encodeUs": 22.88,
+              "decodeUs": 16.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s6-msg-02",
+              "wireBytes": 1478,
+              "gzipBytes": 844,
+              "tokens": 575,
+              "encodeUs": 28.33,
+              "decodeUs": 15.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S07-conflicting-shared-state-writes",
+          "title": "Scenario 7: Concurrent Shared-State Updates with Conflict Detection & Resolution",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 1629,
+            "inputTokens": 3253,
+            "totalMultiTurnTokens": 4882,
+            "wireBytes": 4139,
+            "gzipBytes": 2324,
+            "encodeLatencyUs": 34.08,
+            "decodeLatencyUs": 34,
+            "totalCpuLatencyUs": 68.08,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.034194,
+              "balancedTierUsd": 0.012211,
+              "fastTierUsd": 0.002442,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": {
+            "conflictDetectedDeterministically": false,
+            "conflictCode": "STATELESS_OVERWRITE",
+            "recoveredAfterRebase": true
+          },
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s7-msg-01",
+              "wireBytes": 1376,
+              "gzipBytes": 770,
+              "tokens": 542,
+              "encodeUs": 22.13,
+              "decodeUs": 14.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-02",
+              "wireBytes": 1361,
+              "gzipBytes": 765,
+              "tokens": 540,
+              "encodeUs": 6.71,
+              "decodeUs": 10.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-03",
+              "wireBytes": 1402,
+              "gzipBytes": 789,
+              "tokens": 547,
+              "encodeUs": 5.25,
+              "decodeUs": 9.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S08-long-running-30-exchanges",
+          "title": "Scenario 8: Long-Running 30-Exchange Sprint Coordination Conversation",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 30,
+          "metrics": {
+            "outputTokens": 20490,
+            "inputTokens": 317595,
+            "totalMultiTurnTokens": 338085,
+            "wireBytes": 50743,
+            "gzipBytes": 27898,
+            "encodeLatencyUs": 198.46,
+            "decodeLatencyUs": 391.13,
+            "totalCpuLatencyUs": 589.59,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 1.260135,
+              "balancedTierUsd": 0.499444,
+              "fastTierUsd": 0.099889,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s8-msg-01",
+              "wireBytes": 1691,
+              "gzipBytes": 931,
+              "tokens": 683,
+              "encodeUs": 13.38,
+              "decodeUs": 18.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-02",
+              "wireBytes": 1689,
+              "gzipBytes": 927,
+              "tokens": 683,
+              "encodeUs": 7.13,
+              "decodeUs": 13.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-03",
+              "wireBytes": 1691,
+              "gzipBytes": 931,
+              "tokens": 683,
+              "encodeUs": 6.25,
+              "decodeUs": 12.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-04",
+              "wireBytes": 1689,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 15.25,
+              "decodeUs": 29.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-05",
+              "wireBytes": 1691,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 8.29,
+              "decodeUs": 15.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-06",
+              "wireBytes": 1689,
+              "gzipBytes": 927,
+              "tokens": 683,
+              "encodeUs": 7.17,
+              "decodeUs": 13.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-07",
+              "wireBytes": 1691,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 6.67,
+              "decodeUs": 12.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-08",
+              "wireBytes": 1689,
+              "gzipBytes": 927,
+              "tokens": 683,
+              "encodeUs": 16.71,
+              "decodeUs": 13.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-09",
+              "wireBytes": 1691,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 5.92,
+              "decodeUs": 18.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-10",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5.92,
+              "decodeUs": 17.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-11",
+              "wireBytes": 1693,
+              "gzipBytes": 933,
+              "tokens": 683,
+              "encodeUs": 5.83,
+              "decodeUs": 11.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-12",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 6.08,
+              "decodeUs": 12.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-13",
+              "wireBytes": 1693,
+              "gzipBytes": 933,
+              "tokens": 683,
+              "encodeUs": 5.42,
+              "decodeUs": 11.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-14",
+              "wireBytes": 1691,
+              "gzipBytes": 929,
+              "tokens": 683,
+              "encodeUs": 5.46,
+              "decodeUs": 11.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-15",
+              "wireBytes": 1693,
+              "gzipBytes": 931,
+              "tokens": 683,
+              "encodeUs": 5.08,
+              "decodeUs": 11.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-16",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5.25,
+              "decodeUs": 11.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-17",
+              "wireBytes": 1693,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 5,
+              "decodeUs": 10.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-18",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 4.92,
+              "decodeUs": 10.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-19",
+              "wireBytes": 1693,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 4.96,
+              "decodeUs": 11,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-20",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5.29,
+              "decodeUs": 11.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-21",
+              "wireBytes": 1693,
+              "gzipBytes": 933,
+              "tokens": 683,
+              "encodeUs": 5.33,
+              "decodeUs": 11.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-22",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5.46,
+              "decodeUs": 11.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-23",
+              "wireBytes": 1693,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 5.21,
+              "decodeUs": 11.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-24",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5.04,
+              "decodeUs": 11.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-25",
+              "wireBytes": 1693,
+              "gzipBytes": 933,
+              "tokens": 683,
+              "encodeUs": 5.04,
+              "decodeUs": 11,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-26",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 5,
+              "decodeUs": 11.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-27",
+              "wireBytes": 1693,
+              "gzipBytes": 933,
+              "tokens": 683,
+              "encodeUs": 5.13,
+              "decodeUs": 10.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-28",
+              "wireBytes": 1691,
+              "gzipBytes": 928,
+              "tokens": 683,
+              "encodeUs": 6.13,
+              "decodeUs": 11.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-29",
+              "wireBytes": 1693,
+              "gzipBytes": 932,
+              "tokens": 683,
+              "encodeUs": 5.25,
+              "decodeUs": 10.79,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-30",
+              "wireBytes": 1692,
+              "gzipBytes": 926,
+              "tokens": 683,
+              "encodeUs": 4.92,
+              "decodeUs": 10.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S09-disconnect-missed-delta-recovery",
+          "title": "Scenario 9: Recovery After Disconnect, Restart, or Missed State Update",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 1655,
+            "inputTokens": 3300,
+            "totalMultiTurnTokens": 4955,
+            "wireBytes": 4214,
+            "gzipBytes": 2379,
+            "encodeLatencyUs": 22.29,
+            "decodeLatencyUs": 32.96,
+            "totalCpuLatencyUs": 55.25,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.034725,
+              "balancedTierUsd": 0.0124,
+              "fastTierUsd": 0.00248,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": {
+            "detectedMissedUpdate": false,
+            "errorCode": "SELF_CONTAINED_MESSAGE",
+            "recoveredFidelity": true
+          },
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s9-msg-01",
+              "wireBytes": 1389,
+              "gzipBytes": 780,
+              "tokens": 547,
+              "encodeUs": 13.54,
+              "decodeUs": 15.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-02",
+              "wireBytes": 1400,
+              "gzipBytes": 795,
+              "tokens": 551,
+              "encodeUs": 4.5,
+              "decodeUs": 8.71,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-03",
+              "wireBytes": 1425,
+              "gzipBytes": 804,
+              "tokens": 557,
+              "encodeUs": 4.25,
+              "decodeUs": 8.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S10-adversarial-hallucination-scrutiny",
+          "title": "Scenario 10: Adversarial / Hallucinated Claims (\"Zero Hallucinations\" Scrutiny)",
+          "codecId": "nl-baseline-v1",
+          "messageCount": 1,
+          "metrics": {
+            "outputTokens": 613,
+            "inputTokens": 613,
+            "totalMultiTurnTokens": 1226,
+            "wireBytes": 1543,
+            "gzipBytes": 875,
+            "encodeLatencyUs": 10.04,
+            "decodeLatencyUs": 16.13,
+            "totalCpuLatencyUs": 26.17,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.011034,
+              "balancedTierUsd": 0.003831,
+              "fastTierUsd": 0.000766,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": {
+            "totalAdversarialCases": 5,
+            "caughtBySchemaAlone": 1,
+            "caughtByGroundedValidator": 5,
+            "cases": [
+              {
+                "id": "ADV-01-hallucinated-commit-sha",
+                "description": "Structurally valid message citing a fabricated git commit SHA (\"deadbeef9999\")",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Hallucinated or unknown commit SHA: \"deadbeef9999\" is not in authoritative git history"
+                ]
+              },
+              {
+                "id": "ADV-02-fabricated-test-pass",
+                "description": "Structurally valid message claiming \"15/15:999/999\" tests passed when runner recorded \"15/15:252/252\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Fabricated test evidence: claimed \"15/15:999/999\" but authoritative runner recorded \"15/15:252/252\""
+                ]
+              },
+              {
+                "id": "ADV-03-silent-constraint-drop",
+                "description": "Structurally valid message that silently drops the binding security constraint \"bind_host=127.0.0.1\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Lost required constraint: \"bind_host=127.0.0.1\""
+                ]
+              },
+              {
+                "id": "ADV-04-contradictory-pass-with-blocker",
+                "description": "Structurally valid review.findings claiming verdict=\"PASS\" while an open blocker finding is attached",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Contradictory semantic state: verdict is \"PASS\" while high/blocker findings remain open"
+                ]
+              },
+              {
+                "id": "ADV-05-structural-missing-sha-and-scope",
+                "description": "Structurally invalid review.request missing headRefOid and file scope",
+                "schemaValidAlone": false,
+                "caughtBySchemaAlone": true,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [
+                  "review.request requires valid hex \"headRefOid\" (7-40 hex chars)",
+                  "review.request requires non-empty \"scope\" array"
+                ],
+                "groundingErrors": []
+              }
+            ]
+          },
+          "turnDetails": [
+            {
+              "messageId": "s10-msg-valid-control",
+              "wireBytes": 1543,
+              "gzipBytes": 875,
+              "tokens": 613,
+              "encodeUs": 10.04,
+              "decodeUs": 16.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        }
+      ]
+    },
+    "compact-json-v1": {
+      "capabilities": {
+        "id": "compact-json-v1",
+        "schemaVersion": "1.0.0",
+        "description": "Concise, schema-validated JSON with short canonical keys and context-deduplication",
+        "supportsDeltas": false,
+        "supportsArtifactRefs": true,
+        "requiresSharedState": false,
+        "losslessRoundTrip": true
+      },
+      "aggregate": {
+        "totalScenarios": 10,
+        "totalMessages": 50,
+        "outputTokens": 14725,
+        "inputTokens": 144357,
+        "totalMultiTurnTokens": 159082,
+        "wireBytes": 28781,
+        "gzipBytes": 19347,
+        "encodeLatencyUs": 1098.96,
+        "decodeLatencyUs": 517.63,
+        "totalCpuLatencyUs": 1616.59,
+        "avgSemanticPreservationPct": 100,
+        "constraintsLostCount": 0,
+        "estimatedCostUsd": {
+          "frontierTierUsd": 0.653946,
+          "balancedTierUsd": 0.254071,
+          "fastTierUsd": 0.050814,
+          "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+        }
+      },
+      "scenarios": [
+        {
+          "scenarioId": "S01-task-assign-ack",
+          "title": "Scenario 1: Simple Task Assignment and Acknowledgment",
+          "codecId": "compact-json-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 672,
+            "inputTokens": 1100,
+            "totalMultiTurnTokens": 1772,
+            "wireBytes": 1330,
+            "gzipBytes": 832,
+            "encodeLatencyUs": 432.83,
+            "decodeLatencyUs": 152.71,
+            "totalCpuLatencyUs": 585.54,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.01338,
+              "balancedTierUsd": 0.004735,
+              "fastTierUsd": 0.000947,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s1-msg-01",
+              "wireBytes": 848,
+              "gzipBytes": 487,
+              "tokens": 428,
+              "encodeUs": 402.75,
+              "decodeUs": 79.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s1-msg-02",
+              "wireBytes": 482,
+              "gzipBytes": 345,
+              "tokens": 244,
+              "encodeUs": 30.08,
+              "decodeUs": 73.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S02-builder-reviewer-handoff",
+          "title": "Scenario 2: Builder-to-Reviewer Formal R-Gate Handoff",
+          "codecId": "compact-json-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 714,
+            "inputTokens": 1162,
+            "totalMultiTurnTokens": 1876,
+            "wireBytes": 1381,
+            "gzipBytes": 880,
+            "encodeLatencyUs": 45.71,
+            "decodeLatencyUs": 23.29,
+            "totalCpuLatencyUs": 69,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.014196,
+              "balancedTierUsd": 0.005023,
+              "fastTierUsd": 0.001004,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s2-msg-01",
+              "wireBytes": 876,
+              "gzipBytes": 519,
+              "tokens": 448,
+              "encodeUs": 26.42,
+              "decodeUs": 13.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s2-msg-02",
+              "wireBytes": 505,
+              "gzipBytes": 361,
+              "tokens": 266,
+              "encodeUs": 19.29,
+              "decodeUs": 9.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S03-review-findings-revision",
+          "title": "Scenario 3: Review Findings (HOLD), Builder Revision, and Round 2 PASS",
+          "codecId": "compact-json-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 1053,
+            "inputTokens": 2418,
+            "totalMultiTurnTokens": 3471,
+            "wireBytes": 2052,
+            "gzipBytes": 1288,
+            "encodeLatencyUs": 52.33,
+            "decodeLatencyUs": 24.08,
+            "totalCpuLatencyUs": 76.42,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.023049,
+              "balancedTierUsd": 0.008287,
+              "fastTierUsd": 0.001657,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s3-msg-01",
+              "wireBytes": 1111,
+              "gzipBytes": 617,
+              "tokens": 556,
+              "encodeUs": 20.75,
+              "decodeUs": 9.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-02",
+              "wireBytes": 487,
+              "gzipBytes": 344,
+              "tokens": 253,
+              "encodeUs": 11.83,
+              "decodeUs": 4.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-03",
+              "wireBytes": 454,
+              "gzipBytes": 327,
+              "tokens": 244,
+              "encodeUs": 19.75,
+              "decodeUs": 10.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S04-multi-agent-decomposition",
+          "title": "Scenario 4: Multi-Agent Wave Decomposition Across Builders & Architect",
+          "codecId": "compact-json-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 850,
+            "inputTokens": 1370,
+            "totalMultiTurnTokens": 2220,
+            "wireBytes": 1600,
+            "gzipBytes": 870,
+            "encodeLatencyUs": 79.67,
+            "decodeLatencyUs": 14,
+            "totalCpuLatencyUs": 93.67,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.01686,
+              "balancedTierUsd": 0.005962,
+              "fastTierUsd": 0.001192,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s4-msg-01",
+              "wireBytes": 989,
+              "gzipBytes": 509,
+              "tokens": 520,
+              "encodeUs": 16.08,
+              "decodeUs": 8.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s4-msg-02",
+              "wireBytes": 611,
+              "gzipBytes": 361,
+              "tokens": 330,
+              "encodeUs": 63.58,
+              "decodeUs": 5.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S05-dependency-scheduling-negotiation",
+          "title": "Scenario 5: Cross-Lane Dependency & File Collision Negotiation",
+          "codecId": "compact-json-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 696,
+            "inputTokens": 1134,
+            "totalMultiTurnTokens": 1830,
+            "wireBytes": 1390,
+            "gzipBytes": 872,
+            "encodeLatencyUs": 42.04,
+            "decodeLatencyUs": 17.46,
+            "totalCpuLatencyUs": 59.5,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.013842,
+              "balancedTierUsd": 0.004897,
+              "fastTierUsd": 0.000979,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s5-msg-01",
+              "wireBytes": 885,
+              "gzipBytes": 525,
+              "tokens": 438,
+              "encodeUs": 27.08,
+              "decodeUs": 9.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s5-msg-02",
+              "wireBytes": 505,
+              "gzipBytes": 347,
+              "tokens": 258,
+              "encodeUs": 14.96,
+              "decodeUs": 8.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S06-architect-decision-escalation",
+          "title": "Scenario 6: Architectural Escalation & Binding A-Gate Verdict",
+          "codecId": "compact-json-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 575,
+            "inputTokens": 952,
+            "totalMultiTurnTokens": 1527,
+            "wireBytes": 1191,
+            "gzipBytes": 795,
+            "encodeLatencyUs": 26.54,
+            "decodeLatencyUs": 16.46,
+            "totalCpuLatencyUs": 43,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.011481,
+              "balancedTierUsd": 0.004065,
+              "fastTierUsd": 0.000813,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s6-msg-01",
+              "wireBytes": 781,
+              "gzipBytes": 477,
+              "tokens": 377,
+              "encodeUs": 14.71,
+              "decodeUs": 7.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s6-msg-02",
+              "wireBytes": 410,
+              "gzipBytes": 318,
+              "tokens": 198,
+              "encodeUs": 11.83,
+              "decodeUs": 9.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S07-conflicting-shared-state-writes",
+          "title": "Scenario 7: Concurrent Shared-State Updates with Conflict Detection & Resolution",
+          "codecId": "compact-json-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 677,
+            "inputTokens": 1534,
+            "totalMultiTurnTokens": 2211,
+            "wireBytes": 1329,
+            "gzipBytes": 912,
+            "encodeLatencyUs": 30.13,
+            "decodeLatencyUs": 15.38,
+            "totalCpuLatencyUs": 45.5,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.014757,
+              "balancedTierUsd": 0.005302,
+              "fastTierUsd": 0.001061,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": {
+            "conflictDetectedDeterministically": false,
+            "conflictCode": "STATELESS_OVERWRITE",
+            "recoveredAfterRebase": true
+          },
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s7-msg-01",
+              "wireBytes": 686,
+              "gzipBytes": 407,
+              "tokens": 348,
+              "encodeUs": 12.21,
+              "decodeUs": 6.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-02",
+              "wireBytes": 301,
+              "gzipBytes": 240,
+              "tokens": 161,
+              "encodeUs": 9.79,
+              "decodeUs": 5.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-03",
+              "wireBytes": 342,
+              "gzipBytes": 265,
+              "tokens": 168,
+              "encodeUs": 8.13,
+              "decodeUs": 3.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S08-long-running-30-exchanges",
+          "title": "Scenario 8: Long-Running 30-Exchange Sprint Coordination Conversation",
+          "codecId": "compact-json-v1",
+          "messageCount": 30,
+          "metrics": {
+            "outputTokens": 8390,
+            "inputTokens": 132720,
+            "totalMultiTurnTokens": 141110,
+            "wireBytes": 16343,
+            "gzipBytes": 11474,
+            "encodeLatencyUs": 341.83,
+            "decodeLatencyUs": 227.04,
+            "totalCpuLatencyUs": 568.88,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.52401,
+              "balancedTierUsd": 0.20785,
+              "fastTierUsd": 0.04157,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s8-msg-01",
+              "wireBytes": 900,
+              "gzipBytes": 528,
+              "tokens": 458,
+              "encodeUs": 18.29,
+              "decodeUs": 7.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-02",
+              "wireBytes": 532,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 12.71,
+              "decodeUs": 4.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-03",
+              "wireBytes": 530,
+              "gzipBytes": 371,
+              "tokens": 273,
+              "encodeUs": 22.71,
+              "decodeUs": 3.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-04",
+              "wireBytes": 532,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 10.92,
+              "decodeUs": 3.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-05",
+              "wireBytes": 530,
+              "gzipBytes": 371,
+              "tokens": 273,
+              "encodeUs": 10.46,
+              "decodeUs": 3.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-06",
+              "wireBytes": 532,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 10.21,
+              "decodeUs": 3.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-07",
+              "wireBytes": 530,
+              "gzipBytes": 371,
+              "tokens": 273,
+              "encodeUs": 10.54,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-08",
+              "wireBytes": 532,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 10.17,
+              "decodeUs": 127.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-09",
+              "wireBytes": 530,
+              "gzipBytes": 371,
+              "tokens": 273,
+              "encodeUs": 12.04,
+              "decodeUs": 3.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-10",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 12.13,
+              "decodeUs": 3.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-11",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 13.75,
+              "decodeUs": 3.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-12",
+              "wireBytes": 534,
+              "gzipBytes": 382,
+              "tokens": 274,
+              "encodeUs": 9.75,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-13",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 9.96,
+              "decodeUs": 3.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-14",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 9.83,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-15",
+              "wireBytes": 532,
+              "gzipBytes": 372,
+              "tokens": 273,
+              "encodeUs": 9.75,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-16",
+              "wireBytes": 534,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 10.58,
+              "decodeUs": 3.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-17",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 9.71,
+              "decodeUs": 3.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-18",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 9.58,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-19",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 12.04,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-20",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 9.5,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-21",
+              "wireBytes": 532,
+              "gzipBytes": 374,
+              "tokens": 273,
+              "encodeUs": 12.46,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-22",
+              "wireBytes": 534,
+              "gzipBytes": 381,
+              "tokens": 274,
+              "encodeUs": 9.54,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-23",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 12.42,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-24",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 9.71,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-25",
+              "wireBytes": 532,
+              "gzipBytes": 372,
+              "tokens": 273,
+              "encodeUs": 12.54,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-26",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 9.58,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-27",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 9.58,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-28",
+              "wireBytes": 534,
+              "gzipBytes": 383,
+              "tokens": 274,
+              "encodeUs": 12.58,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-29",
+              "wireBytes": 532,
+              "gzipBytes": 373,
+              "tokens": 273,
+              "encodeUs": 9.33,
+              "decodeUs": 3.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-30",
+              "wireBytes": 535,
+              "gzipBytes": 384,
+              "tokens": 274,
+              "encodeUs": 9.46,
+              "decodeUs": 3.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S09-disconnect-missed-delta-recovery",
+          "title": "Scenario 9: Recovery After Disconnect, Restart, or Missed State Update",
+          "codecId": "compact-json-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 694,
+            "inputTokens": 1563,
+            "totalMultiTurnTokens": 2257,
+            "wireBytes": 1365,
+            "gzipBytes": 937,
+            "encodeLatencyUs": 34.13,
+            "decodeLatencyUs": 19.21,
+            "totalCpuLatencyUs": 53.33,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.015099,
+              "balancedTierUsd": 0.005424,
+              "fastTierUsd": 0.001085,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": {
+            "detectedMissedUpdate": false,
+            "errorCode": "SELF_CONTAINED_MESSAGE",
+            "recoveredFidelity": true
+          },
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s9-msg-01",
+              "wireBytes": 686,
+              "gzipBytes": 406,
+              "tokens": 350,
+              "encodeUs": 16.58,
+              "decodeUs": 8.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-02",
+              "wireBytes": 327,
+              "gzipBytes": 259,
+              "tokens": 169,
+              "encodeUs": 9.54,
+              "decodeUs": 7.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-03",
+              "wireBytes": 352,
+              "gzipBytes": 272,
+              "tokens": 175,
+              "encodeUs": 8,
+              "decodeUs": 3.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S10-adversarial-hallucination-scrutiny",
+          "title": "Scenario 10: Adversarial / Hallucinated Claims (\"Zero Hallucinations\" Scrutiny)",
+          "codecId": "compact-json-v1",
+          "messageCount": 1,
+          "metrics": {
+            "outputTokens": 404,
+            "inputTokens": 404,
+            "totalMultiTurnTokens": 808,
+            "wireBytes": 800,
+            "gzipBytes": 487,
+            "encodeLatencyUs": 13.75,
+            "decodeLatencyUs": 8,
+            "totalCpuLatencyUs": 21.75,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.007272,
+              "balancedTierUsd": 0.002525,
+              "fastTierUsd": 0.000505,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": {
+            "totalAdversarialCases": 5,
+            "caughtBySchemaAlone": 1,
+            "caughtByGroundedValidator": 5,
+            "cases": [
+              {
+                "id": "ADV-01-hallucinated-commit-sha",
+                "description": "Structurally valid message citing a fabricated git commit SHA (\"deadbeef9999\")",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Hallucinated or unknown commit SHA: \"deadbeef9999\" is not in authoritative git history"
+                ]
+              },
+              {
+                "id": "ADV-02-fabricated-test-pass",
+                "description": "Structurally valid message claiming \"15/15:999/999\" tests passed when runner recorded \"15/15:252/252\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Fabricated test evidence: claimed \"15/15:999/999\" but authoritative runner recorded \"15/15:252/252\""
+                ]
+              },
+              {
+                "id": "ADV-03-silent-constraint-drop",
+                "description": "Structurally valid message that silently drops the binding security constraint \"bind_host=127.0.0.1\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Lost required constraint: \"bind_host=127.0.0.1\""
+                ]
+              },
+              {
+                "id": "ADV-04-contradictory-pass-with-blocker",
+                "description": "Structurally valid review.findings claiming verdict=\"PASS\" while an open blocker finding is attached",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Contradictory semantic state: verdict is \"PASS\" while high/blocker findings remain open"
+                ]
+              },
+              {
+                "id": "ADV-05-structural-missing-sha-and-scope",
+                "description": "Structurally invalid review.request missing headRefOid and file scope",
+                "schemaValidAlone": false,
+                "caughtBySchemaAlone": true,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [
+                  "review.request requires valid hex \"headRefOid\" (7-40 hex chars)",
+                  "review.request requires non-empty \"scope\" array"
+                ],
+                "groundingErrors": []
+              }
+            ]
+          },
+          "turnDetails": [
+            {
+              "messageId": "s10-msg-valid-control",
+              "wireBytes": 800,
+              "gzipBytes": 487,
+              "tokens": 404,
+              "encodeUs": 13.75,
+              "decodeUs": 8,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        }
+      ]
+    },
+    "graph-v1": {
+      "capabilities": {
+        "id": "graph-v1",
+        "schemaVersion": "1.0.0",
+        "description": "Self-contained property graph representation (nodes, typed edges, attributes)",
+        "supportsDeltas": false,
+        "supportsArtifactRefs": true,
+        "requiresSharedState": false,
+        "losslessRoundTrip": true
+      },
+      "aggregate": {
+        "totalScenarios": 10,
+        "totalMessages": 50,
+        "outputTokens": 76677,
+        "inputTokens": 805950,
+        "totalMultiTurnTokens": 882627,
+        "wireBytes": 144887,
+        "gzipBytes": 44668,
+        "encodeLatencyUs": 1408.96,
+        "decodeLatencyUs": 899.95,
+        "totalCpuLatencyUs": 2308.93,
+        "avgSemanticPreservationPct": 100,
+        "constraintsLostCount": 0,
+        "estimatedCostUsd": {
+          "frontierTierUsd": 3.568005,
+          "balancedTierUsd": 1.390823,
+          "fastTierUsd": 0.278164,
+          "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+        }
+      },
+      "scenarios": [
+        {
+          "scenarioId": "S01-task-assign-ack",
+          "title": "Scenario 1: Simple Task Assignment and Acknowledgment",
+          "codecId": "graph-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 3077,
+            "inputTokens": 4615,
+            "totalMultiTurnTokens": 7692,
+            "wireBytes": 5828,
+            "gzipBytes": 1704,
+            "encodeLatencyUs": 349.08,
+            "decodeLatencyUs": 376.5,
+            "totalCpuLatencyUs": 725.58,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.06,
+              "balancedTierUsd": 0.021154,
+              "fastTierUsd": 0.004231,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s1-msg-01",
+              "wireBytes": 2910,
+              "gzipBytes": 844,
+              "tokens": 1538,
+              "encodeUs": 315.67,
+              "decodeUs": 207.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s1-msg-02",
+              "wireBytes": 2918,
+              "gzipBytes": 860,
+              "tokens": 1539,
+              "encodeUs": 33.42,
+              "decodeUs": 169.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S02-builder-reviewer-handoff",
+          "title": "Scenario 2: Builder-to-Reviewer Formal R-Gate Handoff",
+          "codecId": "graph-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 3243,
+            "inputTokens": 4865,
+            "totalMultiTurnTokens": 8108,
+            "wireBytes": 6093,
+            "gzipBytes": 1827,
+            "encodeLatencyUs": 61.96,
+            "decodeLatencyUs": 43.46,
+            "totalCpuLatencyUs": 105.42,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.06324,
+              "balancedTierUsd": 0.022296,
+              "fastTierUsd": 0.004459,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s2-msg-01",
+              "wireBytes": 3051,
+              "gzipBytes": 913,
+              "tokens": 1622,
+              "encodeUs": 31.58,
+              "decodeUs": 24.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s2-msg-02",
+              "wireBytes": 3042,
+              "gzipBytes": 914,
+              "tokens": 1621,
+              "encodeUs": 30.38,
+              "decodeUs": 18.79,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S03-review-findings-revision",
+          "title": "Scenario 3: Review Findings (HOLD), Builder Revision, and Round 2 PASS",
+          "codecId": "graph-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 4868,
+            "inputTokens": 10064,
+            "totalMultiTurnTokens": 14932,
+            "wireBytes": 9137,
+            "gzipBytes": 2800,
+            "encodeLatencyUs": 118,
+            "decodeLatencyUs": 65.54,
+            "totalCpuLatencyUs": 183.54,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.103212,
+              "balancedTierUsd": 0.03692,
+              "fastTierUsd": 0.007384,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s3-msg-01",
+              "wireBytes": 3451,
+              "gzipBytes": 1035,
+              "tokens": 1839,
+              "encodeUs": 63.13,
+              "decodeUs": 30.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-02",
+              "wireBytes": 2854,
+              "gzipBytes": 886,
+              "tokens": 1518,
+              "encodeUs": 28.13,
+              "decodeUs": 8,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-03",
+              "wireBytes": 2832,
+              "gzipBytes": 879,
+              "tokens": 1511,
+              "encodeUs": 26.75,
+              "decodeUs": 26.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S04-multi-agent-decomposition",
+          "title": "Scenario 4: Multi-Agent Wave Decomposition Across Builders & Architect",
+          "codecId": "graph-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 3381,
+            "inputTokens": 5121,
+            "totalMultiTurnTokens": 8502,
+            "wireBytes": 6299,
+            "gzipBytes": 1789,
+            "encodeLatencyUs": 190.42,
+            "decodeLatencyUs": 28.08,
+            "totalCpuLatencyUs": 218.5,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.066078,
+              "balancedTierUsd": 0.023306,
+              "fastTierUsd": 0.004661,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s4-msg-01",
+              "wireBytes": 3234,
+              "gzipBytes": 901,
+              "tokens": 1740,
+              "encodeUs": 39.96,
+              "decodeUs": 17.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s4-msg-02",
+              "wireBytes": 3065,
+              "gzipBytes": 888,
+              "tokens": 1641,
+              "encodeUs": 150.46,
+              "decodeUs": 10.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S05-dependency-scheduling-negotiation",
+          "title": "Scenario 5: Cross-Lane Dependency & File Collision Negotiation",
+          "codecId": "graph-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 2834,
+            "inputTokens": 4216,
+            "totalMultiTurnTokens": 7050,
+            "wireBytes": 5389,
+            "gzipBytes": 1736,
+            "encodeLatencyUs": 91.42,
+            "decodeLatencyUs": 28.71,
+            "totalCpuLatencyUs": 120.13,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.055158,
+              "balancedTierUsd": 0.01944,
+              "fastTierUsd": 0.003888,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s5-msg-01",
+              "wireBytes": 2642,
+              "gzipBytes": 866,
+              "tokens": 1382,
+              "encodeUs": 55.5,
+              "decodeUs": 16.71,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s5-msg-02",
+              "wireBytes": 2747,
+              "gzipBytes": 870,
+              "tokens": 1452,
+              "encodeUs": 35.92,
+              "decodeUs": 12,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S06-architect-decision-escalation",
+          "title": "Scenario 6: Architectural Escalation & Binding A-Gate Verdict",
+          "codecId": "graph-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 2385,
+            "inputTokens": 3574,
+            "totalMultiTurnTokens": 5959,
+            "wireBytes": 4614,
+            "gzipBytes": 1596,
+            "encodeLatencyUs": 45.79,
+            "decodeLatencyUs": 20.08,
+            "totalCpuLatencyUs": 65.88,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.046497,
+              "balancedTierUsd": 0.016393,
+              "fastTierUsd": 0.003279,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s6-msg-01",
+              "wireBytes": 2305,
+              "gzipBytes": 797,
+              "tokens": 1189,
+              "encodeUs": 22.46,
+              "decodeUs": 10,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s6-msg-02",
+              "wireBytes": 2309,
+              "gzipBytes": 799,
+              "tokens": 1196,
+              "encodeUs": 23.33,
+              "decodeUs": 10.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S07-conflicting-shared-state-writes",
+          "title": "Scenario 7: Concurrent Shared-State Updates with Conflict Detection & Resolution",
+          "codecId": "graph-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 3243,
+            "inputTokens": 6481,
+            "totalMultiTurnTokens": 9724,
+            "wireBytes": 6185,
+            "gzipBytes": 2135,
+            "encodeLatencyUs": 45.25,
+            "decodeLatencyUs": 16.13,
+            "totalCpuLatencyUs": 61.37,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.068088,
+              "balancedTierUsd": 0.024316,
+              "fastTierUsd": 0.004863,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": {
+            "conflictDetectedDeterministically": false,
+            "conflictCode": "STATELESS_OVERWRITE",
+            "recoveredAfterRebase": true
+          },
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s7-msg-01",
+              "wireBytes": 2058,
+              "gzipBytes": 704,
+              "tokens": 1080,
+              "encodeUs": 23.83,
+              "decodeUs": 5.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-02",
+              "wireBytes": 2043,
+              "gzipBytes": 702,
+              "tokens": 1078,
+              "encodeUs": 11.04,
+              "decodeUs": 4.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-03",
+              "wireBytes": 2084,
+              "gzipBytes": 729,
+              "tokens": 1085,
+              "encodeUs": 10.38,
+              "decodeUs": 5.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S08-long-running-30-exchanges",
+          "title": "Scenario 8: Long-Running 30-Exchange Sprint Coordination Conversation",
+          "codecId": "graph-v1",
+          "messageCount": 30,
+          "metrics": {
+            "outputTokens": 48975,
+            "inputTokens": 759105,
+            "totalMultiTurnTokens": 808080,
+            "wireBytes": 92353,
+            "gzipBytes": 28047,
+            "encodeLatencyUs": 439.04,
+            "decodeLatencyUs": 288.16,
+            "totalCpuLatencyUs": 727.21,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 3.01194,
+              "balancedTierUsd": 1.193756,
+              "fastTierUsd": 0.238751,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s8-msg-01",
+              "wireBytes": 3076,
+              "gzipBytes": 927,
+              "tokens": 1632,
+              "encodeUs": 20.83,
+              "decodeUs": 14.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-02",
+              "wireBytes": 3078,
+              "gzipBytes": 939,
+              "tokens": 1633,
+              "encodeUs": 16.25,
+              "decodeUs": 7.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-03",
+              "wireBytes": 3076,
+              "gzipBytes": 929,
+              "tokens": 1632,
+              "encodeUs": 14.71,
+              "decodeUs": 7,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-04",
+              "wireBytes": 3078,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 15.71,
+              "decodeUs": 7.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-05",
+              "wireBytes": 3076,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 20,
+              "decodeUs": 18.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-06",
+              "wireBytes": 3078,
+              "gzipBytes": 939,
+              "tokens": 1633,
+              "encodeUs": 16.21,
+              "decodeUs": 6.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-07",
+              "wireBytes": 3076,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 15.42,
+              "decodeUs": 6.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-08",
+              "wireBytes": 3078,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 14.88,
+              "decodeUs": 5.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-09",
+              "wireBytes": 3076,
+              "gzipBytes": 929,
+              "tokens": 1632,
+              "encodeUs": 13.96,
+              "decodeUs": 5.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-10",
+              "wireBytes": 3080,
+              "gzipBytes": 939,
+              "tokens": 1633,
+              "encodeUs": 16.13,
+              "decodeUs": 5.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-11",
+              "wireBytes": 3078,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 15.67,
+              "decodeUs": 5.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-12",
+              "wireBytes": 3080,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 14.25,
+              "decodeUs": 5.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-13",
+              "wireBytes": 3078,
+              "gzipBytes": 931,
+              "tokens": 1632,
+              "encodeUs": 13.29,
+              "decodeUs": 6.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-14",
+              "wireBytes": 3080,
+              "gzipBytes": 941,
+              "tokens": 1633,
+              "encodeUs": 14.96,
+              "decodeUs": 5.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-15",
+              "wireBytes": 3078,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 18.5,
+              "decodeUs": 5.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-16",
+              "wireBytes": 3080,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 13.29,
+              "decodeUs": 5.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-17",
+              "wireBytes": 3078,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 12.88,
+              "decodeUs": 5.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-18",
+              "wireBytes": 3080,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 12.96,
+              "decodeUs": 5.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-19",
+              "wireBytes": 3078,
+              "gzipBytes": 931,
+              "tokens": 1632,
+              "encodeUs": 12.88,
+              "decodeUs": 5.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-20",
+              "wireBytes": 3080,
+              "gzipBytes": 939,
+              "tokens": 1633,
+              "encodeUs": 13,
+              "decodeUs": 5.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-21",
+              "wireBytes": 3078,
+              "gzipBytes": 929,
+              "tokens": 1632,
+              "encodeUs": 12.67,
+              "decodeUs": 5.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-22",
+              "wireBytes": 3080,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 12.92,
+              "decodeUs": 5.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-23",
+              "wireBytes": 3078,
+              "gzipBytes": 931,
+              "tokens": 1632,
+              "encodeUs": 12.71,
+              "decodeUs": 5.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-24",
+              "wireBytes": 3080,
+              "gzipBytes": 940,
+              "tokens": 1633,
+              "encodeUs": 13.17,
+              "decodeUs": 98.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-25",
+              "wireBytes": 3078,
+              "gzipBytes": 931,
+              "tokens": 1632,
+              "encodeUs": 14.54,
+              "decodeUs": 5.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-26",
+              "wireBytes": 3080,
+              "gzipBytes": 941,
+              "tokens": 1633,
+              "encodeUs": 13.21,
+              "decodeUs": 5.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-27",
+              "wireBytes": 3078,
+              "gzipBytes": 930,
+              "tokens": 1632,
+              "encodeUs": 13.21,
+              "decodeUs": 5.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-28",
+              "wireBytes": 3080,
+              "gzipBytes": 941,
+              "tokens": 1633,
+              "encodeUs": 13.46,
+              "decodeUs": 5.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-29",
+              "wireBytes": 3078,
+              "gzipBytes": 931,
+              "tokens": 1632,
+              "encodeUs": 12.71,
+              "decodeUs": 5.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-30",
+              "wireBytes": 3081,
+              "gzipBytes": 939,
+              "tokens": 1633,
+              "encodeUs": 14.71,
+              "decodeUs": 5.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S09-disconnect-missed-delta-recovery",
+          "title": "Scenario 9: Recovery After Disconnect, Restart, or Missed State Update",
+          "codecId": "graph-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 3248,
+            "inputTokens": 6486,
+            "totalMultiTurnTokens": 9734,
+            "wireBytes": 6212,
+            "gzipBytes": 2170,
+            "encodeLatencyUs": 47.54,
+            "decodeLatencyUs": 20.04,
+            "totalCpuLatencyUs": 67.59,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.068178,
+              "balancedTierUsd": 0.024348,
+              "fastTierUsd": 0.004869,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": {
+            "detectedMissedUpdate": false,
+            "errorCode": "SELF_CONTAINED_MESSAGE",
+            "recoveredFidelity": true
+          },
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s9-msg-01",
+              "wireBytes": 2055,
+              "gzipBytes": 707,
+              "tokens": 1078,
+              "encodeUs": 23.04,
+              "decodeUs": 11.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-02",
+              "wireBytes": 2066,
+              "gzipBytes": 723,
+              "tokens": 1082,
+              "encodeUs": 14.29,
+              "decodeUs": 4.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-03",
+              "wireBytes": 2091,
+              "gzipBytes": 740,
+              "tokens": 1088,
+              "encodeUs": 10.21,
+              "decodeUs": 3.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S10-adversarial-hallucination-scrutiny",
+          "title": "Scenario 10: Adversarial / Hallucinated Claims (\"Zero Hallucinations\" Scrutiny)",
+          "codecId": "graph-v1",
+          "messageCount": 1,
+          "metrics": {
+            "outputTokens": 1423,
+            "inputTokens": 1423,
+            "totalMultiTurnTokens": 2846,
+            "wireBytes": 2777,
+            "gzipBytes": 864,
+            "encodeLatencyUs": 20.46,
+            "decodeLatencyUs": 13.25,
+            "totalCpuLatencyUs": 33.71,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.025614,
+              "balancedTierUsd": 0.008894,
+              "fastTierUsd": 0.001779,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": {
+            "totalAdversarialCases": 5,
+            "caughtBySchemaAlone": 1,
+            "caughtByGroundedValidator": 5,
+            "cases": [
+              {
+                "id": "ADV-01-hallucinated-commit-sha",
+                "description": "Structurally valid message citing a fabricated git commit SHA (\"deadbeef9999\")",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Hallucinated or unknown commit SHA: \"deadbeef9999\" is not in authoritative git history"
+                ]
+              },
+              {
+                "id": "ADV-02-fabricated-test-pass",
+                "description": "Structurally valid message claiming \"15/15:999/999\" tests passed when runner recorded \"15/15:252/252\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Fabricated test evidence: claimed \"15/15:999/999\" but authoritative runner recorded \"15/15:252/252\""
+                ]
+              },
+              {
+                "id": "ADV-03-silent-constraint-drop",
+                "description": "Structurally valid message that silently drops the binding security constraint \"bind_host=127.0.0.1\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Lost required constraint: \"bind_host=127.0.0.1\""
+                ]
+              },
+              {
+                "id": "ADV-04-contradictory-pass-with-blocker",
+                "description": "Structurally valid review.findings claiming verdict=\"PASS\" while an open blocker finding is attached",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Contradictory semantic state: verdict is \"PASS\" while high/blocker findings remain open"
+                ]
+              },
+              {
+                "id": "ADV-05-structural-missing-sha-and-scope",
+                "description": "Structurally invalid review.request missing headRefOid and file scope",
+                "schemaValidAlone": false,
+                "caughtBySchemaAlone": true,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [
+                  "review.request requires valid hex \"headRefOid\" (7-40 hex chars)",
+                  "review.request requires non-empty \"scope\" array"
+                ],
+                "groundingErrors": []
+              }
+            ]
+          },
+          "turnDetails": [
+            {
+              "messageId": "s10-msg-valid-control",
+              "wireBytes": 2777,
+              "gzipBytes": 864,
+              "tokens": 1423,
+              "encodeUs": 20.46,
+              "decodeUs": 13.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        }
+      ]
+    },
+    "graph-delta-v1": {
+      "capabilities": {
+        "id": "graph-delta-v1",
+        "schemaVersion": "1.0.0",
+        "description": "Versioned shared property graph transmitting only incremental node/edge deltas with digest verification",
+        "supportsDeltas": true,
+        "supportsArtifactRefs": true,
+        "requiresSharedState": true,
+        "losslessRoundTrip": true
+      },
+      "aggregate": {
+        "totalScenarios": 10,
+        "totalMessages": 50,
+        "outputTokens": 31146,
+        "inputTokens": 281957,
+        "totalMultiTurnTokens": 313103,
+        "wireBytes": 62276,
+        "gzipBytes": 31137,
+        "encodeLatencyUs": 23987.38,
+        "decodeLatencyUs": 14786.51,
+        "totalCpuLatencyUs": 38773.89,
+        "avgSemanticPreservationPct": 100,
+        "constraintsLostCount": 0,
+        "estimatedCostUsd": {
+          "frontierTierUsd": 1.313061,
+          "balancedTierUsd": 0.508176,
+          "fastTierUsd": 0.101635,
+          "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+        }
+      },
+      "scenarios": [
+        {
+          "scenarioId": "S01-task-assign-ack",
+          "title": "Scenario 1: Simple Task Assignment and Acknowledgment",
+          "codecId": "graph-delta-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1671,
+            "inputTokens": 2889,
+            "totalMultiTurnTokens": 4560,
+            "wireBytes": 3314,
+            "gzipBytes": 1366,
+            "encodeLatencyUs": 8846.71,
+            "decodeLatencyUs": 495.42,
+            "totalCpuLatencyUs": 9342.13,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.033732,
+              "balancedTierUsd": 0.011966,
+              "fastTierUsd": 0.002393,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s1-msg-01",
+              "wireBytes": 2383,
+              "gzipBytes": 833,
+              "tokens": 1218,
+              "encodeUs": 8562.46,
+              "decodeUs": 281.71,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s1-msg-02",
+              "wireBytes": 931,
+              "gzipBytes": 533,
+              "tokens": 453,
+              "encodeUs": 284.25,
+              "decodeUs": 213.71,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S02-builder-reviewer-handoff",
+          "title": "Scenario 2: Builder-to-Reviewer Formal R-Gate Handoff",
+          "codecId": "graph-delta-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1803,
+            "inputTokens": 3083,
+            "totalMultiTurnTokens": 4886,
+            "wireBytes": 3530,
+            "gzipBytes": 1476,
+            "encodeLatencyUs": 232,
+            "decodeLatencyUs": 207.96,
+            "totalCpuLatencyUs": 439.96,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.036294,
+              "balancedTierUsd": 0.012869,
+              "fastTierUsd": 0.002574,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s2-msg-01",
+              "wireBytes": 2490,
+              "gzipBytes": 897,
+              "tokens": 1280,
+              "encodeUs": 112.33,
+              "decodeUs": 101.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s2-msg-02",
+              "wireBytes": 1040,
+              "gzipBytes": 579,
+              "tokens": 523,
+              "encodeUs": 119.67,
+              "decodeUs": 106.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S03-review-findings-revision",
+          "title": "Scenario 3: Review Findings (HOLD), Builder Revision, and Round 2 PASS",
+          "codecId": "graph-delta-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 2412,
+            "inputTokens": 5838,
+            "totalMultiTurnTokens": 8250,
+            "wireBytes": 4738,
+            "gzipBytes": 2116,
+            "encodeLatencyUs": 379.38,
+            "decodeLatencyUs": 346.04,
+            "totalCpuLatencyUs": 725.42,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.053694,
+              "balancedTierUsd": 0.019357,
+              "fastTierUsd": 0.003871,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s3-msg-01",
+              "wireBytes": 2838,
+              "gzipBytes": 1021,
+              "tokens": 1465,
+              "encodeUs": 105.42,
+              "decodeUs": 88.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-02",
+              "wireBytes": 994,
+              "gzipBytes": 562,
+              "tokens": 496,
+              "encodeUs": 114.33,
+              "decodeUs": 100.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-03",
+              "wireBytes": 906,
+              "gzipBytes": 533,
+              "tokens": 451,
+              "encodeUs": 159.63,
+              "decodeUs": 157.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S04-multi-agent-decomposition",
+          "title": "Scenario 4: Multi-Agent Wave Decomposition Across Builders & Architect",
+          "codecId": "graph-delta-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 2241,
+            "inputTokens": 3629,
+            "totalMultiTurnTokens": 5870,
+            "wireBytes": 4281,
+            "gzipBytes": 1550,
+            "encodeLatencyUs": 292.21,
+            "decodeLatencyUs": 188.79,
+            "totalCpuLatencyUs": 481,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.044502,
+              "balancedTierUsd": 0.015741,
+              "fastTierUsd": 0.003148,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s4-msg-01",
+              "wireBytes": 2655,
+              "gzipBytes": 887,
+              "tokens": 1388,
+              "encodeUs": 95.17,
+              "decodeUs": 80.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s4-msg-02",
+              "wireBytes": 1626,
+              "gzipBytes": 663,
+              "tokens": 853,
+              "encodeUs": 197.04,
+              "decodeUs": 107.88,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S05-dependency-scheduling-negotiation",
+          "title": "Scenario 5: Cross-Lane Dependency & File Collision Negotiation",
+          "codecId": "graph-delta-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1660,
+            "inputTokens": 2776,
+            "totalMultiTurnTokens": 4436,
+            "wireBytes": 3271,
+            "gzipBytes": 1431,
+            "encodeLatencyUs": 168.5,
+            "decodeLatencyUs": 141.63,
+            "totalCpuLatencyUs": 310.13,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.033228,
+              "balancedTierUsd": 0.01177,
+              "fastTierUsd": 0.002354,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s5-msg-01",
+              "wireBytes": 2201,
+              "gzipBytes": 855,
+              "tokens": 1116,
+              "encodeUs": 79.17,
+              "decodeUs": 65.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s5-msg-02",
+              "wireBytes": 1070,
+              "gzipBytes": 576,
+              "tokens": 544,
+              "encodeUs": 89.33,
+              "decodeUs": 76.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S06-architect-decision-escalation",
+          "title": "Scenario 6: Architectural Escalation & Binding A-Gate Verdict",
+          "codecId": "graph-delta-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 1337,
+            "inputTokens": 2302,
+            "totalMultiTurnTokens": 3639,
+            "wireBytes": 2713,
+            "gzipBytes": 1282,
+            "encodeLatencyUs": 170.25,
+            "decodeLatencyUs": 134.75,
+            "totalCpuLatencyUs": 305,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.026961,
+              "balancedTierUsd": 0.009562,
+              "fastTierUsd": 0.001912,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s6-msg-01",
+              "wireBytes": 1934,
+              "gzipBytes": 789,
+              "tokens": 965,
+              "encodeUs": 89.17,
+              "decodeUs": 69.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s6-msg-02",
+              "wireBytes": 779,
+              "gzipBytes": 493,
+              "tokens": 372,
+              "encodeUs": 81.08,
+              "decodeUs": 65.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S07-conflicting-shared-state-writes",
+          "title": "Scenario 7: Concurrent Shared-State Updates with Conflict Detection & Resolution",
+          "codecId": "graph-delta-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 1717,
+            "inputTokens": 3859,
+            "totalMultiTurnTokens": 5576,
+            "wireBytes": 3378,
+            "gzipBytes": 1646,
+            "encodeLatencyUs": 206.08,
+            "decodeLatencyUs": 180.83,
+            "totalCpuLatencyUs": 386.92,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.037332,
+              "balancedTierUsd": 0.013409,
+              "fastTierUsd": 0.002682,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": {
+            "conflictDetectedDeterministically": true,
+            "conflictCode": "VERSION_CONFLICT",
+            "recoveredAfterRebase": true
+          },
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s7-msg-01",
+              "wireBytes": 1739,
+              "gzipBytes": 699,
+              "tokens": 888,
+              "encodeUs": 57.71,
+              "decodeUs": 49.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-02",
+              "wireBytes": 720,
+              "gzipBytes": 436,
+              "tokens": 366,
+              "encodeUs": 64.17,
+              "decodeUs": 54.79,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-03",
+              "wireBytes": 919,
+              "gzipBytes": 511,
+              "tokens": 463,
+              "encodeUs": 84.21,
+              "decodeUs": 76.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S08-long-running-30-exchanges",
+          "title": "Scenario 8: Long-Running 30-Exchange Sprint Coordination Conversation",
+          "codecId": "graph-delta-v1",
+          "messageCount": 30,
+          "metrics": {
+            "outputTokens": 15553,
+            "inputTokens": 252683,
+            "totalMultiTurnTokens": 268236,
+            "wireBytes": 31608,
+            "gzipBytes": 17801,
+            "encodeLatencyUs": 13398.5,
+            "decodeLatencyUs": 12850.96,
+            "totalCpuLatencyUs": 26249.46,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.991344,
+              "balancedTierUsd": 0.393619,
+              "fastTierUsd": 0.078724,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s8-msg-01",
+              "wireBytes": 2515,
+              "gzipBytes": 913,
+              "tokens": 1290,
+              "encodeUs": 85.08,
+              "decodeUs": 76.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-02",
+              "wireBytes": 999,
+              "gzipBytes": 583,
+              "tokens": 491,
+              "encodeUs": 103.13,
+              "decodeUs": 85.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-03",
+              "wireBytes": 997,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 127.83,
+              "decodeUs": 126.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-04",
+              "wireBytes": 999,
+              "gzipBytes": 586,
+              "tokens": 491,
+              "encodeUs": 141.13,
+              "decodeUs": 131.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-05",
+              "wireBytes": 997,
+              "gzipBytes": 577,
+              "tokens": 490,
+              "encodeUs": 185.79,
+              "decodeUs": 155.79,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-06",
+              "wireBytes": 999,
+              "gzipBytes": 585,
+              "tokens": 491,
+              "encodeUs": 222,
+              "decodeUs": 202.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-07",
+              "wireBytes": 997,
+              "gzipBytes": 576,
+              "tokens": 490,
+              "encodeUs": 216.38,
+              "decodeUs": 201.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-08",
+              "wireBytes": 999,
+              "gzipBytes": 584,
+              "tokens": 491,
+              "encodeUs": 237.67,
+              "decodeUs": 226.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-09",
+              "wireBytes": 997,
+              "gzipBytes": 577,
+              "tokens": 490,
+              "encodeUs": 266.88,
+              "decodeUs": 255.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-10",
+              "wireBytes": 1002,
+              "gzipBytes": 587,
+              "tokens": 491,
+              "encodeUs": 465.96,
+              "decodeUs": 274.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-11",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 292.54,
+              "decodeUs": 284.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-12",
+              "wireBytes": 1003,
+              "gzipBytes": 584,
+              "tokens": 491,
+              "encodeUs": 315.38,
+              "decodeUs": 310,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-13",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 339.79,
+              "decodeUs": 446.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-14",
+              "wireBytes": 1003,
+              "gzipBytes": 586,
+              "tokens": 491,
+              "encodeUs": 368.96,
+              "decodeUs": 360.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-15",
+              "wireBytes": 1067,
+              "gzipBytes": 596,
+              "tokens": 528,
+              "encodeUs": 409.54,
+              "decodeUs": 402.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-16",
+              "wireBytes": 1003,
+              "gzipBytes": 586,
+              "tokens": 491,
+              "encodeUs": 547.79,
+              "decodeUs": 427.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-17",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 456.17,
+              "decodeUs": 454.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-18",
+              "wireBytes": 1003,
+              "gzipBytes": 587,
+              "tokens": 491,
+              "encodeUs": 582.04,
+              "decodeUs": 490.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-19",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 528.08,
+              "decodeUs": 524.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-20",
+              "wireBytes": 1003,
+              "gzipBytes": 585,
+              "tokens": 491,
+              "encodeUs": 625.17,
+              "decodeUs": 540.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-21",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 537.33,
+              "decodeUs": 533.67,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-22",
+              "wireBytes": 1003,
+              "gzipBytes": 585,
+              "tokens": 491,
+              "encodeUs": 661.67,
+              "decodeUs": 563.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-23",
+              "wireBytes": 1001,
+              "gzipBytes": 578,
+              "tokens": 490,
+              "encodeUs": 588.29,
+              "decodeUs": 727.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-24",
+              "wireBytes": 1003,
+              "gzipBytes": 586,
+              "tokens": 491,
+              "encodeUs": 638.21,
+              "decodeUs": 605.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-25",
+              "wireBytes": 1001,
+              "gzipBytes": 577,
+              "tokens": 490,
+              "encodeUs": 636.71,
+              "decodeUs": 746.58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-26",
+              "wireBytes": 1003,
+              "gzipBytes": 585,
+              "tokens": 491,
+              "encodeUs": 674.54,
+              "decodeUs": 672.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-27",
+              "wireBytes": 1001,
+              "gzipBytes": 577,
+              "tokens": 490,
+              "encodeUs": 808.29,
+              "decodeUs": 696.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-28",
+              "wireBytes": 1003,
+              "gzipBytes": 587,
+              "tokens": 491,
+              "encodeUs": 811.13,
+              "decodeUs": 724,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-29",
+              "wireBytes": 1001,
+              "gzipBytes": 579,
+              "tokens": 490,
+              "encodeUs": 747.08,
+              "decodeUs": 821.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-30",
+              "wireBytes": 1004,
+              "gzipBytes": 587,
+              "tokens": 491,
+              "encodeUs": 777.96,
+              "decodeUs": 779.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S09-disconnect-missed-delta-recovery",
+          "title": "Scenario 9: Recovery After Disconnect, Restart, or Missed State Update",
+          "codecId": "graph-delta-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 1640,
+            "inputTokens": 3786,
+            "totalMultiTurnTokens": 5426,
+            "wireBytes": 3255,
+            "gzipBytes": 1620,
+            "encodeLatencyUs": 223.08,
+            "decodeLatencyUs": 175.71,
+            "totalCpuLatencyUs": 398.79,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.035958,
+              "balancedTierUsd": 0.012932,
+              "fastTierUsd": 0.002586,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": {
+            "detectedMissedUpdate": true,
+            "errorCode": "MISSING_BASE_VERSION",
+            "recoveredFidelity": true
+          },
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s9-msg-01",
+              "wireBytes": 1736,
+              "gzipBytes": 701,
+              "tokens": 886,
+              "encodeUs": 64,
+              "decodeUs": 50.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-02",
+              "wireBytes": 747,
+              "gzipBytes": 450,
+              "tokens": 374,
+              "encodeUs": 80.71,
+              "decodeUs": 58,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-03",
+              "wireBytes": 772,
+              "gzipBytes": 469,
+              "tokens": 380,
+              "encodeUs": 78.38,
+              "decodeUs": 67.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S10-adversarial-hallucination-scrutiny",
+          "title": "Scenario 10: Adversarial / Hallucinated Claims (\"Zero Hallucinations\" Scrutiny)",
+          "codecId": "graph-delta-v1",
+          "messageCount": 1,
+          "metrics": {
+            "outputTokens": 1112,
+            "inputTokens": 1112,
+            "totalMultiTurnTokens": 2224,
+            "wireBytes": 2188,
+            "gzipBytes": 849,
+            "encodeLatencyUs": 70.67,
+            "decodeLatencyUs": 64.42,
+            "totalCpuLatencyUs": 135.08,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.020016,
+              "balancedTierUsd": 0.00695,
+              "fastTierUsd": 0.00139,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": {
+            "totalAdversarialCases": 5,
+            "caughtBySchemaAlone": 1,
+            "caughtByGroundedValidator": 5,
+            "cases": [
+              {
+                "id": "ADV-01-hallucinated-commit-sha",
+                "description": "Structurally valid message citing a fabricated git commit SHA (\"deadbeef9999\")",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Hallucinated or unknown commit SHA: \"deadbeef9999\" is not in authoritative git history"
+                ]
+              },
+              {
+                "id": "ADV-02-fabricated-test-pass",
+                "description": "Structurally valid message claiming \"15/15:999/999\" tests passed when runner recorded \"15/15:252/252\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Fabricated test evidence: claimed \"15/15:999/999\" but authoritative runner recorded \"15/15:252/252\""
+                ]
+              },
+              {
+                "id": "ADV-03-silent-constraint-drop",
+                "description": "Structurally valid message that silently drops the binding security constraint \"bind_host=127.0.0.1\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Lost required constraint: \"bind_host=127.0.0.1\""
+                ]
+              },
+              {
+                "id": "ADV-04-contradictory-pass-with-blocker",
+                "description": "Structurally valid review.findings claiming verdict=\"PASS\" while an open blocker finding is attached",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Contradictory semantic state: verdict is \"PASS\" while high/blocker findings remain open"
+                ]
+              },
+              {
+                "id": "ADV-05-structural-missing-sha-and-scope",
+                "description": "Structurally invalid review.request missing headRefOid and file scope",
+                "schemaValidAlone": false,
+                "caughtBySchemaAlone": true,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [
+                  "review.request requires valid hex \"headRefOid\" (7-40 hex chars)",
+                  "review.request requires non-empty \"scope\" array"
+                ],
+                "groundingErrors": []
+              }
+            ]
+          },
+          "turnDetails": [
+            {
+              "messageId": "s10-msg-valid-control",
+              "wireBytes": 2188,
+              "gzipBytes": 849,
+              "tokens": 1112,
+              "encodeUs": 70.67,
+              "decodeUs": 64.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        }
+      ]
+    },
+    "typed-cmd-v1": {
+      "capabilities": {
+        "id": "typed-cmd-v1",
+        "schemaVersion": "1.0.0",
+        "description": "Minimal typed command DSL with bare-token compression and content-addressed @ctx refs",
+        "supportsDeltas": false,
+        "supportsArtifactRefs": true,
+        "requiresSharedState": false,
+        "losslessRoundTrip": true
+      },
+      "aggregate": {
+        "totalScenarios": 10,
+        "totalMessages": 50,
+        "outputTokens": 11213,
+        "inputTokens": 106872,
+        "totalMultiTurnTokens": 118085,
+        "wireBytes": 27077,
+        "gzipBytes": 18965,
+        "encodeLatencyUs": 762.47,
+        "decodeLatencyUs": 1524.28,
+        "totalCpuLatencyUs": 2286.75,
+        "avgSemanticPreservationPct": 100,
+        "constraintsLostCount": 0,
+        "estimatedCostUsd": {
+          "frontierTierUsd": 0.488811,
+          "balancedTierUsd": 0.189655,
+          "fastTierUsd": 0.037931,
+          "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+        }
+      },
+      "scenarios": [
+        {
+          "scenarioId": "S01-task-assign-ack",
+          "title": "Scenario 1: Simple Task Assignment and Acknowledgment",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 541,
+            "inputTokens": 905,
+            "totalMultiTurnTokens": 1446,
+            "wireBytes": 1265,
+            "gzipBytes": 826,
+            "encodeLatencyUs": 278.29,
+            "decodeLatencyUs": 520.5,
+            "totalCpuLatencyUs": 798.79,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.01083,
+              "balancedTierUsd": 0.003836,
+              "fastTierUsd": 0.000767,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s1-msg-01",
+              "wireBytes": 816,
+              "gzipBytes": 494,
+              "tokens": 364,
+              "encodeUs": 189.58,
+              "decodeUs": 382.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s1-msg-02",
+              "wireBytes": 449,
+              "gzipBytes": 332,
+              "tokens": 177,
+              "encodeUs": 88.71,
+              "decodeUs": 138,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S02-builder-reviewer-handoff",
+          "title": "Scenario 2: Builder-to-Reviewer Formal R-Gate Handoff",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 568,
+            "inputTokens": 941,
+            "totalMultiTurnTokens": 1509,
+            "wireBytes": 1312,
+            "gzipBytes": 876,
+            "encodeLatencyUs": 35.67,
+            "decodeLatencyUs": 75.79,
+            "totalCpuLatencyUs": 111.46,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.011343,
+              "balancedTierUsd": 0.004016,
+              "fastTierUsd": 0.000803,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s2-msg-01",
+              "wireBytes": 842,
+              "gzipBytes": 526,
+              "tokens": 373,
+              "encodeUs": 21.79,
+              "decodeUs": 51.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s2-msg-02",
+              "wireBytes": 470,
+              "gzipBytes": 350,
+              "tokens": 195,
+              "encodeUs": 13.88,
+              "decodeUs": 24.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S03-review-findings-revision",
+          "title": "Scenario 3: Review Findings (HOLD), Builder Revision, and Round 2 PASS",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 849,
+            "inputTokens": 2011,
+            "totalMultiTurnTokens": 2860,
+            "wireBytes": 1960,
+            "gzipBytes": 1264,
+            "encodeLatencyUs": 38.25,
+            "decodeLatencyUs": 80.21,
+            "totalCpuLatencyUs": 118.46,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.018768,
+              "balancedTierUsd": 0.006759,
+              "fastTierUsd": 0.001352,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s3-msg-01",
+              "wireBytes": 1083,
+              "gzipBytes": 622,
+              "tokens": 490,
+              "encodeUs": 14.92,
+              "decodeUs": 41.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-02",
+              "wireBytes": 452,
+              "gzipBytes": 327,
+              "tokens": 182,
+              "encodeUs": 10.29,
+              "decodeUs": 17.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s3-msg-03",
+              "wireBytes": 425,
+              "gzipBytes": 315,
+              "tokens": 177,
+              "encodeUs": 13.04,
+              "decodeUs": 21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S04-multi-agent-decomposition",
+          "title": "Scenario 4: Multi-Agent Wave Decomposition Across Builders & Architect",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 730,
+            "inputTokens": 1189,
+            "totalMultiTurnTokens": 1919,
+            "wireBytes": 1539,
+            "gzipBytes": 873,
+            "encodeLatencyUs": 21.88,
+            "decodeLatencyUs": 56.79,
+            "totalCpuLatencyUs": 78.67,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.014517,
+              "balancedTierUsd": 0.005136,
+              "fastTierUsd": 0.001027,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s4-msg-01",
+              "wireBytes": 959,
+              "gzipBytes": 520,
+              "tokens": 459,
+              "encodeUs": 12.75,
+              "decodeUs": 35.75,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s4-msg-02",
+              "wireBytes": 580,
+              "gzipBytes": 353,
+              "tokens": 271,
+              "encodeUs": 9.13,
+              "decodeUs": 21.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S05-dependency-scheduling-negotiation",
+          "title": "Scenario 5: Cross-Lane Dependency & File Collision Negotiation",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 579,
+            "inputTokens": 960,
+            "totalMultiTurnTokens": 1539,
+            "wireBytes": 1331,
+            "gzipBytes": 866,
+            "encodeLatencyUs": 18.96,
+            "decodeLatencyUs": 52.33,
+            "totalCpuLatencyUs": 71.29,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.011565,
+              "balancedTierUsd": 0.004095,
+              "fastTierUsd": 0.000819,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s5-msg-01",
+              "wireBytes": 858,
+              "gzipBytes": 529,
+              "tokens": 381,
+              "encodeUs": 10.04,
+              "decodeUs": 32.83,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s5-msg-02",
+              "wireBytes": 473,
+              "gzipBytes": 337,
+              "tokens": 198,
+              "encodeUs": 8.92,
+              "decodeUs": 19.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S06-architect-decision-escalation",
+          "title": "Scenario 6: Architectural Escalation & Binding A-Gate Verdict",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 2,
+          "metrics": {
+            "outputTokens": 465,
+            "inputTokens": 788,
+            "totalMultiTurnTokens": 1253,
+            "wireBytes": 1131,
+            "gzipBytes": 785,
+            "encodeLatencyUs": 17.79,
+            "decodeLatencyUs": 47.5,
+            "totalCpuLatencyUs": 65.29,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.009339,
+              "balancedTierUsd": 0.00331,
+              "fastTierUsd": 0.000662,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s6-msg-01",
+              "wireBytes": 751,
+              "gzipBytes": 481,
+              "tokens": 323,
+              "encodeUs": 9.29,
+              "decodeUs": 32.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s6-msg-02",
+              "wireBytes": 380,
+              "gzipBytes": 304,
+              "tokens": 142,
+              "encodeUs": 8.5,
+              "decodeUs": 15,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S07-conflicting-shared-state-writes",
+          "title": "Scenario 7: Concurrent Shared-State Updates with Conflict Detection & Resolution",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 513,
+            "inputTokens": 1204,
+            "totalMultiTurnTokens": 1717,
+            "wireBytes": 1237,
+            "gzipBytes": 891,
+            "encodeLatencyUs": 24.71,
+            "decodeLatencyUs": 42.83,
+            "totalCpuLatencyUs": 67.54,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.011307,
+              "balancedTierUsd": 0.00407,
+              "fastTierUsd": 0.000814,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": {
+            "conflictDetectedDeterministically": false,
+            "conflictCode": "STATELESS_OVERWRITE",
+            "recoveredAfterRebase": true
+          },
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s7-msg-01",
+              "wireBytes": 656,
+              "gzipBytes": 411,
+              "tokens": 292,
+              "encodeUs": 8.96,
+              "decodeUs": 22.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-02",
+              "wireBytes": 270,
+              "gzipBytes": 228,
+              "tokens": 107,
+              "encodeUs": 8.67,
+              "decodeUs": 9.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s7-msg-03",
+              "wireBytes": 311,
+              "gzipBytes": 252,
+              "tokens": 114,
+              "encodeUs": 7.08,
+              "decodeUs": 10.42,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S08-long-running-30-exchanges",
+          "title": "Scenario 8: Long-Running 30-Exchange Sprint Coordination Conversation",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 30,
+          "metrics": {
+            "outputTokens": 6108,
+            "inputTokens": 97320,
+            "totalMultiTurnTokens": 103428,
+            "wireBytes": 15264,
+            "gzipBytes": 11176,
+            "encodeLatencyUs": 288.67,
+            "decodeLatencyUs": 565.5,
+            "totalCpuLatencyUs": 854.17,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.38358,
+              "balancedTierUsd": 0.15219,
+              "fastTierUsd": 0.030438,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s8-msg-01",
+              "wireBytes": 865,
+              "gzipBytes": 535,
+              "tokens": 380,
+              "encodeUs": 11.63,
+              "decodeUs": 31.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-02",
+              "wireBytes": 496,
+              "gzipBytes": 369,
+              "tokens": 198,
+              "encodeUs": 9.54,
+              "decodeUs": 18.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-03",
+              "wireBytes": 494,
+              "gzipBytes": 363,
+              "tokens": 197,
+              "encodeUs": 9.08,
+              "decodeUs": 17.63,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-04",
+              "wireBytes": 496,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.79,
+              "decodeUs": 17.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-05",
+              "wireBytes": 494,
+              "gzipBytes": 363,
+              "tokens": 197,
+              "encodeUs": 8.58,
+              "decodeUs": 17.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-06",
+              "wireBytes": 496,
+              "gzipBytes": 369,
+              "tokens": 198,
+              "encodeUs": 8.63,
+              "decodeUs": 17.33,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-07",
+              "wireBytes": 494,
+              "gzipBytes": 363,
+              "tokens": 197,
+              "encodeUs": 8.63,
+              "decodeUs": 17.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-08",
+              "wireBytes": 496,
+              "gzipBytes": 369,
+              "tokens": 198,
+              "encodeUs": 8.58,
+              "decodeUs": 17.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-09",
+              "wireBytes": 494,
+              "gzipBytes": 363,
+              "tokens": 197,
+              "encodeUs": 20.67,
+              "decodeUs": 25.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-10",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 13.17,
+              "decodeUs": 20.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-11",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 10.79,
+              "decodeUs": 18.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-12",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 10.33,
+              "decodeUs": 19,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-13",
+              "wireBytes": 496,
+              "gzipBytes": 365,
+              "tokens": 197,
+              "encodeUs": 9.75,
+              "decodeUs": 32.92,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-14",
+              "wireBytes": 498,
+              "gzipBytes": 371,
+              "tokens": 198,
+              "encodeUs": 9.63,
+              "decodeUs": 17.71,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-15",
+              "wireBytes": 496,
+              "gzipBytes": 363,
+              "tokens": 197,
+              "encodeUs": 9.42,
+              "decodeUs": 17.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-16",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 9.13,
+              "decodeUs": 17.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-17",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.92,
+              "decodeUs": 17.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-18",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.75,
+              "decodeUs": 17.46,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-19",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.75,
+              "decodeUs": 17.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-20",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.58,
+              "decodeUs": 17.29,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-21",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.5,
+              "decodeUs": 17.54,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-22",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.54,
+              "decodeUs": 17.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-23",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 11.04,
+              "decodeUs": 17.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-24",
+              "wireBytes": 498,
+              "gzipBytes": 371,
+              "tokens": 198,
+              "encodeUs": 8.42,
+              "decodeUs": 17.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-25",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.46,
+              "decodeUs": 17.08,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-26",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.46,
+              "decodeUs": 19.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-27",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.71,
+              "decodeUs": 17.13,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-28",
+              "wireBytes": 498,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.46,
+              "decodeUs": 17.38,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-29",
+              "wireBytes": 496,
+              "gzipBytes": 364,
+              "tokens": 197,
+              "encodeUs": 8.38,
+              "decodeUs": 17.04,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s8-msg-30",
+              "wireBytes": 499,
+              "gzipBytes": 370,
+              "tokens": 198,
+              "encodeUs": 8.38,
+              "decodeUs": 17.25,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S09-disconnect-missed-delta-recovery",
+          "title": "Scenario 9: Recovery After Disconnect, Restart, or Missed State Update",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 3,
+          "metrics": {
+            "outputTokens": 521,
+            "inputTokens": 1215,
+            "totalMultiTurnTokens": 1736,
+            "wireBytes": 1270,
+            "gzipBytes": 916,
+            "encodeLatencyUs": 27.46,
+            "decodeLatencyUs": 53.33,
+            "totalCpuLatencyUs": 80.79,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.01146,
+              "balancedTierUsd": 0.004124,
+              "fastTierUsd": 0.000825,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": {
+            "detectedMissedUpdate": false,
+            "errorCode": "SELF_CONTAINED_MESSAGE",
+            "recoveredFidelity": true
+          },
+          "adversarialReport": null,
+          "turnDetails": [
+            {
+              "messageId": "s9-msg-01",
+              "wireBytes": 655,
+              "gzipBytes": 413,
+              "tokens": 291,
+              "encodeUs": 11.42,
+              "decodeUs": 31.17,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-02",
+              "wireBytes": 295,
+              "gzipBytes": 245,
+              "tokens": 112,
+              "encodeUs": 8.25,
+              "decodeUs": 10.96,
+              "semanticScorePct": 100,
+              "mismatches": []
+            },
+            {
+              "messageId": "s9-msg-03",
+              "wireBytes": 320,
+              "gzipBytes": 258,
+              "tokens": 118,
+              "encodeUs": 7.79,
+              "decodeUs": 11.21,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        },
+        {
+          "scenarioId": "S10-adversarial-hallucination-scrutiny",
+          "title": "Scenario 10: Adversarial / Hallucinated Claims (\"Zero Hallucinations\" Scrutiny)",
+          "codecId": "typed-cmd-v1",
+          "messageCount": 1,
+          "metrics": {
+            "outputTokens": 339,
+            "inputTokens": 339,
+            "totalMultiTurnTokens": 678,
+            "wireBytes": 768,
+            "gzipBytes": 492,
+            "encodeLatencyUs": 10.79,
+            "decodeLatencyUs": 29.5,
+            "totalCpuLatencyUs": 40.29,
+            "estimatedCostUsd": {
+              "frontierTierUsd": 0.006102,
+              "balancedTierUsd": 0.002119,
+              "fastTierUsd": 0.000424,
+              "pricingBasis": "estimated-usd-per-1m-tokens (frontier: $3/$15, balanced: $1.25/$5, fast: $0.25/$1)"
+            },
+            "semanticPreservationPct": 100,
+            "constraintsLostCount": 0,
+            "humanAuditCoveragePct": 100
+          },
+          "conflictProbe": null,
+          "disconnectProbe": null,
+          "adversarialReport": {
+            "totalAdversarialCases": 5,
+            "caughtBySchemaAlone": 1,
+            "caughtByGroundedValidator": 5,
+            "cases": [
+              {
+                "id": "ADV-01-hallucinated-commit-sha",
+                "description": "Structurally valid message citing a fabricated git commit SHA (\"deadbeef9999\")",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Hallucinated or unknown commit SHA: \"deadbeef9999\" is not in authoritative git history"
+                ]
+              },
+              {
+                "id": "ADV-02-fabricated-test-pass",
+                "description": "Structurally valid message claiming \"15/15:999/999\" tests passed when runner recorded \"15/15:252/252\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Fabricated test evidence: claimed \"15/15:999/999\" but authoritative runner recorded \"15/15:252/252\""
+                ]
+              },
+              {
+                "id": "ADV-03-silent-constraint-drop",
+                "description": "Structurally valid message that silently drops the binding security constraint \"bind_host=127.0.0.1\"",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Lost required constraint: \"bind_host=127.0.0.1\""
+                ]
+              },
+              {
+                "id": "ADV-04-contradictory-pass-with-blocker",
+                "description": "Structurally valid review.findings claiming verdict=\"PASS\" while an open blocker finding is attached",
+                "schemaValidAlone": true,
+                "caughtBySchemaAlone": false,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [],
+                "groundingErrors": [
+                  "Contradictory semantic state: verdict is \"PASS\" while high/blocker findings remain open"
+                ]
+              },
+              {
+                "id": "ADV-05-structural-missing-sha-and-scope",
+                "description": "Structurally invalid review.request missing headRefOid and file scope",
+                "schemaValidAlone": false,
+                "caughtBySchemaAlone": true,
+                "caughtByGroundedValidator": true,
+                "structuralErrors": [
+                  "review.request requires valid hex \"headRefOid\" (7-40 hex chars)",
+                  "review.request requires non-empty \"scope\" array"
+                ],
+                "groundingErrors": []
+              }
+            ]
+          },
+          "turnDetails": [
+            {
+              "messageId": "s10-msg-valid-control",
+              "wireBytes": 768,
+              "gzipBytes": 492,
+              "tokens": 339,
+              "encodeUs": 10.79,
+              "decodeUs": 29.5,
+              "semanticScorePct": 100,
+              "mismatches": []
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

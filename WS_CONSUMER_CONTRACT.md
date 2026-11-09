@@ -122,13 +122,13 @@ The server responds with `200 OK`:
 }
 ```
 
-`GET /health` also includes the same `capabilities` array alongside its existing fields.
+`GET /health` also includes the same `gitSha`, `startedAt`, and `capabilities` fields alongside its existing fields.
 
-The WebSocket `registered` acknowledgement (sent immediately after a `register` frame) carries the same `version`, `gitSha`, and `capabilities` fields, so a reconnecting consumer always learns what it's talking to without a separate round trip.
+The WebSocket `registered` acknowledgement (sent immediately after a `register` frame) carries the same `version`, `gitSha`, `startedAt`, and `capabilities` fields, so a reconnecting consumer always learns what it's talking to without a separate round trip.
 
 ### Subscriber Update Notification (`hub.version_updated`)
 
-If the Hub restarts onto a newer commit/version than the one it last recorded, any workspace that registers over WebSocket after that restart receives an additional push notification:
+A Hub restart persists its `version`, `gitSha`, and `capabilities` to disk. On the next boot, if **any** of those three differ from what was persisted — a new release version, a new commit on an unchanged version, or a changed capability set — every workspace that registers over WebSocket after that restart receives an additional push notification:
 
 ```json
 {
@@ -136,12 +136,21 @@ If the Hub restarts onto a newer commit/version than the one it last recorded, a
   "version": "1.0.0-rc2",
   "gitSha": "9cc5b5e18a57f45525f6a68bdd3859ca4c0b61ac",
   "previousVersion": "1.0.0-rc",
+  "previousGitSha": "4d0edc67f6d705b1f4beaed80d0ab88ffaadf7e0",
   "capabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1", "version-manifest-v1", "experimental-codecs-v1"],
+  "previousCapabilities": ["durable-send-idempotency-v1", "iso8601-heartbeat-v1"],
+  "capabilityDelta": {
+    "added": ["version-manifest-v1", "experimental-codecs-v1"],
+    "removed": [],
+    "changed": []
+  },
   "timestamp": "2026-07-11T12:00:00.000Z"
 }
 ```
 
-This is sent once per registration following an upgrade, in addition to (not instead of) the normal `registered` ack, so subscribers that were disconnected across the restart still learn what changed. No frame is sent when the Hub restarts onto the same version it was already running.
+`capabilityDelta.changed` is always empty — capabilities are flat identifier strings with no associated value, so a capability is only ever added or removed, never "changed" in place.
+
+This is sent once per registration following an upgrade, in addition to (not instead of) the normal `registered` ack, so subscribers that were disconnected across the restart still learn what changed. No frame is sent when the Hub restarts with an unchanged version, gitSha, and capability set.
 
 ## Peek
 

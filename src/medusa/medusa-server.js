@@ -121,6 +121,8 @@ class MedusaServer {
 
     // Hub version/capability manifest state (Issue #70)
     this.previousKnownVersion = null;
+    this.previousKnownGitSha = null;
+    this.previousKnownCapabilities = null;
     this.pendingVersionTransition = null;
   }
 
@@ -604,6 +606,8 @@ class MedusaServer {
 
       this.spawnApprovalCount = parsed.spawnApprovalCount || 0;
       this.previousKnownVersion = typeof parsed.lastKnownVersion === 'string' ? parsed.lastKnownVersion : null;
+      this.previousKnownGitSha = typeof parsed.lastKnownGitSha === 'string' ? parsed.lastKnownGitSha : null;
+      this.previousKnownCapabilities = Array.isArray(parsed.lastKnownCapabilities) ? parsed.lastKnownCapabilities : null;
 
       if (parsed.offlineQueues && typeof parsed.offlineQueues === 'object') {
         for (const [workspaceId, messages] of Object.entries(parsed.offlineQueues)) {
@@ -648,7 +652,9 @@ class MedusaServer {
         spawnApprovalCount: this.spawnApprovalCount,
         offlineQueues: Object.fromEntries(this.offlineQueues),
         idempotencyRecords: Object.fromEntries(this.idempotencyRecords),
-        lastKnownVersion: MEDUSA_VERSION
+        lastKnownVersion: MEDUSA_VERSION,
+        lastKnownGitSha: MEDUSA_GIT_SHA,
+        lastKnownCapabilities: HUB_CAPABILITIES
       };
       
       await fs.mkdir(path.dirname(this.workspaceRegistryFile), { recursive: true });
@@ -686,30 +692,67 @@ class MedusaServer {
   }
 
   /**
-   * Compares the version persisted on a prior run (`this.previousKnownVersion`, loaded from the
-   * registry file) against the version this process is actually running, so a Hub restart onto
-   * a newer commit can be detected and announced to reconnecting subscribers (Issue #70).
-   * @returns {{ changed: boolean, previousVersion: string|null }}
+   * Compares the version, commit SHA, and capability manifest persisted on a prior run (loaded
+   * from the registry file into `this.previousKnown*`) against what this process is actually
+   * running, so a Hub restart onto a newer commit, version, or capability set can be detected and
+   * announced to reconnecting subscribers (Issue #70).
+   * @returns {{ changed: boolean, previousVersion: string|null, previousGitSha: string|null, previousCapabilities: string[]|null }}
    */
   detectVersionTransition() {
     const previousVersion = this.previousKnownVersion || null;
-    const changed = previousVersion !== null && previousVersion !== MEDUSA_VERSION;
-    return { changed, previousVersion };
+    const previousGitSha = this.previousKnownGitSha || null;
+    const previousCapabilities = this.previousKnownCapabilities || null;
+
+    const versionChanged = previousVersion !== null && previousVersion !== MEDUSA_VERSION;
+    const gitShaChanged = previousGitSha !== null && previousGitSha !== MEDUSA_GIT_SHA;
+    const capabilitiesChanged =
+      previousCapabilities !== null && JSON.stringify(previousCapabilities) !== JSON.stringify(HUB_CAPABILITIES);
+
+    return {
+      changed: versionChanged || gitShaChanged || capabilitiesChanged,
+      previousVersion,
+      previousGitSha,
+      previousCapabilities
+    };
+  }
+
+  /**
+   * Computes a capability-array delta between a previous and current capability manifest.
+   * Capabilities are flat identifier strings with no associated value, so there is no notion of
+   * one being "changed" independent of being added or removed; `changed` is always empty and
+   * exists only so the frame shape matches a general add/remove/change delta.
+   * @param {string[]|null} previousCapabilities - Capability list from a prior run, or `null` if unknown.
+   * @param {string[]} currentCapabilities - Capability list this process is running.
+   * @returns {{ added: string[], removed: string[], changed: string[] }}
+   */
+  static computeCapabilityDelta(previousCapabilities, currentCapabilities) {
+    const prev = new Set(Array.isArray(previousCapabilities) ? previousCapabilities : []);
+    const curr = new Set(Array.isArray(currentCapabilities) ? currentCapabilities : []);
+    return {
+      added: [...curr].filter((cap) => !prev.has(cap)),
+      removed: [...prev].filter((cap) => !curr.has(cap)),
+      changed: []
+    };
   }
 
   /**
    * Builds the `hub.version_updated` broadcast frame announcing the running Hub's version,
-   * commit SHA, and capability manifest.
-   * @param {string|null} [previousVersion=null] - The version this Hub upgraded from, if known.
-   * @returns {{ type: string, version: string, gitSha: string, previousVersion: string|null, capabilities: string[], timestamp: string }}
+   * commit SHA, and capability manifest, including the capability delta versus whatever manifest
+   * was previously known.
+   * @param {{ previousVersion?: string|null, previousGitSha?: string|null, previousCapabilities?: string[]|null }} [previous={}] - What this Hub is transitioning from.
+   * @returns {{ type: string, version: string, gitSha: string, previousVersion: string|null, previousGitSha: string|null, capabilities: string[], previousCapabilities: string[]|null, capabilityDelta: { added: string[], removed: string[], changed: string[] }, timestamp: string }}
    */
-  buildVersionUpdatedFrame(previousVersion = null) {
+  buildVersionUpdatedFrame(previous = {}) {
+    const { previousVersion = null, previousGitSha = null, previousCapabilities = null } = previous;
     return {
       type: 'hub.version_updated',
       version: MEDUSA_VERSION,
       gitSha: MEDUSA_GIT_SHA,
       previousVersion,
+      previousGitSha,
       capabilities: HUB_CAPABILITIES,
+      previousCapabilities,
+      capabilityDelta: MedusaServer.computeCapabilityDelta(previousCapabilities, HUB_CAPABILITIES),
       timestamp: new Date().toISOString()
     };
   }
@@ -890,6 +933,8 @@ class MedusaServer {
             status: 'hissing',
             protocol: 'Medusa-A2A Bridge',
             version: MEDUSA_VERSION,
+            gitSha: MEDUSA_GIT_SHA,
+            startedAt: this.serverMetadata.startedAt,
             capabilities: HUB_CAPABILITIES,
             workspaces: Array.isArray(peers.data) ? peers.data.length : 0,
             messages: Array.isArray(messages.data) ? messages.data.length : 0,
@@ -2527,6 +2572,7 @@ class MedusaServer {
               connectionId,
               version: MEDUSA_VERSION,
               gitSha: MEDUSA_GIT_SHA,
+              startedAt: this.serverMetadata.startedAt,
               capabilities: HUB_CAPABILITIES,
               message: 'WebSocket connection established for real-time messaging'
             }));
@@ -2835,10 +2881,13 @@ class MedusaServer {
       // already-connected subscribers; reconnecting subscribers are notified on registration
       // below (Issue #70).
       const versionTransition = this.detectVersionTransition();
-      this.pendingVersionTransition = versionTransition.changed ? versionTransition.previousVersion : null;
+      this.pendingVersionTransition = versionTransition.changed ? versionTransition : null;
       if (versionTransition.changed) {
-        this.log(`🆙 Hub version transition detected: ${versionTransition.previousVersion} -> ${MEDUSA_VERSION}`);
-        this.broadcastToAllClients(this.buildVersionUpdatedFrame(versionTransition.previousVersion));
+        this.log(
+          `🆙 Hub version transition detected: ${versionTransition.previousVersion} -> ${MEDUSA_VERSION} ` +
+          `(gitSha ${versionTransition.previousGitSha} -> ${MEDUSA_GIT_SHA})`
+        );
+        this.broadcastToAllClients(this.buildVersionUpdatedFrame(versionTransition));
       }
 
       this.webServer = this.createWebServer();

@@ -2629,4 +2629,268 @@ describe('MedusaServer', () => {
       expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
     });
   });
+
+  describe('Opt-in Experimental Codec Negotiation (Issue #76)', () => {
+    let wsUrl;
+    const packageJson = require('../../package.json');
+
+    const doRequest = (method, pathname, body = null, headers = {}) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        if (body !== null && body !== undefined) {
+          req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
+    };
+
+    const doGet = (pathname) => doRequest('GET', pathname);
+
+    beforeEach(async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+      server.workspaceRegistry.set('codec-target', {
+        id: 'codec-target',
+        name: 'CodecTarget',
+        path: '/projects/codec',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    test('createHubCodecRegistry() / this.codecRegistry exposes all 9 experimental codecs', () => {
+      const ids = server.codecRegistry.listCapabilities().map((c) => c.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          'nl-baseline-v1', 'compact-json-v1', 'graph-v1', 'graph-delta-v1', 'typed-cmd-v1',
+          'tuple-table-v1', 'dict-intern-v1', 'json-patch-v1', 'blackboard-ref-v1'
+        ])
+      );
+      expect(ids).toHaveLength(9);
+    });
+
+    test('GET /version, GET /health, and the WS "registered" ack all expose supportedCodecs and experimental-codec-envelope-v1', async () => {
+      const versionRes = await doGet('/version');
+      expect(versionRes.data.supportedCodecs).toEqual(expect.arrayContaining(['json-patch-v1', 'blackboard-ref-v1']));
+      expect(versionRes.data.capabilities).toContain('experimental-codec-envelope-v1');
+
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, data: [] });
+      const healthRes = await doGet('/health');
+      expect(healthRes.data.supportedCodecs).toEqual(expect.arrayContaining(['tuple-table-v1', 'dict-intern-v1']));
+
+      const ws = createWebSocket(wsUrl);
+      const registered = await new Promise((resolve, reject) => {
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'register', workspaceId: 'codec-ws' })));
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'registered') resolve(msg);
+        });
+        ws.on('error', reject);
+      });
+      expect(registered.supportedCodecs).toEqual(expect.arrayContaining(['nl-baseline-v1', 'json-patch-v1']));
+    });
+
+    test('accepts a pre-encoded codecEnvelope (compact-json-v1) and delivers it with the stored message', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign',
+        from: 'sender-ws',
+        to: 'codec-target',
+        summary: 'Opt-in codec test'
+      }).envelope;
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.success).toBe(true);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued).toHaveLength(1);
+      expect(queued[0].codec).toBe('compact-json-v1');
+      expect(queued[0].codecEnvelope).toEqual(envelope);
+      // Legacy/human fallback: message omitted by the caller, so the Hub uses humanAuditText.
+      expect(queued[0].message).toBe(envelope.humanAuditText);
+    });
+
+    test('accepts { codec, canonicalMessage } and encodes it server-side via this.codecRegistry', async () => {
+      const canonicalMessage = { kind: 'task.ack', from: 'sender-ws', to: 'codec-target', status: 'working' };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'json-patch-v1',
+        canonicalMessage
+      });
+
+      expect(res.status).toBe(200);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued[0].codec).toBe('json-patch-v1');
+      expect(queued[0].codecEnvelope).toBeDefined();
+      expect(queued[0].codecEnvelope.codec).toBe('json-patch-v1');
+      expect(queued[0].message).toBe(queued[0].codecEnvelope.humanAuditText);
+    });
+
+    test('rejects an unknown codec id with 400 UNSUPPORTED_CODEC (both codecEnvelope and {codec, canonicalMessage} forms)', async () => {
+      const viaEnvelope = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'nonexistent-codec-v9', wireText: '{}', humanAuditText: 'x' }
+      });
+      expect(viaEnvelope.status).toBe(400);
+      expect(viaEnvelope.data.code).toBe('UNSUPPORTED_CODEC');
+
+      const viaCanonical = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nonexistent-codec-v9',
+        canonicalMessage: { kind: 'task.ack' }
+      });
+      expect(viaCanonical.status).toBe(400);
+      expect(viaCanonical.data.code).toBe('UNSUPPORTED_CODEC');
+    });
+
+    test('rejects a malformed codecEnvelope with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const missingWireText = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', humanAuditText: 'x' }
+      });
+      expect(missingWireText.status).toBe(400);
+      expect(missingWireText.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const missingHumanAuditText = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', wireText: '{"a":1}' }
+      });
+      expect(missingHumanAuditText.status).toBe(400);
+      expect(missingHumanAuditText.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const undecodable = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', wireText: 'not valid json at all', humanAuditText: 'x' }
+      });
+      expect(undecodable.status).toBe(400);
+      expect(undecodable.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('only structurally validates (does not require decode) a stateful codec envelope like json-patch-v1', async () => {
+      const envelope = server.codecRegistry.encode('json-patch-v1', { kind: 'state.update', status: 'working' }, {}).envelope;
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope
+      });
+
+      expect(res.status).toBe(200);
+      expect(server.offlineQueues.get('codec-target')[0].codec).toBe('json-patch-v1');
+    });
+
+    test('maintains #67 idempotency parity: replaying the same idempotencyKey with the same codecEnvelope returns 200 replayed:true', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', { kind: 'task.assign', summary: 'x' }).envelope;
+      const payload = {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope,
+        idempotencyKey: 'codec-replay-key-1'
+      };
+
+      const first = await doRequest('POST', '/messages/direct', payload);
+      expect(first.status).toBe(200);
+      expect(first.data.replayed).toBe(false);
+
+      const replay = await doRequest('POST', '/messages/direct', payload);
+      expect(replay.status).toBe(200);
+      expect(replay.data.replayed).toBe(true);
+      expect(replay.data.id).toBe(first.data.id);
+      expect(server.offlineQueues.get('codec-target')).toHaveLength(1);
+    });
+
+    test('maintains #67 idempotency parity: replaying the same idempotencyKey with a DIFFERENT codecEnvelope returns 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      const envelopeA = server.codecRegistry.encode('compact-json-v1', { kind: 'task.assign', summary: 'A' }).envelope;
+      const envelopeB = server.codecRegistry.encode('compact-json-v1', { kind: 'task.assign', summary: 'B' }).envelope;
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelopeA,
+        idempotencyKey: 'codec-conflict-key-1'
+      });
+      expect(first.status).toBe(200);
+
+      const conflict = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelopeB,
+        idempotencyKey: 'codec-conflict-key-1'
+      });
+      expect(conflict.status).toBe(409);
+      expect(conflict.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+    });
+
+    test('maintains #67 idempotency parity: replaying with a different codec id (same canonicalMessage) returns 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      const canonicalMessage = { kind: 'task.ack', status: 'working' };
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage,
+        idempotencyKey: 'codec-conflict-key-2'
+      });
+      expect(first.status).toBe(200);
+
+      const conflict = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nl-baseline-v1',
+        canonicalMessage,
+        idempotencyKey: 'codec-conflict-key-2'
+      });
+      expect(conflict.status).toBe(409);
+      expect(conflict.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+    });
+
+    test('a legacy plain-message request (no codec fields) is unaffected and still works', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        message: 'Plain legacy message, no codec involved'
+      });
+      expect(res.status).toBe(200);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued[0].message).toBe('Plain legacy message, no codec involved');
+      expect(queued[0].codec).toBeUndefined();
+      expect(queued[0].codecEnvelope).toBeUndefined();
+    });
+  });
 });

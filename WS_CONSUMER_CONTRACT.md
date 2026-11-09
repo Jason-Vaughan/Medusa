@@ -95,6 +95,37 @@ The server responds with `200 OK` (or `404` with `code: "RECEIPT_NOT_FOUND"` if 
 
 If using `MedusaClient.js`, callers can pass `{ idempotencyKey }` to `sendMessage` and query receipts via `getMessageReceipt(idempotencyKey)`.
 
+## Opt-in Experimental Codec Negotiation
+
+`POST /messages/direct` can carry an **opt-in** encoded payload instead of (or alongside) a plain-text `message`, using any of the 9 experimental communication codecs benchmarked under `Medusa#71` (`nl-baseline-v1`, `compact-json-v1`, `graph-v1`, `graph-delta-v1`, `typed-cmd-v1`, `tuple-table-v1`, `dict-intern-v1`, `json-patch-v1`, `blackboard-ref-v1`). Default production behavior (a plain `message` string, no `codec`/`codecEnvelope`/`canonicalMessage`) is unchanged.
+
+Two ways to send an encoded payload:
+
+1. **Pre-encoded `codecEnvelope`** — encode client-side (e.g. via `MedusaClient.encodeWithCodec(codecId, canonicalMessage)`) and send the envelope as-is:
+   ```json
+   {
+     "from": "sender-workspace",
+     "to": "your-workspace-name",
+     "codecEnvelope": { "codec": "compact-json-v1", "schemaVersion": "1.0.0", "payload": {}, "wireText": "...", "humanAuditText": "[task.assign] sender -> you", "metadata": {} }
+   }
+   ```
+2. **`codec` + `canonicalMessage`** — let the Hub encode it server-side:
+   ```json
+   {
+     "from": "sender-workspace",
+     "to": "your-workspace-name",
+     "codec": "json-patch-v1",
+     "canonicalMessage": { "kind": "task.ack", "status": "working" }
+   }
+   ```
+
+`message` may be omitted or empty in either form — the Hub falls back to the codec envelope's own `humanAuditText` so legacy clients that only read `message` still see something sensible.
+
+- **Validation**: the Hub checks that `codecEnvelope.codec` names a codec registered in its `CodecRegistry`, and that `wireText`/`humanAuditText` are non-empty strings. For codecs that don't require persistent shared state (self-contained, stateless codecs), it also decodes the envelope. An unknown codec id is refused with `400` `{ "code": "UNSUPPORTED_CODEC" }`; a malformed envelope with `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`.
+- **Delivery**: the stored and delivered message (HTTP offline queue and the WS `new_message` frame) carries `codec` and the full `codecEnvelope` alongside `message`.
+- **Idempotency parity (`Medusa#67`)**: replaying the same `idempotencyKey` with the identical recipient, `message`, `codec`, `codecEnvelope`, and `canonicalMessage` returns the original receipt (`200`, `replayed: true`); any difference in the codec payload is a `409 Conflict` `IDEMPOTENCY_KEY_CONFLICT`, exactly like a differing plain `message`.
+- **Capability discovery**: `GET /version`, `GET /health`, and the WS `registered` ack all carry `supportedCodecs` (the list of registered codec ids) and `"experimental-codec-envelope-v1"` in `capabilities`.
+
 ## Heartbeats
 
 To keep the connection alive and advertise autonomous mode status, clients should periodically send a `listener_heartbeat`:

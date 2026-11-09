@@ -112,4 +112,53 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(serverContent).toMatch(/computeCapabilityDelta/);
     expect(serverContent).toMatch(/capabilityDelta: MedusaServer\.computeCapabilityDelta/);
   });
+
+  test('Document and Server implement opt-in codecEnvelope / canonicalMessage negotiation on POST /messages/direct (Issue #76)', () => {
+    expect(docContent).toMatch(/"codecEnvelope":/);
+    expect(docContent).toMatch(/"canonicalMessage":/);
+    expect(serverContent).toMatch(/validateCodecEnvelope/);
+    expect(serverContent).toMatch(/data\.codecEnvelope/);
+    expect(serverContent).toMatch(/data\.canonicalMessage/);
+  });
+
+  test('Document and Server agree on UNSUPPORTED_CODEC and INVALID_CODEC_ENVELOPE rejection (Issue #76)', () => {
+    expect(docContent).toMatch(/UNSUPPORTED_CODEC/);
+    expect(docContent).toMatch(/INVALID_CODEC_ENVELOPE/);
+    expect(serverContent).toMatch(/code: 'UNSUPPORTED_CODEC'/);
+    expect(serverContent).toMatch(/code: 'INVALID_CODEC_ENVELOPE'/);
+  });
+
+  test('Document and Server agree that humanAuditText is the message fallback for a codec-only send (Issue #76)', () => {
+    expect(docContent).toMatch(/humanAuditText/);
+    expect(serverContent).toMatch(/data\.message = data\.codecEnvelope\.humanAuditText/);
+  });
+
+  test('Document and Server agree that supportedCodecs and experimental-codec-envelope-v1 are advertised (Issue #76)', () => {
+    expect(docContent).toMatch(/supportedCodecs/);
+    expect(docContent).toMatch(/experimental-codec-envelope-v1/);
+    expect(serverContent).toMatch(/supportedCodecs: this\.codecRegistry\.listCapabilities/);
+    expect(serverContent).toMatch(/'experimental-codec-envelope-v1'/);
+  });
+
+  test('Server exposes all 9 experimental codecs via createHubCodecRegistry() without modifying CodecRegistry.js (Issue #76)', () => {
+    expect(serverContent).toMatch(/function createHubCodecRegistry/);
+    expect(serverContent).toMatch(/TupleTableCodec/);
+    expect(serverContent).toMatch(/DictionaryInternCodec/);
+    expect(serverContent).toMatch(/JsonPatchDeltaCodec/);
+    expect(serverContent).toMatch(/BlackboardRefCodec/);
+
+    const codecRegistryPath = path.join(__dirname, 'experiments/codecs/CodecRegistry.js');
+    const codecRegistryContent = fs.readFileSync(codecRegistryPath, 'utf8');
+    expect(codecRegistryContent).not.toMatch(/TupleTableCodec/);
+    expect(codecRegistryContent).not.toMatch(/DictionaryInternCodec/);
+  });
+
+  test('MedusaClient implements encodeWithCodec and forwards codec/codecEnvelope/canonicalMessage (Issue #76)', () => {
+    const clientMethods = Object.getOwnPropertyNames(MedusaClient.prototype);
+    expect(clientMethods).toContain('encodeWithCodec');
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).toMatch(/metadata\.codecEnvelope/);
+    expect(clientContent).toMatch(/metadata\.canonicalMessage/);
+  });
 });

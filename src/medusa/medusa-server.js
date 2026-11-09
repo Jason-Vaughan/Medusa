@@ -49,8 +49,34 @@ const HUB_CAPABILITIES = [
   'durable-send-idempotency-v1',
   'iso8601-heartbeat-v1',
   'version-manifest-v1',
-  'experimental-codecs-v1'
+  'experimental-codecs-v1',
+  'experimental-codec-envelope-v1'
 ];
+
+/**
+ * Builds a `CodecRegistry` pre-loaded with all 9 experimental communication codecs — the 5
+ * registered by `CodecRegistry`'s own default constructor, plus `TupleTableCodec`,
+ * `DictionaryInternCodec`, `JsonPatchDeltaCodec`, and `BlackboardRefCodec` — without modifying
+ * `CodecRegistry.js` itself, so the opt-in Hub codec envelope (Issue #76) can offer every
+ * benchmarked codec immediately.
+ * @returns {import('./experiments/codecs/CodecRegistry').CodecRegistry}
+ */
+function createHubCodecRegistry() {
+  const { CodecRegistry } = require('./experiments/codecs/CodecRegistry');
+  const { TupleTableCodec } = require('./experiments/codecs/TupleTableCodec');
+  const { DictionaryInternCodec } = require('./experiments/codecs/DictionaryInternCodec');
+  const { JsonPatchDeltaCodec } = require('./experiments/codecs/JsonPatchDeltaCodec');
+  const { BlackboardRefCodec } = require('./experiments/codecs/BlackboardRefCodec');
+
+  const registry = new CodecRegistry();
+  const extraCodecs = [new TupleTableCodec(), new DictionaryInternCodec(), new JsonPatchDeltaCodec(), new BlackboardRefCodec()];
+  for (const codec of extraCodecs) {
+    if (!registry.get(codec.capabilities().id)) {
+      registry.register(codec);
+    }
+  }
+  return registry;
+}
 
 // Medusa Event Bus for real-time coordination
 class MedusaEventBus extends EventEmitter {
@@ -124,6 +150,9 @@ class MedusaServer {
     this.previousKnownGitSha = null;
     this.previousKnownCapabilities = null;
     this.pendingVersionTransition = null;
+
+    // Opt-in experimental codec negotiation (Issue #76)
+    this.codecRegistry = createHubCodecRegistry();
   }
 
   /**
@@ -805,13 +834,19 @@ class MedusaServer {
   }
 
   /**
-   * Checks whether a send request matches the recipient and payload of an existing idempotency record.
+   * Checks whether a send request matches the recipient and payload of an existing idempotency
+   * record. `message` may be omitted when `codecEnvelope` or `canonicalMessage` was supplied
+   * instead (Issue #76), so payload equality compares `message`, `codec`, `codecEnvelope`, and
+   * `canonicalMessage` together rather than requiring `message` alone.
    * @param {object} record - Stored idempotency record
    * @param {object} data - Incoming direct message request body
-   * @returns {boolean} True when recipient, sender (if provided), and payload are identical
+   * @returns {boolean} True when recipient, sender (if provided), and full payload are identical
    */
   matchesIdempotencyRecord(record, data = {}) {
-    if (!record || !data || typeof data.to !== 'string' || typeof data.message !== 'string') {
+    const normalizeString = (value) => (typeof value === 'string' ? value : null);
+    const hasPayload = typeof data.message === 'string' || Boolean(data.codecEnvelope) || Boolean(data.canonicalMessage);
+
+    if (!record || !data || typeof data.to !== 'string' || !hasPayload) {
       return false;
     }
 
@@ -827,9 +862,22 @@ class MedusaServer {
       : (data.to === record.targetId || (record.to && data.to.toLowerCase() === String(record.to).toLowerCase()));
 
     const senderMatches = (data.from || null) === (record.from || null);
-    const payloadMatches = data.message === record.message;
+    const messageMatches = normalizeString(data.message) === normalizeString(record.message);
+    const dataCodec = data.codec || (data.codecEnvelope && data.codecEnvelope.codec) || null;
+    const codecMatches = dataCodec === (record.codec || null);
+    const codecEnvelopeMatches = JSON.stringify(data.codecEnvelope || null) === JSON.stringify(record.codecEnvelope || null);
+    const canonicalMessageMatches =
+      JSON.stringify(data.canonicalMessage !== undefined ? data.canonicalMessage : null) ===
+      JSON.stringify(record.canonicalMessage !== undefined ? record.canonicalMessage : null);
 
-    return Boolean(recipientMatches && senderMatches && payloadMatches);
+    return Boolean(
+      recipientMatches &&
+      senderMatches &&
+      messageMatches &&
+      codecMatches &&
+      codecEnvelopeMatches &&
+      canonicalMessageMatches
+    );
   }
 
   /**
@@ -868,6 +916,47 @@ class MedusaServer {
       deliveredAt: record.deliveredAt || null,
       ackedAt: record.ackedAt || null
     };
+  }
+
+  /**
+   * Validates a caller-supplied `codecEnvelope` for `POST /messages/direct` (Issue #76):
+   * confirms `codecEnvelope.codec` names a codec registered in `this.codecRegistry`, that
+   * `wireText` and `humanAuditText` are non-empty strings, and — for codecs that don't require
+   * persistent shared state, where a Hub-side decode is self-contained and meaningful — that the
+   * envelope actually decodes. Stateful codecs (`requiresSharedState: true`) are only checked
+   * structurally, since the Hub holds no persistent sender/receiver store for them.
+   * @param {*} codecEnvelope - Caller-supplied codec envelope.
+   * @returns {{ ok: boolean, code?: string, error?: string }}
+   */
+  validateCodecEnvelope(codecEnvelope) {
+    if (!codecEnvelope || typeof codecEnvelope !== 'object') {
+      return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope must be an object' };
+    }
+
+    const codec = this.codecRegistry.get(codecEnvelope.codec);
+    if (!codec) {
+      return { ok: false, code: 'UNSUPPORTED_CODEC', error: `Unknown or unsupported codec ID: "${codecEnvelope.codec}"` };
+    }
+
+    if (typeof codecEnvelope.wireText !== 'string' || codecEnvelope.wireText.length === 0) {
+      return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope.wireText must be a non-empty string' };
+    }
+    if (typeof codecEnvelope.humanAuditText !== 'string' || codecEnvelope.humanAuditText.length === 0) {
+      return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope.humanAuditText must be a non-empty string' };
+    }
+
+    if (!codec.capabilities().requiresSharedState) {
+      const decoded = codec.decode(codecEnvelope, {});
+      if (!decoded.ok) {
+        return {
+          ok: false,
+          code: 'INVALID_CODEC_ENVELOPE',
+          error: `codecEnvelope failed to decode: ${(decoded.errors || []).join('; ') || 'unknown decode error'}`
+        };
+      }
+    }
+
+    return { ok: true };
   }
 
   /**
@@ -936,6 +1025,7 @@ class MedusaServer {
             gitSha: MEDUSA_GIT_SHA,
             startedAt: this.serverMetadata.startedAt,
             capabilities: HUB_CAPABILITIES,
+            supportedCodecs: this.codecRegistry.listCapabilities().map((cap) => cap.id),
             workspaces: Array.isArray(peers.data) ? peers.data.length : 0,
             messages: Array.isArray(messages.data) ? messages.data.length : 0,
             uptime: process.uptime(),
@@ -957,7 +1047,8 @@ class MedusaServer {
           version: MEDUSA_VERSION,
           gitSha: MEDUSA_GIT_SHA,
           startedAt: this.serverMetadata.startedAt,
-          capabilities: HUB_CAPABILITIES
+          capabilities: HUB_CAPABILITIES,
+          supportedCodecs: this.codecRegistry.listCapabilities().map((cap) => cap.id)
         }));
         return;
       }
@@ -1256,6 +1347,35 @@ class MedusaServer {
             return;
           }
 
+          // Opt-in experimental codec negotiation (Issue #76): accept either a caller-supplied
+          // codecEnvelope, or a { codec, canonicalMessage } pair the Hub encodes on the caller's
+          // behalf. Resolved BEFORE any idempotency replay check so replay matching compares the
+          // same normalized shape every time.
+          if (data.codecEnvelope !== undefined && data.codecEnvelope !== null) {
+            const validation = this.validateCodecEnvelope(data.codecEnvelope);
+            if (!validation.ok) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: validation.error, code: validation.code }));
+              return;
+            }
+          } else if (data.codec && data.canonicalMessage !== undefined) {
+            const encResult = this.codecRegistry.encode(data.codec, data.canonicalMessage, {});
+            if (!encResult.ok) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: encResult.error, code: encResult.code }));
+              return;
+            }
+            data.codecEnvelope = encResult.envelope;
+          }
+
+          if (data.codecEnvelope && (typeof data.message !== 'string' || data.message.length === 0)) {
+            // Legacy clients and older messages always carry a human-readable `message`; fall
+            // back to the codec's own audit text so they still see something sensible.
+            data.message = data.codecEnvelope.humanAuditText;
+          }
+
           if (idempotencyKey && this.pendingIdempotencySaves.has(idempotencyKey)) {
             const pending = this.pendingIdempotencySaves.get(idempotencyKey);
             if (!this.matchesIdempotencyRecord(pending.record, data)) {
@@ -1341,10 +1461,14 @@ class MedusaServer {
             message: data.message,
             timestamp: timestamp
           };
+          if (data.codecEnvelope) {
+            msgPayload.codec = data.codecEnvelope.codec;
+            msgPayload.codecEnvelope = data.codecEnvelope;
+          }
           if (idempotencyKey) {
             msgPayload.idempotencyKey = idempotencyKey;
           }
-          
+
           // Always queue in offlineQueues (durable inbox) until explicitly ACK'd
           const hadQueue = this.offlineQueues.has(targetId);
           if (!hadQueue) {
@@ -1362,6 +1486,9 @@ class MedusaServer {
               to: data.to,
               targetId,
               message: data.message,
+              codec: data.codecEnvelope ? data.codecEnvelope.codec : null,
+              codecEnvelope: data.codecEnvelope || null,
+              canonicalMessage: data.canonicalMessage !== undefined ? data.canonicalMessage : null,
               status: isOnline ? 'received' : 'queued',
               delivered: false,
               acked: false,
@@ -2574,6 +2701,7 @@ class MedusaServer {
               gitSha: MEDUSA_GIT_SHA,
               startedAt: this.serverMetadata.startedAt,
               capabilities: HUB_CAPABILITIES,
+              supportedCodecs: this.codecRegistry.listCapabilities().map((cap) => cap.id),
               message: 'WebSocket connection established for real-time messaging'
             }));
 

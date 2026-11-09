@@ -11,11 +11,16 @@ const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const WebSocket = require('ws');
+const { CodecRegistry } = require('../experiments/codecs/CodecRegistry');
+const { TupleTableCodec } = require('../experiments/codecs/TupleTableCodec');
+const { DictionaryInternCodec } = require('../experiments/codecs/DictionaryInternCodec');
+const { JsonPatchDeltaCodec } = require('../experiments/codecs/JsonPatchDeltaCodec');
+const { BlackboardRefCodec } = require('../experiments/codecs/BlackboardRefCodec');
 
 class MedusaClient extends EventEmitter {
   constructor(options = {}) {
     super();
-    
+
     this.serverUrl = options.serverUrl || 'http://localhost:3009';
     this.wsUrl = options.wsUrl || 'ws://localhost:3010';
     this.workspaceId = null;
@@ -29,11 +34,30 @@ class MedusaClient extends EventEmitter {
     this.processedMessages = null;
     this.lastPong = null;
     this.heartbeatInterval = null;
-    
+    this.codecRegistry = MedusaClient.buildCodecRegistry();
+
     // Create workspace-specific config file path
     const workspaceKey = options.workspaceKey || process.cwd();
     const configName = `medusa-config-${Buffer.from(workspaceKey).toString('base64').replace(/[^a-zA-Z0-9]/g, '')}.json`;
     this.configFile = path.join(os.homedir(), '.medusa', configName);
+  }
+
+  /**
+   * Builds a `CodecRegistry` pre-loaded with all 9 experimental communication codecs — the 5
+   * `CodecRegistry` default codecs plus `TupleTableCodec`, `DictionaryInternCodec`,
+   * `JsonPatchDeltaCodec`, and `BlackboardRefCodec` — mirroring the Hub's own registry so
+   * `encodeWithCodec` can produce a `codecEnvelope` the Hub will accept (Issue #76).
+   * @returns {CodecRegistry}
+   */
+  static buildCodecRegistry() {
+    const registry = new CodecRegistry();
+    const extraCodecs = [new TupleTableCodec(), new DictionaryInternCodec(), new JsonPatchDeltaCodec(), new BlackboardRefCodec()];
+    for (const codec of extraCodecs) {
+      if (!registry.get(codec.capabilities().id)) {
+        registry.register(codec);
+      }
+    }
+    return registry;
   }
   
   /**
@@ -236,15 +260,19 @@ class MedusaClient extends EventEmitter {
   /**
    * Send a direct message to another workspace
    * @param {string} targetWorkspace - Target workspace ID or name
-   * @param {string} message - Message content
-   * @param {object} [metadata={}] - Optional metadata or options (may include idempotencyKey)
+   * @param {string} [message] - Message content; may be omitted/empty when `metadata.codecEnvelope`
+   *   or `metadata.canonicalMessage` is supplied, in which case the Hub falls back to the codec's
+   *   own human-readable audit text (Issue #76).
+   * @param {object} [metadata={}] - Optional metadata or options. May include `idempotencyKey`,
+   *   `codec` (a registered codec id), `codecEnvelope` (pre-encoded, e.g. from `encodeWithCodec`),
+   *   and/or `canonicalMessage` (raw message for the Hub to encode server-side with `codec`).
    * @returns {Promise<object>} Server response including message id and optional receipt
    */
   async sendMessage(targetWorkspace, message, metadata = {}) {
     if (!this.workspaceId) {
       throw new Error('Workspace not registered! Run "medusa register" first.');
     }
-    
+
     try {
       const payload = {
         from: this.workspaceId,
@@ -254,6 +282,15 @@ class MedusaClient extends EventEmitter {
       };
       if (metadata && typeof metadata.idempotencyKey === 'string') {
         payload.idempotencyKey = metadata.idempotencyKey;
+      }
+      if (metadata && metadata.codec !== undefined) {
+        payload.codec = metadata.codec;
+      }
+      if (metadata && metadata.codecEnvelope !== undefined) {
+        payload.codecEnvelope = metadata.codecEnvelope;
+      }
+      if (metadata && metadata.canonicalMessage !== undefined) {
+        payload.canonicalMessage = metadata.canonicalMessage;
       }
 
       const response = await this.request('POST', '/messages/direct', payload);
@@ -287,7 +324,26 @@ class MedusaClient extends EventEmitter {
     }
     return this.request('GET', `/messages/receipts/${encodeURIComponent(idempotencyKey.trim())}`);
   }
-  
+
+  /**
+   * Encodes a canonical message with a registered experimental codec, producing a
+   * `codecEnvelope` ready to pass as `metadata.codecEnvelope` to `sendMessage` (Issue #76's
+   * opt-in codec negotiation).
+   * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
+   * @param {object} canonicalMessage - Canonical semantic message to encode.
+   * @param {object} [context={}] - Optional codec-specific encoding context (e.g. a shared store
+   *   for stateful codecs); omitted for a fresh, stateless encode.
+   * @returns {{ codec: string, schemaVersion: string, payload: *, wireText: string, humanAuditText: string, metadata: object }}
+   * @throws {Error} When `codecId` is not registered or encoding fails.
+   */
+  encodeWithCodec(codecId, canonicalMessage, context = {}) {
+    const result = this.codecRegistry.encode(codecId, canonicalMessage, context);
+    if (!result.ok) {
+      throw new Error(result.error || `Failed to encode message with codec "${codecId}"`);
+    }
+    return result.envelope;
+  }
+
   /**
    * Broadcast a message to all workspaces
    */

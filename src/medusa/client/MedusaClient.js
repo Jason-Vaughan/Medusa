@@ -59,7 +59,29 @@ class MedusaClient extends EventEmitter {
     }
     return registry;
   }
-  
+
+  /**
+   * Binds a stateful codec store/register/table to the recipient (`canonicalMessage.to`) it was
+   * first used for, and throws if it is later reused for a DIFFERENT recipient. A stateful
+   * codec's evolving state is only ever meant to be shared between one sender and one specific
+   * recipient; reusing the same context across recipients would leak one recipient's message
+   * content into the `metadata` snapshot of an envelope addressed to a different recipient
+   * (Issue #76 R-Gate Round 4).
+   * @param {object} store - The stateful store/register/table instance to bind.
+   * @param {object} canonicalMessage - The message about to be encoded against `store`.
+   * @throws {Error} With a `CROSS_RECIPIENT_CONTEXT_REUSE:`-prefixed message on a recipient mismatch.
+   */
+  static bindStoreToRecipient(store, canonicalMessage) {
+    const recipient = canonicalMessage && canonicalMessage.to;
+    if (store._boundRecipient === undefined) {
+      store._boundRecipient = recipient;
+    } else if (store._boundRecipient !== recipient) {
+      throw new Error(
+        `CROSS_RECIPIENT_CONTEXT_REUSE: Stateful codec context is bound to recipient "${store._boundRecipient}" and cannot be reused for "${recipient}"`
+      );
+    }
+  }
+
   /**
    * Make HTTP request to Medusa server
    */
@@ -353,10 +375,14 @@ class MedusaClient extends EventEmitter {
       capturedStore = new BlackboardStore();
       effectiveContext = { ...context, store: capturedStore };
     }
+    if (capturedStore) {
+      MedusaClient.bindStoreToRecipient(capturedStore, canonicalMessage);
+    }
 
     let patchBaseSnapshot = null;
     if (codecId === 'json-patch-v1') {
       const senderStore = context.senderStore instanceof FlatStateRegister ? context.senderStore : new FlatStateRegister();
+      MedusaClient.bindStoreToRecipient(senderStore, canonicalMessage);
       patchBaseSnapshot = senderStore.exportSnapshot();
       effectiveContext = { ...effectiveContext, senderStore };
     }
@@ -364,6 +390,7 @@ class MedusaClient extends EventEmitter {
     let graphBaseSnapshot = null;
     if (codecId === 'graph-delta-v1') {
       const senderStore = context.senderStore instanceof SharedGraphStore ? context.senderStore : new SharedGraphStore();
+      MedusaClient.bindStoreToRecipient(senderStore, canonicalMessage);
       graphBaseSnapshot = senderStore.exportSnapshot();
       effectiveContext = { ...effectiveContext, senderStore };
     }
@@ -371,6 +398,7 @@ class MedusaClient extends EventEmitter {
     let symbolTable = null;
     if (codecId === 'dict-intern-v1') {
       symbolTable = context.senderTable instanceof SharedSymbolTable ? context.senderTable : new SharedSymbolTable();
+      MedusaClient.bindStoreToRecipient(symbolTable, canonicalMessage);
       effectiveContext = { ...effectiveContext, senderTable: symbolTable };
     }
 
@@ -414,32 +442,41 @@ class MedusaClient extends EventEmitter {
       return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
     }
 
-    const metadata = codecEnvelope.metadata || {};
-    const context = {};
+    try {
+      const metadata = codecEnvelope.metadata || {};
+      const context = {};
 
-    if (codecEnvelope.codec === 'blackboard-ref-v1') {
-      const store = new BlackboardStore();
-      if (Array.isArray(metadata.blackboardArtifacts)) {
-        for (const [, value] of metadata.blackboardArtifacts) {
-          store.put(value);
+      if (codecEnvelope.codec === 'blackboard-ref-v1') {
+        const store = new BlackboardStore();
+        if (Array.isArray(metadata.blackboardArtifacts)) {
+          for (const entry of metadata.blackboardArtifacts) {
+            // Never trust the wire-claimed hash or assume a particular value shape (heavy
+            // fields are often arrays/objects) -- only require the [hash, value] tuple shape;
+            // store.put() recomputes the real hash from whatever value is actually there.
+            if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string') {
+              store.put(entry[1]);
+            }
+          }
         }
+        context.store = store;
+      } else if (codecEnvelope.codec === 'json-patch-v1' && metadata.patchBaseSnapshot) {
+        const receiverStore = new FlatStateRegister();
+        receiverStore.importSnapshot(metadata.patchBaseSnapshot);
+        context.receiverStore = receiverStore;
+      } else if (codecEnvelope.codec === 'graph-delta-v1' && metadata.graphBaseSnapshot) {
+        const receiverStore = new SharedGraphStore();
+        receiverStore.importSnapshot(metadata.graphBaseSnapshot);
+        context.receiverStore = receiverStore;
+      } else if (codecEnvelope.codec === 'dict-intern-v1' && metadata.symbolTableSnapshot) {
+        const receiverTable = new SharedSymbolTable();
+        receiverTable.importSnapshot(metadata.symbolTableSnapshot);
+        context.receiverTable = receiverTable;
       }
-      context.store = store;
-    } else if (codecEnvelope.codec === 'json-patch-v1' && metadata.patchBaseSnapshot) {
-      const receiverStore = new FlatStateRegister();
-      receiverStore.importSnapshot(metadata.patchBaseSnapshot);
-      context.receiverStore = receiverStore;
-    } else if (codecEnvelope.codec === 'graph-delta-v1' && metadata.graphBaseSnapshot) {
-      const receiverStore = new SharedGraphStore();
-      receiverStore.importSnapshot(metadata.graphBaseSnapshot);
-      context.receiverStore = receiverStore;
-    } else if (codecEnvelope.codec === 'dict-intern-v1' && metadata.symbolTableSnapshot) {
-      const receiverTable = new SharedSymbolTable();
-      receiverTable.importSnapshot(metadata.symbolTableSnapshot);
-      context.receiverTable = receiverTable;
-    }
 
-    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, { ...context, ...extraContext });
+      return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, { ...context, ...extraContext });
+    } catch (err) {
+      return { ok: false, message: null, errors: [`Malformed codecEnvelope.metadata: ${err.message}`], warnings: [] };
+    }
   }
 
   /**

@@ -199,4 +199,19 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
       expect(content).toMatch(/store\.put\(value\)/);
     }
   });
+
+  test('Server and Client agree on per-recipient context scoping and safe handling of malformed metadata (Issue #76 R-Gate Round 4)', () => {
+    expect(docContent).toMatch(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+    expect(docContent).toMatch(/scoped per-recipient/);
+    expect(docContent).toMatch(/never crashes the Hub/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    for (const content of [serverContent, clientContent]) {
+      expect(content).toMatch(/bindStoreToRecipient/);
+      expect(content).toMatch(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+      expect(content).toMatch(/_boundRecipient/);
+    }
+    expect(serverContent).toMatch(/Cross-recipient stateful snapshot rejected/);
+  });
 });

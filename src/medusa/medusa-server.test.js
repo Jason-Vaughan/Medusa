@@ -2938,12 +2938,18 @@ describe('MedusaServer', () => {
 
     test('R-Gate Round 3: two-turn json-patch-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
       const MedusaClientModule = require('./client/MedusaClient');
+      const { FlatStateRegister } = require('./experiments/codecs/JsonPatchDeltaCodec');
       const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
-      const senderStore = {};
+      // R-Gate Round 4 fix: must be the ACTUAL store instance nested under `senderStore`, not a
+      // bare object passed directly as `context` -- encodeWithCodec only reuses state it finds at
+      // `context.senderStore`, so passing the store itself as `context` silently creates a fresh
+      // one on every call and both "turns" end up being independent Turn 1s.
+      const ctx = { senderStore: new FlatStateRegister() };
 
       const turn1Envelope = sender.encodeWithCodec('json-patch-v1', {
         kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
-      }, senderStore);
+      }, ctx);
+      expect(turn1Envelope.payload.baseVersion).toBe(0);
       const turn1 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
       });
@@ -2951,7 +2957,8 @@ describe('MedusaServer', () => {
 
       const turn2Envelope = sender.encodeWithCodec('json-patch-v1', {
         kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
-      }, senderStore);
+      }, ctx);
+      expect(turn2Envelope.payload.baseVersion).toBe(1);
       const turn2 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
       });
@@ -2967,12 +2974,15 @@ describe('MedusaServer', () => {
 
     test('R-Gate Round 3: two-turn dict-intern-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
       const MedusaClientModule = require('./client/MedusaClient');
+      const { SharedSymbolTable } = require('./experiments/codecs/DictionaryInternCodec');
       const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
-      const senderTable = {};
+      // See the Round 4 fix note above: must be the real table under `senderTable`.
+      const ctx = { senderTable: new SharedSymbolTable() };
 
       const turn1Envelope = sender.encodeWithCodec('dict-intern-v1', {
         kind: 'task.assign', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
-      }, senderTable);
+      }, ctx);
+      expect(turn1Envelope.payload.newSymbols.length).toBeGreaterThan(0);
       const turn1 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
       });
@@ -2981,7 +2991,8 @@ describe('MedusaServer', () => {
       // Turn 2 reuses symbols interned on Turn 1 (same from/scope), so wire-level newSymbols is empty.
       const turn2Envelope = sender.encodeWithCodec('dict-intern-v1', {
         kind: 'task.ack', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
-      }, senderTable);
+      }, ctx);
+      expect(turn2Envelope.payload.newSymbols).toEqual([]);
       const turn2 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
       });
@@ -2999,12 +3010,15 @@ describe('MedusaServer', () => {
 
     test('R-Gate Round 3: two-turn graph-delta-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
       const MedusaClientModule = require('./client/MedusaClient');
+      const { SharedGraphStore } = require('./experiments/codecs/CodecRegistry');
       const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
-      const senderStore = {};
+      // See the Round 4 fix note above: must be the real store under `senderStore`.
+      const ctx = { senderStore: new SharedGraphStore() };
 
       const turn1Envelope = sender.encodeWithCodec('graph-delta-v1', {
         kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
-      }, senderStore);
+      }, ctx);
+      expect(turn1Envelope.payload.bv).toBe(0);
       const turn1 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
       });
@@ -3012,7 +3026,8 @@ describe('MedusaServer', () => {
 
       const turn2Envelope = sender.encodeWithCodec('graph-delta-v1', {
         kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
-      }, senderStore);
+      }, ctx);
+      expect(turn2Envelope.payload.bv).toBe(1);
       const turn2 = await doRequest('POST', '/messages/direct', {
         from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
       });
@@ -3024,6 +3039,65 @@ describe('MedusaServer', () => {
       const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
       expect(decoded.ok).toBe(true);
       expect(decoded.message).toEqual({ kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete' });
+    });
+
+    test('R-Gate Round 4: reusing a stateful context for a DIFFERENT recipient throws CROSS_RECIPIENT_CONTEXT_REUSE', () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const { FlatStateRegister } = require('./experiments/codecs/JsonPatchDeltaCodec');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      const ctx = { senderStore: new FlatStateRegister() };
+
+      sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'recipientA', secret: 'FOR_A_ONLY'
+      }, ctx);
+
+      expect(() =>
+        sender.encodeWithCodec('json-patch-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipientB' }, ctx)
+      ).toThrow(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+    });
+
+    test('R-Gate Round 4: a server-side cross-recipient stateful snapshot is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const legit = server.encodeCanonicalMessageWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', secret: 'FOR_TARGET_ONLY'
+      }).envelope;
+      // Simulate an envelope whose patchBaseSnapshot.state.to disagrees with the actual recipient
+      // this request is addressed to.
+      const crossRecipient = JSON.parse(JSON.stringify(legit));
+      crossRecipient.metadata.patchBaseSnapshot.state = { to: 'some-other-workspace' };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: crossRecipient
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 4: malformed metadata (blackboardArtifacts:[null] / graphBaseSnapshot with a null node) is rejected with 400, never a 500', async () => {
+      const badBlackboard = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: {
+          codec: 'blackboard-ref-v1',
+          wireText: JSON.stringify({ v: 1, fields: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target', scope: '@art:0123456789ab' } }),
+          humanAuditText: 'x',
+          metadata: { blackboardArtifacts: [null] }
+        }
+      });
+      expect(badBlackboard.status).toBe(400);
+      expect(badBlackboard.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const badGraph = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: {
+          codec: 'graph-delta-v1',
+          wireText: JSON.stringify({ v: 1, bv: 1, tv: 2, un: [], ue: [] }),
+          humanAuditText: 'x',
+          metadata: { graphBaseSnapshot: { nodes: [null] } }
+        }
+      });
+      expect(badGraph.status).toBe(400);
+      expect(badGraph.data.code).toBe('INVALID_CODEC_ENVELOPE');
     });
 
     test('R-Gate Round 3: a blackboard-ref-v1 envelope whose metadata.blackboardArtifacts value does not match its @art: digest is rejected', async () => {

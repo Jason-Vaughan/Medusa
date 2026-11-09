@@ -746,6 +746,29 @@ class MedusaServer {
   }
 
   /**
+   * Binds a stateful codec store/register/table to the recipient (`canonicalMessage.to`) it was
+   * first used for, and throws if it is later reused for a DIFFERENT recipient. A stateful
+   * codec's evolving state (the flat register's last message, the graph's nodes/edges, the
+   * interned symbol table) is only ever meant to be shared between one sender and one specific
+   * recipient; reusing the same store across recipients would leak one recipient's message
+   * content into the `metadata` snapshot of an envelope addressed to a different recipient
+   * (Issue #76 R-Gate Round 4).
+   * @param {object} store - The stateful store/register/table instance to bind.
+   * @param {object} canonicalMessage - The message about to be encoded against `store`.
+   * @throws {Error} With a `CROSS_RECIPIENT_CONTEXT_REUSE:`-prefixed message on a recipient mismatch.
+   */
+  static bindStoreToRecipient(store, canonicalMessage) {
+    const recipient = canonicalMessage && canonicalMessage.to;
+    if (store._boundRecipient === undefined) {
+      store._boundRecipient = recipient;
+    } else if (store._boundRecipient !== recipient) {
+      throw new Error(
+        `CROSS_RECIPIENT_CONTEXT_REUSE: Stateful codec context is bound to recipient "${store._boundRecipient}" and cannot be reused for "${recipient}"`
+      );
+    }
+  }
+
+  /**
    * Computes a capability-array delta between a previous and current capability manifest.
    * Capabilities are flat identifier strings with no associated value, so there is no notion of
    * one being "changed" independent of being added or removed; `changed` is always empty and
@@ -950,8 +973,13 @@ class MedusaServer {
     if (codecId === 'blackboard-ref-v1') {
       const store = new BlackboardStore();
       if (Array.isArray(metadata.blackboardArtifacts)) {
-        for (const [, value] of metadata.blackboardArtifacts) {
-          store.put(value);
+        for (const entry of metadata.blackboardArtifacts) {
+          // Never trust the wire-claimed hash or assume a particular value shape (heavy fields
+          // are often arrays/objects, not just strings) — only require the [hash, value] tuple
+          // shape; store.put() recomputes the real hash from whatever value is actually there.
+          if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string') {
+            store.put(entry[1]);
+          }
         }
       }
       context.store = store;
@@ -977,7 +1005,10 @@ class MedusaServer {
    * snapshot the encoder attached to `codecEnvelope.metadata` (Issue #76 R-Gate Round 2). Always
    * decodes from `codecEnvelope.wireText` — the actual wire bytes — never from `codecEnvelope`
    * as a whole object, which would let a codec's object-form `decode()` take its
-   * payload-preferring shortcut and skip validating what was actually transmitted.
+   * payload-preferring shortcut and skip validating what was actually transmitted. Any error
+   * thrown while hydrating or decoding a malformed `metadata` snapshot (e.g. a `graphBaseSnapshot`
+   * with a `null` node) is caught and returned as a structured failure, never left to propagate
+   * into an uncaught 500 (Issue #76 R-Gate Round 4).
    * @param {object} codecEnvelope - Envelope produced by `encode()` / `encodeCanonicalMessageWithCodec()`.
    * @param {object} [extraContext={}] - Additional context to merge in, taking precedence.
    * @returns {{ ok: boolean, code?: string, message: object|null, errors: string[], warnings: string[] }}
@@ -986,8 +1017,12 @@ class MedusaServer {
     if (!codecEnvelope || typeof codecEnvelope.wireText !== 'string') {
       return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
     }
-    const context = this.buildCodecDecodeContext(codecEnvelope, extraContext);
-    return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, context);
+    try {
+      const context = this.buildCodecDecodeContext(codecEnvelope, extraContext);
+      return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, context);
+    } catch (err) {
+      return { ok: false, message: null, errors: [`Malformed codecEnvelope.metadata: ${err.message}`], warnings: [] };
+    }
   }
 
   /**
@@ -1016,17 +1051,21 @@ class MedusaServer {
 
     if (codecId === 'blackboard-ref-v1') {
       blackboardStore = new BlackboardStore();
+      MedusaServer.bindStoreToRecipient(blackboardStore, canonicalMessage);
       context.store = blackboardStore;
     } else if (codecId === 'json-patch-v1') {
       const senderStore = new FlatStateRegister();
+      MedusaServer.bindStoreToRecipient(senderStore, canonicalMessage);
       patchBaseSnapshot = senderStore.exportSnapshot();
       context.senderStore = senderStore;
     } else if (codecId === 'graph-delta-v1') {
       const senderStore = new SharedGraphStore();
+      MedusaServer.bindStoreToRecipient(senderStore, canonicalMessage);
       graphBaseSnapshot = senderStore.exportSnapshot();
       context.senderStore = senderStore;
     } else if (codecId === 'dict-intern-v1') {
       symbolTable = new SharedSymbolTable();
+      MedusaServer.bindStoreToRecipient(symbolTable, canonicalMessage);
       context.senderTable = symbolTable;
     }
 
@@ -1061,11 +1100,17 @@ class MedusaServer {
    * shared-state context from `codecEnvelope.metadata` via `decodeWithCodec()`), and — when the
    * caller also supplied `payload` — that `payload` agrees with what `wireText` actually decodes
    * to, so a valid `payload` can never paper over corrupt or mismatched `wireText` (Issue #76
-   * R-Gate Round 2).
+   * R-Gate Round 2). When `targetRecipient` is given, also rejects a `patchBaseSnapshot` whose
+   * captured state was addressed to a DIFFERENT recipient — a defense-in-depth backstop for
+   * `MedusaClient`'s own cross-recipient-reuse guard, in case an envelope reaches the Hub by some
+   * other path (Issue #76 R-Gate Round 4). Any error thrown while decoding or hydrating a
+   * malformed `metadata` snapshot is caught and reported as `INVALID_CODEC_ENVELOPE`, never left
+   * to propagate into an uncaught 500.
    * @param {*} codecEnvelope - Caller-supplied codec envelope.
+   * @param {string} [targetRecipient] - The `to` this envelope is actually being sent to.
    * @returns {{ ok: boolean, code?: string, error?: string }}
    */
-  validateCodecEnvelope(codecEnvelope) {
+  validateCodecEnvelope(codecEnvelope, targetRecipient) {
     if (!codecEnvelope || typeof codecEnvelope !== 'object') {
       return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope must be an object' };
     }
@@ -1080,6 +1125,15 @@ class MedusaServer {
     }
     if (typeof codecEnvelope.humanAuditText !== 'string' || codecEnvelope.humanAuditText.length === 0) {
       return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'codecEnvelope.humanAuditText must be a non-empty string' };
+    }
+
+    const snapshotState = codecEnvelope.metadata && codecEnvelope.metadata.patchBaseSnapshot &&
+      codecEnvelope.metadata.patchBaseSnapshot.state;
+    if (
+      targetRecipient !== undefined && snapshotState && typeof snapshotState === 'object' &&
+      snapshotState.to !== undefined && snapshotState.to !== targetRecipient
+    ) {
+      return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: 'Cross-recipient stateful snapshot rejected' };
     }
 
     const decodedFromWire = this.decodeWithCodec(codecEnvelope);
@@ -1101,10 +1155,15 @@ class MedusaServer {
     }
 
     if (codecEnvelope.payload !== undefined) {
-      const decodedFromPayload = codec.decode(
-        { codec: codecEnvelope.codec, payload: codecEnvelope.payload, wireText: codecEnvelope.wireText },
-        this.buildCodecDecodeContext(codecEnvelope)
-      );
+      let decodedFromPayload;
+      try {
+        decodedFromPayload = codec.decode(
+          { codec: codecEnvelope.codec, payload: codecEnvelope.payload, wireText: codecEnvelope.wireText },
+          this.buildCodecDecodeContext(codecEnvelope)
+        );
+      } catch (err) {
+        return { ok: false, code: 'INVALID_CODEC_ENVELOPE', error: `Malformed codecEnvelope.metadata: ${err.message}` };
+      }
       if (!decodedFromPayload.ok || JSON.stringify(decodedFromWire.message) !== JSON.stringify(decodedFromPayload.message)) {
         return {
           ok: false,
@@ -1523,7 +1582,7 @@ class MedusaServer {
               return;
             }
 
-            const validation = this.validateCodecEnvelope(data.codecEnvelope);
+            const validation = this.validateCodecEnvelope(data.codecEnvelope, data.to);
             if (!validation.ok) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');

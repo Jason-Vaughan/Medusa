@@ -7,21 +7,24 @@
 
 ---
 
-## 1. Empirical Monad-1 Open-Weight Model Evaluation (`http://monad-1.tail123678.ts.net:11435`)
+## 1. Empirical Monad-1 Open-Weight Model & Aider `SEARCH/REPLACE` Evaluation (`http://monad-1.tail123678.ts.net:11435`)
 
-### 1.1 Controlled Prompt & Measurement Protocol
-In addition to live Aider session turns on `Medusa-Lane-C (#174)`, we executed a controlled single-turn code+JSDoc generation benchmark directly against Monad-1's Ollama `/api/chat` endpoint (`http://monad-1.tail123678.ts.net:11435/api/chat`) across all three target open-weight models (`temperature: 0`, `num_predict: 180`, `stream: false`):
-- **Controlled Prompt:** `"Write a JavaScript function add(a, b) with a JSDoc comment that returns a + b. Return ONLY a fenced javascript code block."`
-- **Runs Executed:** 4 controlled `/api/chat` evaluations (1 per model under default parameters + 1 `think: false` ablation on `qwen3.6:35b-a3b`) plus 3 multi-file Aider repo turns on `gpt-oss:120b`.
+### 1.1 Controlled Benchmarks Executed Across All Three Models
+We executed two controlled, reproducible evaluations across all three open-weight models on Monad-1 (`http://monad-1.tail123678.ts.net:11435/api/chat`, `temperature: 0`), in addition to 3 live multi-file Aider repository turns on `Medusa-Lane-C (#174)`:
+1. **Suite A — Controlled Fenced Code + JSDoc Generation (`monad1-benchmark-receipt-v1`, 4 runs, `num_predict: 180`):** Measures raw decode throughput (`tok/s`), prompt/completion token counts (`prompt_eval_count`, `eval_count`), and end-to-end completion duration (`evalDurationMs`) for generating a JSDoc-documented `add(a, b)` function.
+2. **Suite B — Controlled Aider `edit-format: diff` (`SEARCH/REPLACE`) Block Parsing & Patch Application (`monad1-aider-editblock-receipt-v1`, 4 runs):** Prompts each model in Aider's `diff` (`<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE`) edit format against a buggy `math.js` (`return a - b;`) and verifies the raw model output through Aider 0.86.2's actual parser and patcher (`aider.coders.editblock_coder.find_original_update_blocks` and `do_replace`).
 
-| Model Identifier | Architecture & Quantization | Prompt Tokens (`prompt_eval_count`) | Completion Tokens (`eval_count`) | Eval Duration (`evalDurationMs`) | Decode Rate (`tok/s`) | Wall Clock (`wallMs`) | JSDoc & Code Fence Valid (`hasJsDoc`) | Empirical Behavior & Edit-Format Findings |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`ollama_chat/gpt-oss:120b`** | `116.8B` (`MXFP4`, tools + thinking) | `97` | `180` | `6,938 ms` | `25.94 tok/s` | `322,916 ms` *(queued behind live Aider turn)* | `true` | Consumed full 180-token budget (reasoning + output). In live Aider `whole`/`diff` turns (`22k` and `18k` prompt tokens), emitted valid prose but frequently produced unclosed 4-backtick fences or unified diffs without `<<<<<<< SEARCH` markers unless `edit-format: editor-diff` or `diff-fenced` is set. |
-| **`ollama_chat/qwen3-coder-next:q4_K_M`** | `79.7B` (`Q4_K_M`, coding specialist) | `37` | `68` | `2,826 ms` | `24.06 tok/s` | `48,235 ms` *(includes cold VRAM swap)* | `true` | **2.45x faster eval duration (`2,826 ms` vs `6,938 ms`)** and **2.65x fewer completion tokens (`68` vs `180`)** than `gpt-oss:120b` because it emits clean fenced code + JSDoc directly without wasted thinking tokens. Highest adherence to Aider `SEARCH/REPLACE` blocks and compact codecs. |
-| **`ollama_chat/qwen3.6:35b-a3b` *(default `think: true`)*** | `36.0B` MoE (`a3b` active params, thinking) | `39` | `180` | `8,232 ms` | `21.87 tok/s` | `32,253 ms` *(includes cold VRAM swap)* | `false` (`content: ""`) | Under default `think: true` with `num_predict: 180`, spent all 180 tokens inside internal reasoning (`message.thinking`) and returned empty `message.content`. Requires `think: false` or higher token cap for non-reasoning turns. |
-| **`ollama_chat/qwen3.6:35b-a3b` *(`think: false`)*** | `36.0B` MoE (`a3b` active params, `think: false`) | `41` | `73` | `4,276 ms` | `17.07 tok/s` | `4,926 ms` *(warm VRAM)* | `true` | With `think: false` on warm VRAM, completed in **`4,926 ms` wall clock (`4,276 ms` eval duration, `73` tokens)** with valid JSDoc and fenced code (`1.62x` faster eval duration than `gpt-oss:120b`). |
+| Model Identifier | Suite / Setting | Prompt Tokens | Completion Tokens (`eval_count`) | Eval Duration (`evalDurationMs`) | Decode Rate (`tok/s`) | Aider `find_original_update_blocks` + `do_replace` Result | Empirical Analysis |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`ollama_chat/gpt-oss:120b`** | Suite B (`diff`, `num_predict: 220`) | `160` | `220` | `8,579 ms` | `25.64 tok/s` | **FAILED** (`0` edits parsed; `ValueError: Expected >>>>>>> REPLACE`) | Consumed ~132 internal reasoning tokens before emitting `message.content`, truncating mid-`REPLACE` block at `@param {number} a - The first addend`. |
+| **`ollama_chat/gpt-oss:120b`** | Suite B (`diff`, `num_predict: 600`) | `160` | `288` | `11,171 ms` | `25.78 tok/s` | **APPLIED (`1` edit)** | With a 600-token cap (`~200` thinking + `88` visible tokens), emitted a valid `SEARCH/REPLACE` block that `do_replace` applied cleanly in `11,171 ms` eval duration. |
+| **`ollama_chat/qwen3-coder-next:q4_K_M`** | Suite B (`diff`, `num_predict: 220`) | `100` | `88` | `3,132 ms` | `28.10 tok/s` | **APPLIED (`1` edit)** | **3.57x shorter end-to-end eval duration than `gpt-oss:120b (num_predict: 600)` (`3,132 ms` vs `11,171 ms`)** and **2.74x shorter than `gpt-oss:120b (num_predict: 220)` (`3,132 ms` vs `8,579 ms`)** because it emits the exact 88-token `SEARCH/REPLACE` block directly at `28.10 tok/s` with zero wasted reasoning tokens. |
+| **`ollama_chat/qwen3.6:35b-a3b`** | Suite A (`think: true`, `num_predict: 180`) | `39` | `180` | `8,232 ms` | `21.87 tok/s` | **FAILED** (`content: ""`) | Under default `think: true` with a 180-token cap, spent all 180 tokens inside `message.thinking` and returned empty `message.content`. |
+| **`ollama_chat/qwen3.6:35b-a3b`** | Suite B (`diff`, `think: false`, `num_predict: 220`) | `112` | `101` | `2,986 ms` | `33.83 tok/s` | **APPLIED (`1` edit)** | With `think: false`, achieved the **highest decode rate (`33.83 tok/s`)** and **shortest end-to-end eval duration (`2,986 ms`, `3,379 ms` warm wall-clock)**, applying the `SEARCH/REPLACE` patch cleanly on the first attempt. |
 
-### 1.2 Verbatim Benchmark Receipt (`monad1-benchmark-receipt-v1`)
+> **Note on Decode Rate (`tok/s`) vs. End-to-End Task Completion Duration (`evalDurationMs`):** Per-token generation speeds across the three models are comparable (`25.64–25.94 tok/s` on `gpt-oss:120b`, `24.06–28.10 tok/s` on `qwen3-coder-next:q4_K_M`, and `17.07–33.83 tok/s` on `qwen3.6:35b-a3b`). The **2.45x–3.57x reduction in end-to-end completion time** on `qwen3-coder-next:q4_K_M` and `qwen3.6:35b-a3b (think: false)` comes from **token efficiency**: `qwen3-coder-next:q4_K_M` completes the task in `68–88` tokens with zero hidden thinking overhead, whereas `gpt-oss:120b` generates `180–288` total tokens (`~130–200` reasoning tokens + `88` visible tokens) for the identical edit.
+
+### 1.2 Verbatim Suite A & Suite B Benchmark Receipts (`monad1-benchmark-receipt-v1`)
 ```json
 {
   "schema": "monad1-benchmark-receipt-v1",
@@ -70,14 +73,77 @@ In addition to live Aider session turns on `Medusa-Lane-C (#174)`, we executed a
       "hasJsDoc": true,
       "contentPreview": "```javascript /** * Adds two numbers together. * @param {number} a - The first number. * @param {number} b - The second number. * @returns {"
     }
+  ],
+  "editBlockOriginalFile": "function add(a, b) {\n  return a - b;\n}\n",
+  "editBlockRuns": [
+    {
+      "model": "gpt-oss:120b",
+      "think": null,
+      "numPredict": 220,
+      "wallMs": 9952,
+      "promptEvalCount": 160,
+      "evalCount": 220,
+      "evalDurationMs": 8579,
+      "tokPerSec": 25.64,
+      "parsedEditsCount": 0,
+      "editAppliedCleanly": false,
+      "parseError": "^^^ Expected `>>>>>>> REPLACE` or `=======`",
+      "rawResponse": "math.js\n```javascript\n<<<<<<< SEARCH\nfunction add(a, b) {\n  return a - b;\n}\n=======\n/**\n * Adds two numbers together.\n *\n * @param {number} a - The first addend",
+      "appliedFileResult": null
+    },
+    {
+      "model": "gpt-oss:120b",
+      "think": null,
+      "numPredict": 600,
+      "wallMs": 11571,
+      "promptEvalCount": 160,
+      "evalCount": 288,
+      "evalDurationMs": 11171,
+      "tokPerSec": 25.78,
+      "parsedEditsCount": 1,
+      "editAppliedCleanly": true,
+      "parseError": null,
+      "rawResponse": "math.js\n```javascript\n<<<<<<< SEARCH\nfunction add(a, b) {\n  return a - b;\n}\n=======\n/**\n * Adds two numbers.\n *\n * @param {number} a - First operand.\n * @param {number} b - Second operand.\n * @returns {number} Sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n>>>>>>> REPLACE\n```",
+      "appliedFileResult": "/**\n * Adds two numbers.\n *\n * @param {number} a - First operand.\n * @param {number} b - Second operand.\n * @returns {number} Sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n"
+    },
+    {
+      "model": "qwen3-coder-next:q4_K_M",
+      "think": null,
+      "numPredict": 220,
+      "wallMs": 24372,
+      "promptEvalCount": 100,
+      "evalCount": 88,
+      "evalDurationMs": 3132,
+      "tokPerSec": 28.1,
+      "parsedEditsCount": 1,
+      "editAppliedCleanly": true,
+      "parseError": null,
+      "rawResponse": "math.js\n```javascript\n<<<<<<< SEARCH\nfunction add(a, b) {\n  return a - b;\n}\n=======\n/**\n * Adds two numbers together.\n * @param {number} a - The first number.\n * @param {number} b - The second number.\n * @returns {number} The sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n>>>>>>> REPLACE\n```",
+      "appliedFileResult": "/**\n * Adds two numbers together.\n * @param {number} a - The first number.\n * @param {number} b - The second number.\n * @returns {number} The sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n"
+    },
+    {
+      "model": "qwen3.6:35b-a3b",
+      "think": false,
+      "numPredict": 220,
+      "wallMs": 3379,
+      "promptEvalCount": 112,
+      "evalCount": 101,
+      "evalDurationMs": 2986,
+      "tokPerSec": 33.83,
+      "parsedEditsCount": 1,
+      "editAppliedCleanly": true,
+      "parseError": null,
+      "rawResponse": "math.js\n```javascript\n<<<<<<< SEARCH\nfunction add(a, b) {\n  return a - b;\n}\n=======\n/**\n * Adds two numbers together.\n * @param {number} a - The first number.\n * @param {number} b - The second number.\n * @returns {number} The sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n>>>>>>> REPLACE\n```",
+      "appliedFileResult": "/**\n * Adds two numbers together.\n * @param {number} a - The first number.\n * @param {number} b - The second number.\n * @returns {number} The sum of a and b.\n */\nfunction add(a, b) {\n  return a + b;\n}\n"
+    }
   ]
 }
 ```
 
 ### 1.3 Model Selection Recommendation for TangleClaw + Monad-1
-1. **Upgrade default `~/.aider.conf.yml` model** from `ollama_chat/gpt-oss:120b` to **`ollama_chat/qwen3-coder-next:q4_K_M`** for Builder/Coder lanes (`2,826 ms` eval duration, `68` tokens, zero wasted thinking tokens, clean `SEARCH/REPLACE` adherence).
-2. **Use `ollama_chat/qwen3.6:35b-a3b` with `think: false`** (`4,926 ms` warm wall-clock, `4,276 ms` eval duration, `73` tokens) for rapid verification and structured state-delta evaluation; do **not** run `qwen3.6:35b-a3b` with capped `num_predict` under default `think: true` or thinking tokens will starve `message.content`.
-3. **Retain `ollama_chat/gpt-oss:120b`** (`6,938 ms` eval duration, `25.94 tok/s`) as a heavy reasoning baseline with explicit `edit-format: editor-diff`.
+1. **Upgrade default `~/.aider.conf.yml` model** from `ollama_chat/gpt-oss:120b` to **`ollama_chat/qwen3-coder-next:q4_K_M`** for Builder/Coder lanes (`edit-format: diff`): it passed `EditBlockCoder` `SEARCH/REPLACE` parsing within an 88-token budget (`3,132 ms` eval duration, `28.10 tok/s`) without requiring an inflated `num_predict` cap for internal thinking tokens.
+2. **Use `ollama_chat/qwen3.6:35b-a3b` with `think: false`** (`2,986 ms` eval duration, `33.83 tok/s`, `101` tokens) for rapid verification and structured state-delta evaluation; do **not** run `qwen3.6:35b-a3b` or `gpt-oss:120b` under tight `num_predict` caps (`<= 220` tokens) with thinking enabled, as internal reasoning tokens truncate the `>>>>>>> REPLACE` marker.
+3. **Retain `ollama_chat/gpt-oss:120b`** with `num_predict >= 600` (`11,171 ms` eval duration, `288` tokens) as a heavy reasoning baseline.
 
 ---
 

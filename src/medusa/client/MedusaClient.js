@@ -11,11 +11,16 @@ const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const WebSocket = require('ws');
+const { CodecRegistry, SharedGraphStore } = require('../experiments/codecs/CodecRegistry');
+const { TupleTableCodec } = require('../experiments/codecs/TupleTableCodec');
+const { DictionaryInternCodec, SharedSymbolTable } = require('../experiments/codecs/DictionaryInternCodec');
+const { JsonPatchDeltaCodec, FlatStateRegister } = require('../experiments/codecs/JsonPatchDeltaCodec');
+const { BlackboardRefCodec, BlackboardStore } = require('../experiments/codecs/BlackboardRefCodec');
 
 class MedusaClient extends EventEmitter {
   constructor(options = {}) {
     super();
-    
+
     this.serverUrl = options.serverUrl || 'http://localhost:3009';
     this.wsUrl = options.wsUrl || 'ws://localhost:3010';
     this.workspaceId = null;
@@ -29,13 +34,54 @@ class MedusaClient extends EventEmitter {
     this.processedMessages = null;
     this.lastPong = null;
     this.heartbeatInterval = null;
-    
+    this.codecRegistry = MedusaClient.buildCodecRegistry();
+
     // Create workspace-specific config file path
     const workspaceKey = options.workspaceKey || process.cwd();
     const configName = `medusa-config-${Buffer.from(workspaceKey).toString('base64').replace(/[^a-zA-Z0-9]/g, '')}.json`;
     this.configFile = path.join(os.homedir(), '.medusa', configName);
   }
-  
+
+  /**
+   * Builds a `CodecRegistry` pre-loaded with all 9 experimental communication codecs — the 5
+   * `CodecRegistry` default codecs plus `TupleTableCodec`, `DictionaryInternCodec`,
+   * `JsonPatchDeltaCodec`, and `BlackboardRefCodec` — mirroring the Hub's own registry so
+   * `encodeWithCodec` can produce a `codecEnvelope` the Hub will accept (Issue #76).
+   * @returns {CodecRegistry}
+   */
+  static buildCodecRegistry() {
+    const registry = new CodecRegistry();
+    const extraCodecs = [new TupleTableCodec(), new DictionaryInternCodec(), new JsonPatchDeltaCodec(), new BlackboardRefCodec()];
+    for (const codec of extraCodecs) {
+      if (!registry.get(codec.capabilities().id)) {
+        registry.register(codec);
+      }
+    }
+    return registry;
+  }
+
+  /**
+   * Binds a stateful codec store/register/table to the recipient (`canonicalMessage.to`) it was
+   * first used for, and throws if it is later reused for a DIFFERENT recipient. A stateful
+   * codec's evolving state is only ever meant to be shared between one sender and one specific
+   * recipient; reusing the same context across recipients would leak one recipient's message
+   * content into the `metadata` snapshot of an envelope addressed to a different recipient
+   * (Issue #76 R-Gate Round 4).
+   * @param {object} store - The stateful store/register/table instance to bind.
+   * @param {object} canonicalMessage - The message about to be encoded against `store`.
+   * @throws {Error} With a `CROSS_RECIPIENT_CONTEXT_REUSE:`-prefixed message on a recipient mismatch.
+   */
+  static bindStoreToRecipient(store, canonicalMessage) {
+    const recipient = canonicalMessage && canonicalMessage.to;
+    if (store._boundRecipient === undefined) {
+      store._boundRecipient = recipient;
+    } else if (store._boundRecipient !== recipient) {
+      throw new Error(
+        `CROSS_RECIPIENT_CONTEXT_REUSE: Stateful codec context is bound to recipient "${store._boundRecipient}" and cannot be reused for "${recipient}"`
+      );
+    }
+  }
+
   /**
    * Make HTTP request to Medusa server
    */
@@ -236,15 +282,26 @@ class MedusaClient extends EventEmitter {
   /**
    * Send a direct message to another workspace
    * @param {string} targetWorkspace - Target workspace ID or name
-   * @param {string} message - Message content
-   * @param {object} [metadata={}] - Optional metadata or options (may include idempotencyKey)
+   * @param {string} [message] - Message content; may be omitted/empty when `metadata.codecEnvelope`
+   *   or `metadata.canonicalMessage` is supplied, in which case the Hub falls back to the codec's
+   *   own human-readable audit text (Issue #76).
+   * @param {object} [metadata={}] - Optional metadata or options. May include `idempotencyKey`,
+   *   `codec` (a registered codec id), `codecEnvelope` (pre-encoded, e.g. from `encodeWithCodec`),
+   *   and/or `canonicalMessage` (raw message for the Hub to encode server-side with `codec`).
    * @returns {Promise<object>} Server response including message id and optional receipt
    */
   async sendMessage(targetWorkspace, message, metadata = {}) {
     if (!this.workspaceId) {
       throw new Error('Workspace not registered! Run "medusa register" first.');
     }
-    
+
+    // Deliberately no client-side cross-recipient pre-check here (Issue #76 R-Gate Round 6): the
+    // client has no workspace registry, so it cannot tell a genuine mismatch apart from a
+    // legitimate id/name alias for the same workspace (e.g. canonicalMessage.to is the id while
+    // targetWorkspace is the human-readable name). Only the Hub can resolve that via
+    // MedusaServer.recipientsMatch(), so alias-aware recipient matching is deferred entirely to
+    // the Hub's existing 400 INVALID_CODEC_ENVELOPE rejection on POST /messages/direct.
+
     try {
       const payload = {
         from: this.workspaceId,
@@ -254,6 +311,15 @@ class MedusaClient extends EventEmitter {
       };
       if (metadata && typeof metadata.idempotencyKey === 'string') {
         payload.idempotencyKey = metadata.idempotencyKey;
+      }
+      if (metadata && metadata.codec !== undefined) {
+        payload.codec = metadata.codec;
+      }
+      if (metadata && metadata.codecEnvelope !== undefined) {
+        payload.codecEnvelope = metadata.codecEnvelope;
+      }
+      if (metadata && metadata.canonicalMessage !== undefined) {
+        payload.canonicalMessage = metadata.canonicalMessage;
       }
 
       const response = await this.request('POST', '/messages/direct', payload);
@@ -287,7 +353,143 @@ class MedusaClient extends EventEmitter {
     }
     return this.request('GET', `/messages/receipts/${encodeURIComponent(idempotencyKey.trim())}`);
   }
-  
+
+  /**
+   * Encodes a canonical message with a registered experimental codec, producing a
+   * `codecEnvelope` ready to pass as `metadata.codecEnvelope` to `sendMessage` (Issue #76's
+   * opt-in codec negotiation). Captures whatever a stateful codec needs for the resulting
+   * envelope to decode standalone, attaching it to `envelope.metadata` (Issue #76 R-Gate Round 2
+   * & Round 3): `blackboardArtifacts` for `blackboard-ref-v1` (its heavy fields live only in a
+   * `BlackboardStore`, never the wire payload); `patchBaseSnapshot` / `graphBaseSnapshot` for
+   * `json-patch-v1` / `graph-delta-v1` (captured BEFORE this call mutates `context.senderStore`,
+   * so a Turn 2+ delta's recipient can resync to the correct base version before decode applies
+   * it — a fresh, unsynced store would otherwise fail `MISSING_BASE_VERSION`); `symbolTableSnapshot`
+   * for `dict-intern-v1` (captured AFTER this call, so a Turn 2+ message's re-used-but-undefined
+   * symbol references — omitted from `newSymbols` since the sender already knows them — still
+   * resolve instead of failing `UNRESOLVED_SYMBOL_REF`). Also records `metadata.boundRecipient =
+   * canonicalMessage.to` for every codec, so the Hub (`MedusaServer.validateCodecEnvelope` /
+   * `recipientsMatch`) can reject an envelope routed to a different recipient than it was bound
+   * for — including a legitimate id/name alias, which only the Hub's workspace registry can
+   * resolve (Issue #76 R-Gate Round 5 & Round 6).
+   * @param {string} codecId - Registered codec id (e.g. `'compact-json-v1'`, `'json-patch-v1'`).
+   * @param {object} canonicalMessage - Canonical semantic message to encode.
+   * @param {object} [context={}] - Optional codec-specific encoding context. Pass the SAME
+   *   `senderStore` / `senderTable` / `store` across multiple calls to drive a stateful codec
+   *   multi-turn (e.g. incremental `json-patch-v1` deltas); omitted for a fresh, single-turn encode.
+   * @returns {{ codec: string, schemaVersion: string, payload: *, wireText: string, humanAuditText: string, metadata: object }}
+   * @throws {Error} When `codecId` is not registered or encoding fails.
+   */
+  encodeWithCodec(codecId, canonicalMessage, context = {}) {
+    let effectiveContext = context;
+    let capturedStore = context.store instanceof BlackboardStore ? context.store : null;
+    if (codecId === 'blackboard-ref-v1' && !capturedStore) {
+      capturedStore = new BlackboardStore();
+      effectiveContext = { ...context, store: capturedStore };
+    }
+    if (capturedStore) {
+      MedusaClient.bindStoreToRecipient(capturedStore, canonicalMessage);
+    }
+
+    let patchBaseSnapshot = null;
+    if (codecId === 'json-patch-v1') {
+      const senderStore = context.senderStore instanceof FlatStateRegister ? context.senderStore : new FlatStateRegister();
+      MedusaClient.bindStoreToRecipient(senderStore, canonicalMessage);
+      patchBaseSnapshot = senderStore.exportSnapshot();
+      effectiveContext = { ...effectiveContext, senderStore };
+    }
+
+    let graphBaseSnapshot = null;
+    if (codecId === 'graph-delta-v1') {
+      const senderStore = context.senderStore instanceof SharedGraphStore ? context.senderStore : new SharedGraphStore();
+      MedusaClient.bindStoreToRecipient(senderStore, canonicalMessage);
+      graphBaseSnapshot = senderStore.exportSnapshot();
+      effectiveContext = { ...effectiveContext, senderStore };
+    }
+
+    let symbolTable = null;
+    if (codecId === 'dict-intern-v1') {
+      symbolTable = context.senderTable instanceof SharedSymbolTable ? context.senderTable : new SharedSymbolTable();
+      MedusaClient.bindStoreToRecipient(symbolTable, canonicalMessage);
+      effectiveContext = { ...effectiveContext, senderTable: symbolTable };
+    }
+
+    const result = this.codecRegistry.encode(codecId, canonicalMessage, effectiveContext);
+    if (!result.ok) {
+      throw new Error(result.error || `Failed to encode message with codec "${codecId}"`);
+    }
+
+    const metadata = { ...result.envelope.metadata, boundRecipient: canonicalMessage && canonicalMessage.to };
+    if (capturedStore) {
+      metadata.blackboardArtifacts = Array.from(capturedStore.artifacts.entries());
+    }
+    if (patchBaseSnapshot) {
+      metadata.patchBaseSnapshot = patchBaseSnapshot;
+    }
+    if (graphBaseSnapshot) {
+      metadata.graphBaseSnapshot = graphBaseSnapshot;
+    }
+    if (symbolTable) {
+      metadata.symbolTableSnapshot = symbolTable.exportSnapshot();
+    }
+    result.envelope.metadata = metadata;
+
+    return result.envelope;
+  }
+
+  /**
+   * Decodes a `codecEnvelope` via this client's own codec registry, hydrating a decode context
+   * from any snapshot attached to `codecEnvelope.metadata` so a server-encoded, peer-encoded, or
+   * Turn 2+ envelope decodes standalone (Issue #76 R-Gate Round 2 & Round 3). For
+   * `blackboard-ref-v1`, each `blackboardArtifacts` entry is re-hashed via `store.put(value)`
+   * rather than trusted at face value, so a forged `(hash, value)` pair can never be
+   * dereferenced under a hash it doesn't actually hash to. Always decodes from
+   * `codecEnvelope.wireText`.
+   * @param {object} codecEnvelope - Envelope to decode (e.g. a received message's `codecEnvelope`).
+   * @param {object} [extraContext={}] - Additional context to merge in, taking precedence.
+   * @returns {{ ok: boolean, message: object|null, errors: string[], warnings: string[] }}
+   */
+  decodeWithCodec(codecEnvelope, extraContext = {}) {
+    if (!codecEnvelope || typeof codecEnvelope.wireText !== 'string') {
+      return { ok: false, message: null, errors: ['codecEnvelope.wireText must be a string'], warnings: [] };
+    }
+
+    try {
+      const metadata = codecEnvelope.metadata || {};
+      const context = {};
+
+      if (codecEnvelope.codec === 'blackboard-ref-v1') {
+        const store = new BlackboardStore();
+        if (Array.isArray(metadata.blackboardArtifacts)) {
+          for (const entry of metadata.blackboardArtifacts) {
+            // Never trust the wire-claimed hash or assume a particular value shape (heavy
+            // fields are often arrays/objects) -- only require the [hash, value] tuple shape;
+            // store.put() recomputes the real hash from whatever value is actually there.
+            if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string') {
+              store.put(entry[1]);
+            }
+          }
+        }
+        context.store = store;
+      } else if (codecEnvelope.codec === 'json-patch-v1' && metadata.patchBaseSnapshot) {
+        const receiverStore = new FlatStateRegister();
+        receiverStore.importSnapshot(metadata.patchBaseSnapshot);
+        context.receiverStore = receiverStore;
+      } else if (codecEnvelope.codec === 'graph-delta-v1' && metadata.graphBaseSnapshot) {
+        const receiverStore = new SharedGraphStore();
+        receiverStore.importSnapshot(metadata.graphBaseSnapshot);
+        context.receiverStore = receiverStore;
+      } else if (codecEnvelope.codec === 'dict-intern-v1' && metadata.symbolTableSnapshot) {
+        const receiverTable = new SharedSymbolTable();
+        receiverTable.importSnapshot(metadata.symbolTableSnapshot);
+        context.receiverTable = receiverTable;
+      }
+
+      return this.codecRegistry.decode(codecEnvelope.wireText, codecEnvelope.codec, { ...context, ...extraContext });
+    } catch (err) {
+      return { ok: false, message: null, errors: [`Malformed codecEnvelope.metadata: ${err.message}`], warnings: [] };
+    }
+  }
+
   /**
    * Broadcast a message to all workspaces
    */

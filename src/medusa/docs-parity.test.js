@@ -112,4 +112,135 @@ describe('Documentation Parity: WS_CONSUMER_CONTRACT.md', () => {
     expect(serverContent).toMatch(/computeCapabilityDelta/);
     expect(serverContent).toMatch(/capabilityDelta: MedusaServer\.computeCapabilityDelta/);
   });
+
+  test('Document and Server implement opt-in codecEnvelope / canonicalMessage negotiation on POST /messages/direct (Issue #76)', () => {
+    expect(docContent).toMatch(/"codecEnvelope":/);
+    expect(docContent).toMatch(/"canonicalMessage":/);
+    expect(serverContent).toMatch(/validateCodecEnvelope/);
+    expect(serverContent).toMatch(/data\.codecEnvelope/);
+    expect(serverContent).toMatch(/data\.canonicalMessage/);
+  });
+
+  test('Document and Server agree on UNSUPPORTED_CODEC and INVALID_CODEC_ENVELOPE rejection (Issue #76)', () => {
+    expect(docContent).toMatch(/UNSUPPORTED_CODEC/);
+    expect(docContent).toMatch(/INVALID_CODEC_ENVELOPE/);
+    expect(serverContent).toMatch(/code: 'UNSUPPORTED_CODEC'/);
+    expect(serverContent).toMatch(/code: 'INVALID_CODEC_ENVELOPE'/);
+  });
+
+  test('Document and Server agree that humanAuditText is the message fallback for a codec-only send (Issue #76)', () => {
+    expect(docContent).toMatch(/humanAuditText/);
+    expect(serverContent).toMatch(/data\.message = data\.codecEnvelope\.humanAuditText/);
+  });
+
+  test('Document and Server agree that supportedCodecs and experimental-codec-envelope-v1 are advertised (Issue #76)', () => {
+    expect(docContent).toMatch(/supportedCodecs/);
+    expect(docContent).toMatch(/experimental-codec-envelope-v1/);
+    expect(serverContent).toMatch(/supportedCodecs: this\.codecRegistry\.listCapabilities/);
+    expect(serverContent).toMatch(/'experimental-codec-envelope-v1'/);
+  });
+
+  test('Server exposes all 9 experimental codecs via createHubCodecRegistry() (Issue #76)', () => {
+    expect(serverContent).toMatch(/function createHubCodecRegistry/);
+    expect(serverContent).toMatch(/TupleTableCodec/);
+    expect(serverContent).toMatch(/DictionaryInternCodec/);
+    expect(serverContent).toMatch(/JsonPatchDeltaCodec/);
+    expect(serverContent).toMatch(/BlackboardRefCodec/);
+
+    // Verified at runtime rather than against CodecRegistry.js's own file content: PR #74
+    // (#81) separately registers all 9 codecs directly in CodecRegistry.js, so a negative
+    // file-content assertion here would break the instant both PRs merge together
+    // (R-Gate Round 2, PR #82).
+    const MedusaServer = require('./medusa-server');
+    const server = new MedusaServer({ a2aSecret: 'docs-parity-probe-secret' });
+    const ids = server.codecRegistry.listCapabilities().map((cap) => cap.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'nl-baseline-v1', 'compact-json-v1', 'graph-v1', 'graph-delta-v1', 'typed-cmd-v1',
+        'tuple-table-v1', 'dict-intern-v1', 'json-patch-v1', 'blackboard-ref-v1'
+      ])
+    );
+  });
+
+  test('MedusaClient implements encodeWithCodec/decodeWithCodec and forwards codec/codecEnvelope/canonicalMessage (Issue #76)', () => {
+    const clientMethods = Object.getOwnPropertyNames(MedusaClient.prototype);
+    expect(clientMethods).toContain('encodeWithCodec');
+    expect(clientMethods).toContain('decodeWithCodec');
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).toMatch(/metadata\.codecEnvelope/);
+    expect(clientContent).toMatch(/metadata\.canonicalMessage/);
+  });
+
+  test('Server and Client agree on wire-authoritative validation and blackboard-ref-v1 metadata hydration (Issue #76 R-Gate Round 2)', () => {
+    expect(serverContent).toMatch(/decodeWithCodec/);
+    expect(serverContent).toMatch(/buildCodecDecodeContext/);
+    expect(serverContent).toMatch(/blackboardArtifacts/);
+    expect(serverContent).toMatch(/codecEnvelope\.payload does not match decoded wireText/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).toMatch(/decodeWithCodec/);
+    expect(clientContent).toMatch(/blackboardArtifacts/);
+  });
+
+  test('Server and Client agree on multi-turn stateful codec snapshots and digest-safe blackboard hydration (Issue #76 R-Gate Round 3)', () => {
+    expect(docContent).toMatch(/patchBaseSnapshot/);
+    expect(docContent).toMatch(/graphBaseSnapshot/);
+    expect(docContent).toMatch(/symbolTableSnapshot/);
+    expect(docContent).toMatch(/re-hashed on hydration/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    for (const content of [serverContent, clientContent]) {
+      expect(content).toMatch(/patchBaseSnapshot/);
+      expect(content).toMatch(/graphBaseSnapshot/);
+      expect(content).toMatch(/symbolTableSnapshot/);
+      expect(content).toMatch(/store\.put\(value\)/);
+    }
+  });
+
+  test('Server and Client agree on per-recipient context scoping and safe handling of malformed metadata (Issue #76 R-Gate Round 4)', () => {
+    expect(docContent).toMatch(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+    expect(docContent).toMatch(/scoped per-recipient/);
+    expect(docContent).toMatch(/never crashes the Hub/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    for (const content of [serverContent, clientContent]) {
+      expect(content).toMatch(/bindStoreToRecipient/);
+      expect(content).toMatch(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+      expect(content).toMatch(/_boundRecipient/);
+    }
+    expect(serverContent).toMatch(/Cross-recipient stateful snapshot rejected/);
+  });
+
+  test('Server and Client agree that an envelope\'s destination must match the request recipient for every codec (Issue #76 R-Gate Round 5)', () => {
+    expect(docContent).toMatch(/boundRecipient/);
+    expect(docContent).toMatch(/for every codec/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(serverContent).toMatch(/recipientsMatch/);
+    expect(serverContent).toMatch(/boundRecipient/);
+    expect(serverContent).toMatch(/decoded message\.to/);
+    expect(clientContent).toMatch(/boundRecipient/);
+  });
+
+  test('Server and Client agree that alias-aware recipient matching is the Hub\'s job, not a client-side pre-check (Issue #76 R-Gate Round 6)', () => {
+    expect(docContent).toMatch(/alias-aware/);
+    expect(docContent).toMatch(/does \*\*not\*\* pre-check this client-side/);
+
+    const clientPath = path.join(__dirname, 'client/MedusaClient.js');
+    const clientContent = fs.readFileSync(clientPath, 'utf8');
+    expect(clientContent).not.toMatch(/CROSS_RECIPIENT_ROUTING_MISMATCH/);
+    expect(clientContent).toMatch(/no client-side cross-recipient pre-check/i);
+  });
+
+  test('Document and Server agree the Hub-side {codec, canonicalMessage} form enforces the same invariants as codecEnvelope (Issue #76 R-Gate Round 7)', () => {
+    expect(docContent).toMatch(/enforces the exact same invariants/);
+    expect(docContent).toMatch(/structurally valid before the Hub ever encodes it/);
+    expect(serverContent).toMatch(/canonicalMessage is not a structurally valid canonical message/);
+    expect(serverContent).toMatch(/Unknown codec takes priority over any canonicalMessage validation/);
+  });
 });

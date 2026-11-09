@@ -95,6 +95,45 @@ The server responds with `200 OK` (or `404` with `code: "RECEIPT_NOT_FOUND"` if 
 
 If using `MedusaClient.js`, callers can pass `{ idempotencyKey }` to `sendMessage` and query receipts via `getMessageReceipt(idempotencyKey)`.
 
+## Opt-in Experimental Codec Negotiation
+
+`POST /messages/direct` can carry an **opt-in** encoded payload instead of (or alongside) a plain-text `message`, using any of the 9 experimental communication codecs benchmarked under `Medusa#71` (`nl-baseline-v1`, `compact-json-v1`, `graph-v1`, `graph-delta-v1`, `typed-cmd-v1`, `tuple-table-v1`, `dict-intern-v1`, `json-patch-v1`, `blackboard-ref-v1`). Default production behavior (a plain `message` string, no `codec`/`codecEnvelope`/`canonicalMessage`) is unchanged.
+
+Two ways to send an encoded payload:
+
+1. **Pre-encoded `codecEnvelope`** — encode client-side (e.g. via `MedusaClient.encodeWithCodec(codecId, canonicalMessage)`) and send the envelope as-is:
+   ```json
+   {
+     "from": "sender-workspace",
+     "to": "your-workspace-name",
+     "codecEnvelope": { "codec": "compact-json-v1", "schemaVersion": "1.0.0", "payload": {}, "wireText": "...", "humanAuditText": "[task.assign] sender -> you", "metadata": {} }
+   }
+   ```
+2. **`codec` + `canonicalMessage`** — let the Hub encode it server-side. `canonicalMessage` must be a structurally valid canonical message (`kind`, `from`, and `to` are required; `canonicalMessage.to` must match the request's `to`, alias-aware):
+   ```json
+   {
+     "from": "sender-workspace",
+     "to": "your-workspace-name",
+     "codec": "json-patch-v1",
+     "canonicalMessage": { "kind": "task.ack", "from": "sender-workspace", "to": "your-workspace-name", "status": "working" }
+   }
+   ```
+
+`message` may be omitted or empty in either form — the Hub falls back to the codec envelope's own `humanAuditText` so legacy clients that only read `message` still see something sensible.
+
+- **Validation**: the Hub checks that `codecEnvelope.codec` names a codec registered in its `CodecRegistry`, that `wireText`/`humanAuditText` are non-empty strings, and that `wireText` — the actual wire bytes, always, regardless of whether `payload` is also present — decodes into a structurally valid canonical message. If `payload` is also supplied, it must agree with what `wireText` decodes to; a valid-looking `payload` can never paper over corrupt, mismatched, or tampered `wireText`. A caller-supplied `codec` must match `codecEnvelope.codec` when both are present. An unknown codec id is refused with `400` `{ "code": "UNSUPPORTED_CODEC" }`; anything else wrong with the envelope (malformed shape, undecodable wire, a payload/wireText mismatch, or a `codec`/`codecEnvelope.codec` mismatch) is `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`. The `{ codec, canonicalMessage }` form enforces the exact same invariants: `canonicalMessage` must be structurally valid before the Hub ever encodes it, and the resulting envelope is run back through the identical validation the `codecEnvelope` form gets — unknown `codec` is checked first and always reports `UNSUPPORTED_CODEC`, even when `canonicalMessage` is also invalid.
+- **Stateful codecs decode standalone, Turn 1 and Turn 2+**: `MedusaClient.encodeWithCodec` (and the Hub's own server-side encode) attach a metadata snapshot for each of the 4 stateful codecs, so a recipient with no access to the sender's live store — the Hub's own validation, or a different client entirely — can still decode the envelope:
+  - `blackboard-ref-v1`: its wire format carries only `@art:<sha256_12>` pointers, never the referenced heavy-field values, on every turn. `codecEnvelope.metadata.blackboardArtifacts` carries the referenced values; each is re-hashed on hydration (never trusted at face value), so a forged `(hash, value)` pair can never be dereferenced under a hash it doesn't actually hash to.
+  - `json-patch-v1` / `graph-delta-v1`: Turn 1 is self-contained (a full "add" diff from an empty base), but a Turn 2+ delta sent with a persistent `context.senderStore` has `baseVersion > 0` — undecodable without first resyncing to that base. `codecEnvelope.metadata.patchBaseSnapshot` / `graphBaseSnapshot` (the base state, captured before that turn's encode) lets a fresh store resync before decode applies the delta.
+  - `dict-intern-v1`: Turn 1 is self-contained (new symbols are defined inline on first use), but a Turn 2+ message sent with a persistent `context.senderTable` may reference a symbol interned on an earlier turn and omit it from this turn's `newSymbols`. `codecEnvelope.metadata.symbolTableSnapshot` (every symbol known as of that turn) lets a fresh table resync before decode.
+  - Use `MedusaClient.decodeWithCodec(codecEnvelope)` to decode a received message — it hydrates all of the above automatically from whichever metadata the envelope actually carries.
+- **Stateful contexts are scoped per-recipient**: the `context` passed to `encodeWithCodec` (its `senderStore` / `senderTable` / `store`) must never be reused across two different recipients. `encodeWithCodec` binds a stateful context to the `to` of the first message encoded against it (`store._boundRecipient = canonicalMessage.to`); encoding against it again for a different recipient throws `CROSS_RECIPIENT_CONTEXT_REUSE` rather than silently leaking the first recipient's message content into the metadata snapshot of an envelope addressed to the second. Use a separate context per recipient. The Hub also rejects, as a defense-in-depth backstop, a `codecEnvelope.metadata.patchBaseSnapshot` whose captured state was addressed to a different recipient than the request's actual `to`.
+- **Malformed `metadata` never crashes the Hub**: an untrusted or corrupted `patchBaseSnapshot` / `graphBaseSnapshot` / `symbolTableSnapshot` / `blackboardArtifacts` is always reported as `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`, never an uncaught `500`.
+- **An envelope's destination must match the request's recipient, for every codec**: `encodeWithCodec` / the Hub's own server-side encode record `codecEnvelope.metadata.boundRecipient = canonicalMessage.to`. The Hub rejects, with `400` `{ "code": "INVALID_CODEC_ENVELOPE" }`, a request whose `to` disagrees with `boundRecipient`, with the decoded message's own `to` field, or (for `{ codec, canonicalMessage }`) with `canonicalMessage.to` — this applies uniformly, not just to the stateful-snapshot case above, so an envelope correctly encoded and bound for one recipient can never be routed to a different one. The match is alias-aware (`MedusaServer.recipientsMatch`): a workspace's id and its human-readable name are treated as the same recipient. `MedusaClient.sendMessage` deliberately does **not** pre-check this client-side — the client has no workspace registry, so it cannot tell a genuine mismatch apart from a legitimate id/name alias — it always defers to the Hub's `400`.
+- **Delivery**: the stored and delivered message (HTTP offline queue and the WS `new_message` frame) carries `codec` and the full `codecEnvelope` alongside `message`.
+- **Idempotency parity (`Medusa#67`)**: replaying the same `idempotencyKey` with the identical recipient, `message`, `codec`, `codecEnvelope`, and `canonicalMessage` returns the original receipt (`200`, `replayed: true`); any difference in the codec payload is a `409 Conflict` `IDEMPOTENCY_KEY_CONFLICT`, exactly like a differing plain `message`.
+- **Capability discovery**: `GET /version`, `GET /health`, and the WS `registered` ack all carry `supportedCodecs` (the list of registered codec ids) and `"experimental-codec-envelope-v1"` in `capabilities`.
+
 ## Heartbeats
 
 To keep the connection alive and advertise autonomous mode status, clients should periodically send a `listener_heartbeat`:

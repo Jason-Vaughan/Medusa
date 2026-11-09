@@ -2629,4 +2629,742 @@ describe('MedusaServer', () => {
       expect(server.offlineQueues.get('tc-target')).toHaveLength(1);
     });
   });
+
+  describe('Opt-in Experimental Codec Negotiation (Issue #76)', () => {
+    let wsUrl;
+    const packageJson = require('../../package.json');
+
+    const doRequest = (method, pathname, body = null, headers = {}) => {
+      return new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: testPort,
+          path: pathname,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        if (body !== null && body !== undefined) {
+          req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
+    };
+
+    const doGet = (pathname) => doRequest('GET', pathname);
+
+    beforeEach(async () => {
+      await server.start();
+      wsUrl = `ws://localhost:${testPort + 1}`;
+      server.workspaceRegistry.set('codec-target', {
+        id: 'codec-target',
+        name: 'CodecTarget',
+        path: '/projects/codec',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+      server.workspaceRegistry.set('codec-target-b', {
+        id: 'codec-target-b',
+        name: 'CodecTargetB',
+        path: '/projects/codec-b',
+        type: 'medusa',
+        registeredAt: new Date(),
+        lastSeen: new Date()
+      });
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    test('createHubCodecRegistry() / this.codecRegistry exposes all 9 experimental codecs', () => {
+      const ids = server.codecRegistry.listCapabilities().map((c) => c.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          'nl-baseline-v1', 'compact-json-v1', 'graph-v1', 'graph-delta-v1', 'typed-cmd-v1',
+          'tuple-table-v1', 'dict-intern-v1', 'json-patch-v1', 'blackboard-ref-v1'
+        ])
+      );
+      expect(ids).toHaveLength(9);
+    });
+
+    test('GET /version, GET /health, and the WS "registered" ack all expose supportedCodecs and experimental-codec-envelope-v1', async () => {
+      const versionRes = await doGet('/version');
+      expect(versionRes.data.supportedCodecs).toEqual(expect.arrayContaining(['json-patch-v1', 'blackboard-ref-v1']));
+      expect(versionRes.data.capabilities).toContain('experimental-codec-envelope-v1');
+
+      jest.spyOn(server, 'callA2A').mockResolvedValue({ ok: true, data: [] });
+      const healthRes = await doGet('/health');
+      expect(healthRes.data.supportedCodecs).toEqual(expect.arrayContaining(['tuple-table-v1', 'dict-intern-v1']));
+
+      const ws = createWebSocket(wsUrl);
+      const registered = await new Promise((resolve, reject) => {
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'register', workspaceId: 'codec-ws' })));
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'registered') resolve(msg);
+        });
+        ws.on('error', reject);
+      });
+      expect(registered.supportedCodecs).toEqual(expect.arrayContaining(['nl-baseline-v1', 'json-patch-v1']));
+    });
+
+    test('accepts a pre-encoded codecEnvelope (compact-json-v1) and delivers it with the stored message', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign',
+        from: 'sender-ws',
+        to: 'codec-target',
+        summary: 'Opt-in codec test'
+      }).envelope;
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.success).toBe(true);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued).toHaveLength(1);
+      expect(queued[0].codec).toBe('compact-json-v1');
+      expect(queued[0].codecEnvelope).toEqual(envelope);
+      // Legacy/human fallback: message omitted by the caller, so the Hub uses humanAuditText.
+      expect(queued[0].message).toBe(envelope.humanAuditText);
+    });
+
+    test('accepts { codec, canonicalMessage } and encodes it server-side via this.codecRegistry', async () => {
+      const canonicalMessage = { kind: 'task.ack', from: 'sender-ws', to: 'codec-target', status: 'working' };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'json-patch-v1',
+        canonicalMessage
+      });
+
+      expect(res.status).toBe(200);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued[0].codec).toBe('json-patch-v1');
+      expect(queued[0].codecEnvelope).toBeDefined();
+      expect(queued[0].codecEnvelope.codec).toBe('json-patch-v1');
+      expect(queued[0].message).toBe(queued[0].codecEnvelope.humanAuditText);
+    });
+
+    test('rejects an unknown codec id with 400 UNSUPPORTED_CODEC (both codecEnvelope and {codec, canonicalMessage} forms)', async () => {
+      const viaEnvelope = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'nonexistent-codec-v9', wireText: '{}', humanAuditText: 'x' }
+      });
+      expect(viaEnvelope.status).toBe(400);
+      expect(viaEnvelope.data.code).toBe('UNSUPPORTED_CODEC');
+
+      const viaCanonical = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nonexistent-codec-v9',
+        canonicalMessage: { kind: 'task.ack' }
+      });
+      expect(viaCanonical.status).toBe(400);
+      expect(viaCanonical.data.code).toBe('UNSUPPORTED_CODEC');
+    });
+
+    test('rejects a malformed codecEnvelope with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const missingWireText = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', humanAuditText: 'x' }
+      });
+      expect(missingWireText.status).toBe(400);
+      expect(missingWireText.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const missingHumanAuditText = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', wireText: '{"a":1}' }
+      });
+      expect(missingHumanAuditText.status).toBe(400);
+      expect(missingHumanAuditText.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const undecodable = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: { codec: 'compact-json-v1', wireText: 'not valid json at all', humanAuditText: 'x' }
+      });
+      expect(undecodable.status).toBe(400);
+      expect(undecodable.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: a valid payload paired with garbage wireText is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'legit'
+      }).envelope;
+
+      const tampered = { ...envelope, wireText: 'this is not valid JSON at all' };
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: tampered
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: a valid-looking payload that decodes to DIFFERENT content than wireText is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'original'
+      }).envelope;
+
+      // Valid, well-formed JSON wireText, but it decodes to a DIFFERENT canonical message than
+      // envelope.payload claims -- the payload-preferring decode() shortcut must not paper over this.
+      const divergent = {
+        ...envelope,
+        wireText: JSON.stringify({ kind: 'task.ack', from: 'someone-else', to: 'codec-target', status: 'working' })
+      };
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: divergent
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: a server-encoded blackboard-ref-v1 message is recoverable by the recipient via client.decodeWithCodec() without MISSING_ARTIFACT', async () => {
+      const canonicalMessage = {
+        kind: 'task.assign',
+        from: 'sender-ws',
+        to: 'codec-target',
+        scope: ['src/a.js', 'src/b.js'],
+        constraints: ['bind_host=127.0.0.1'],
+        summary: 'Heavy-field blackboard test'
+      };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'blackboard-ref-v1',
+        canonicalMessage
+      });
+      expect(res.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued[0].codec).toBe('blackboard-ref-v1');
+      expect(Array.isArray(queued[0].codecEnvelope.metadata.blackboardArtifacts)).toBe(true);
+
+      // A brand-new client (no shared state with the server) decodes the delivered envelope.
+      const MedusaClientModule = require('./client/MedusaClient');
+      const recipientClient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipientClient.decodeWithCodec(queued[0].codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.errors).toEqual([]);
+      expect(decoded.message).toEqual(canonicalMessage);
+    });
+
+    test('R-Gate Round 2: an invalid stateful wireText (blackboard-ref-v1 with a missing @art: pointer) is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const envelope = server.codecRegistry.encode('blackboard-ref-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', scope: ['a.js']
+      }).envelope;
+      // Strip the metadata snapshot a real encode would carry, so the referenced @art: pointer
+      // cannot be resolved -- this must be rejected, not silently delivered as broken wire.
+      const brokenEnvelope = { ...envelope, metadata: {} };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: brokenEnvelope
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: an invalid stateful wireText (malformed json-patch-v1 ops) is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const envelope = server.codecRegistry.encode('json-patch-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', status: 'working'
+      }).envelope;
+      const brokenEnvelope = {
+        ...envelope,
+        wireText: JSON.stringify({ v: 1, baseVersion: 0, targetVersion: 1, ops: [{ op: 'move', path: '/kind', value: 'x' }] })
+      };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: brokenEnvelope
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: a mismatched data.codec !== codecEnvelope.codec is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'x'
+      }).envelope;
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nl-baseline-v1',
+        codecEnvelope: envelope
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 2: codec supplied alone (no codecEnvelope, no canonicalMessage) is rejected -- known codec as INVALID_CODEC_ENVELOPE, unknown as UNSUPPORTED_CODEC', async () => {
+      const knownCodecOnly = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1'
+      });
+      expect(knownCodecOnly.status).toBe(400);
+      expect(knownCodecOnly.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const unknownCodecOnly = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nonexistent-codec-v9'
+      });
+      expect(unknownCodecOnly.status).toBe(400);
+      expect(unknownCodecOnly.data.code).toBe('UNSUPPORTED_CODEC');
+    });
+
+    test('R-Gate Round 3: two-turn json-patch-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const { FlatStateRegister } = require('./experiments/codecs/JsonPatchDeltaCodec');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      // R-Gate Round 4 fix: must be the ACTUAL store instance nested under `senderStore`, not a
+      // bare object passed directly as `context` -- encodeWithCodec only reuses state it finds at
+      // `context.senderStore`, so passing the store itself as `context` silently creates a fresh
+      // one on every call and both "turns" end up being independent Turn 1s.
+      const ctx = { senderStore: new FlatStateRegister() };
+
+      const turn1Envelope = sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
+      }, ctx);
+      expect(turn1Envelope.payload.baseVersion).toBe(0);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      const turn2Envelope = sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
+      }, ctx);
+      expect(turn2Envelope.payload.baseVersion).toBe(1);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({ kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete' });
+    });
+
+    test('R-Gate Round 3: two-turn dict-intern-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const { SharedSymbolTable } = require('./experiments/codecs/DictionaryInternCodec');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      // See the Round 4 fix note above: must be the real table under `senderTable`.
+      const ctx = { senderTable: new SharedSymbolTable() };
+
+      const turn1Envelope = sender.encodeWithCodec('dict-intern-v1', {
+        kind: 'task.assign', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      }, ctx);
+      expect(turn1Envelope.payload.newSymbols.length).toBeGreaterThan(0);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      // Turn 2 reuses symbols interned on Turn 1 (same from/scope), so wire-level newSymbols is empty.
+      const turn2Envelope = sender.encodeWithCodec('dict-intern-v1', {
+        kind: 'task.ack', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      }, ctx);
+      expect(turn2Envelope.payload.newSymbols).toEqual([]);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({
+        kind: 'task.ack', from: 'repeated-workspace-name', to: 'codec-target', scope: ['src/shared.js']
+      });
+    });
+
+    test('R-Gate Round 3: two-turn graph-delta-v1 via a persistent client context sends and decodes cleanly on Turn 2', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const { SharedGraphStore } = require('./experiments/codecs/CodecRegistry');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      // See the Round 4 fix note above: must be the real store under `senderStore`.
+      const ctx = { senderStore: new SharedGraphStore() };
+
+      const turn1Envelope = sender.encodeWithCodec('graph-delta-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working'
+      }, ctx);
+      expect(turn1Envelope.payload.bv).toBe(0);
+      const turn1 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn1Envelope
+      });
+      expect(turn1.status).toBe(200);
+
+      const turn2Envelope = sender.encodeWithCodec('graph-delta-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete'
+      }, ctx);
+      expect(turn2Envelope.payload.bv).toBe(1);
+      const turn2 = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: turn2Envelope
+      });
+      expect(turn2.status).toBe(200);
+
+      const queued = server.offlineQueues.get('codec-target');
+      const turn2Message = queued[queued.length - 1];
+      const recipient = new MedusaClientModule({ serverUrl: 'http://localhost:1' });
+      const decoded = recipient.decodeWithCodec(turn2Message.codecEnvelope);
+      expect(decoded.ok).toBe(true);
+      expect(decoded.message).toEqual({ kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'complete' });
+    });
+
+    test('R-Gate Round 4: reusing a stateful context for a DIFFERENT recipient throws CROSS_RECIPIENT_CONTEXT_REUSE', () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const { FlatStateRegister } = require('./experiments/codecs/JsonPatchDeltaCodec');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      const ctx = { senderStore: new FlatStateRegister() };
+
+      sender.encodeWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'recipientA', secret: 'FOR_A_ONLY'
+      }, ctx);
+
+      expect(() =>
+        sender.encodeWithCodec('json-patch-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipientB' }, ctx)
+      ).toThrow(/CROSS_RECIPIENT_CONTEXT_REUSE/);
+    });
+
+    test('R-Gate Round 4: a server-side cross-recipient stateful snapshot is rejected with 400 INVALID_CODEC_ENVELOPE', async () => {
+      const legit = server.encodeCanonicalMessageWithCodec('json-patch-v1', {
+        kind: 'state.update', from: 'sender-ws', to: 'codec-target', secret: 'FOR_TARGET_ONLY'
+      }).envelope;
+      // Simulate an envelope whose patchBaseSnapshot.state.to disagrees with the actual recipient
+      // this request is addressed to.
+      const crossRecipient = JSON.parse(JSON.stringify(legit));
+      crossRecipient.metadata.patchBaseSnapshot.state = { to: 'some-other-workspace' };
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: crossRecipient
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 4: malformed metadata (blackboardArtifacts:[null] / graphBaseSnapshot with a null node) is rejected with 400, never a 500', async () => {
+      const badBlackboard = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: {
+          codec: 'blackboard-ref-v1',
+          wireText: JSON.stringify({ v: 1, fields: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target', scope: '@art:0123456789ab' } }),
+          humanAuditText: 'x',
+          metadata: { blackboardArtifacts: [null] }
+        }
+      });
+      expect(badBlackboard.status).toBe(400);
+      expect(badBlackboard.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const badGraph = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: {
+          codec: 'graph-delta-v1',
+          wireText: JSON.stringify({ v: 1, bv: 1, tv: 2, un: [], ue: [] }),
+          humanAuditText: 'x',
+          metadata: { graphBaseSnapshot: { nodes: [null] } }
+        }
+      });
+      expect(badGraph.status).toBe(400);
+      expect(badGraph.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 5: an envelope correctly encoded and bound for recipient-A is rejected with 400 when routed to recipient-B, for all 4 stateful codecs', async () => {
+      server.workspaceRegistry.set('recipient-a', {
+        id: 'recipient-a', name: 'RecipientA', path: '', type: 'medusa', registeredAt: new Date(), lastSeen: new Date()
+      });
+
+      const stateful = [
+        ['json-patch-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipient-a', status: 'working' }],
+        ['graph-delta-v1', { kind: 'state.update', from: 'sender-ws', to: 'recipient-a', status: 'working' }],
+        ['dict-intern-v1', { kind: 'task.assign', from: 'sender-ws', to: 'recipient-a', scope: ['a.js'] }],
+        ['blackboard-ref-v1', { kind: 'task.assign', from: 'sender-ws', to: 'recipient-a', scope: ['a.js'] }]
+      ];
+
+      for (const [codecId, canonicalMessage] of stateful) {
+        const envelope = server.encodeCanonicalMessageWithCodec(codecId, canonicalMessage).envelope;
+        expect(envelope.metadata.boundRecipient).toBe('recipient-a');
+
+        const res = await doRequest('POST', '/messages/direct', {
+          from: 'sender-ws', to: 'codec-target-b', codecEnvelope: envelope
+        });
+        expect(res.status).toBe(400);
+        expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      }
+    });
+
+    test('R-Gate Round 5: Hub-side {codec, canonicalMessage} with a mismatched canonicalMessage.to is rejected with 400 before encoding', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target-b',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'wrong recipient' }
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target-b')).toBeUndefined();
+    });
+
+    test('R-Gate Round 7: Hub-side {codec, canonicalMessage} rejects a canonicalMessage.to that is missing or non-string, before encoding', async () => {
+      const missingTo = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', summary: 'no to field' }
+      });
+      expect(missingTo.status).toBe(400);
+      expect(missingTo.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target')).toBeUndefined();
+
+      const nonStringTo = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 123, summary: 'numeric to' }
+      });
+      expect(nonStringTo.status).toBe(400);
+      expect(nonStringTo.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('R-Gate Round 7: Hub-side {codec, canonicalMessage} rejects a canonicalMessage missing required kind/from, before encoding', async () => {
+      const missingKind = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { from: 'sender-ws', to: 'codec-target', summary: 'no kind' }
+      });
+      expect(missingKind.status).toBe(400);
+      expect(missingKind.data.code).toBe('INVALID_CODEC_ENVELOPE');
+
+      const missingFrom = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', to: 'codec-target', summary: 'no from' }
+      });
+      expect(missingFrom.status).toBe(400);
+      expect(missingFrom.data.code).toBe('INVALID_CODEC_ENVELOPE');
+      expect(server.offlineQueues.get('codec-target')).toBeUndefined();
+    });
+
+    test('R-Gate Round 7: an unknown codec with an invalid canonicalMessage still reports UNSUPPORTED_CODEC, not INVALID_CODEC_ENVELOPE', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nonexistent-codec-v9',
+        canonicalMessage: { summary: 'missing everything required' }
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('UNSUPPORTED_CODEC');
+    });
+
+    test('R-Gate Round 6: MedusaClient.sendMessage defers cross-recipient rejection to the Hub (400), not a client-side throw', async () => {
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      sender.workspaceId = 'sender-ws';
+
+      // No client-side CROSS_RECIPIENT_ROUTING_MISMATCH throw anymore (Round 6): the client can't
+      // tell a genuine mismatch apart from a legitimate id/name alias, so this request actually
+      // reaches the Hub, which rejects the genuine mismatch with 400. metadata.codec must be
+      // supplied alongside canonicalMessage -- without it the Hub never engages the codec path
+      // at all and this would silently fall through to a plain (non-codec) message send.
+      await expect(sender.sendMessage('codec-target-b', null, {
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target' }
+      })).rejects.toMatchObject({ status: 400 });
+
+      const envelope = sender.encodeWithCodec('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target'
+      });
+      await expect(sender.sendMessage('codec-target-b', null, { codecEnvelope: envelope }))
+        .rejects.toMatchObject({ status: 400 });
+    });
+
+    test('R-Gate Round 6: sendMessage SUCCEEDS when canonicalMessage.to / targetWorkspace are an id/name alias of the same workspace', async () => {
+      // "codec-target" is registered with id "codec-target" and name "CodecTarget" -- a
+      // legitimate alias pair only the Hub's registry (via recipientsMatch) can resolve.
+      const MedusaClientModule = require('./client/MedusaClient');
+      const sender = new MedusaClientModule({ serverUrl: `http://localhost:${testPort}` });
+      sender.workspaceId = 'sender-ws';
+
+      // canonicalMessage.to is the id, targetWorkspace is the human-readable name.
+      // metadata.codec must be present for the Hub to engage the canonicalMessage/recipientsMatch
+      // path at all (otherwise this would just be an ordinary, codec-less message send).
+      const res1 = await sender.sendMessage('CodecTarget', null, {
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.assign', from: 'sender-ws', to: 'codec-target' }
+      });
+      expect(res1.success).toBe(true);
+
+      // Reverse: canonicalMessage.to is the name, targetWorkspace is the id.
+      const res2 = await sender.sendMessage('codec-target', null, {
+        codec: 'compact-json-v1',
+        canonicalMessage: { kind: 'task.ack', from: 'sender-ws', to: 'CodecTarget' }
+      });
+      expect(res2.success).toBe(true);
+
+      // Same alias pair via a pre-encoded codecEnvelope (bound recipient is the id).
+      const envelope = sender.encodeWithCodec('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target'
+      });
+      const res3 = await sender.sendMessage('CodecTarget', null, { codecEnvelope: envelope });
+      expect(res3.success).toBe(true);
+    });
+
+    test('R-Gate Round 3: a blackboard-ref-v1 envelope whose metadata.blackboardArtifacts value does not match its @art: digest is rejected', async () => {
+      const envelope = server.encodeCanonicalMessageWithCodec('blackboard-ref-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', scope: ['a.js']
+      }).envelope;
+
+      const forged = JSON.parse(JSON.stringify(envelope));
+      // Claim an entry under a hash that does NOT match the actual content's SHA-256 digest.
+      forged.metadata.blackboardArtifacts = [['deadbeefcafe', 'FORGED VALUE NOT MATCHING ANY REAL @art: POINTER']];
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws', to: 'codec-target', codecEnvelope: forged
+      });
+      expect(res.status).toBe(400);
+      expect(res.data.code).toBe('INVALID_CODEC_ENVELOPE');
+    });
+
+    test('fully decodes and structurally validates a stateful codec envelope like json-patch-v1 (fresh-context hydration round-trips standalone)', async () => {
+      const envelope = server.codecRegistry.encode(
+        'json-patch-v1',
+        { kind: 'state.update', from: 'sender-ws', to: 'codec-target', status: 'working' },
+        {}
+      ).envelope;
+
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope
+      });
+
+      expect(res.status).toBe(200);
+      expect(server.offlineQueues.get('codec-target')[0].codec).toBe('json-patch-v1');
+    });
+
+    test('maintains #67 idempotency parity: replaying the same idempotencyKey with the same codecEnvelope returns 200 replayed:true', async () => {
+      const envelope = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'x'
+      }).envelope;
+      const payload = {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelope,
+        idempotencyKey: 'codec-replay-key-1'
+      };
+
+      const first = await doRequest('POST', '/messages/direct', payload);
+      expect(first.status).toBe(200);
+      expect(first.data.replayed).toBe(false);
+
+      const replay = await doRequest('POST', '/messages/direct', payload);
+      expect(replay.status).toBe(200);
+      expect(replay.data.replayed).toBe(true);
+      expect(replay.data.id).toBe(first.data.id);
+      expect(server.offlineQueues.get('codec-target')).toHaveLength(1);
+    });
+
+    test('maintains #67 idempotency parity: replaying the same idempotencyKey with a DIFFERENT codecEnvelope returns 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      const envelopeA = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'A'
+      }).envelope;
+      const envelopeB = server.codecRegistry.encode('compact-json-v1', {
+        kind: 'task.assign', from: 'sender-ws', to: 'codec-target', summary: 'B'
+      }).envelope;
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelopeA,
+        idempotencyKey: 'codec-conflict-key-1'
+      });
+      expect(first.status).toBe(200);
+
+      const conflict = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codecEnvelope: envelopeB,
+        idempotencyKey: 'codec-conflict-key-1'
+      });
+      expect(conflict.status).toBe(409);
+      expect(conflict.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+    });
+
+    test('maintains #67 idempotency parity: replaying with a different codec id (same canonicalMessage) returns 409 IDEMPOTENCY_KEY_CONFLICT', async () => {
+      const canonicalMessage = { kind: 'task.ack', from: 'sender-ws', to: 'codec-target', status: 'working' };
+
+      const first = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'compact-json-v1',
+        canonicalMessage,
+        idempotencyKey: 'codec-conflict-key-2'
+      });
+      expect(first.status).toBe(200);
+
+      const conflict = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        codec: 'nl-baseline-v1',
+        canonicalMessage,
+        idempotencyKey: 'codec-conflict-key-2'
+      });
+      expect(conflict.status).toBe(409);
+      expect(conflict.data.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+    });
+
+    test('a legacy plain-message request (no codec fields) is unaffected and still works', async () => {
+      const res = await doRequest('POST', '/messages/direct', {
+        from: 'sender-ws',
+        to: 'codec-target',
+        message: 'Plain legacy message, no codec involved'
+      });
+      expect(res.status).toBe(200);
+      const queued = server.offlineQueues.get('codec-target');
+      expect(queued[0].message).toBe('Plain legacy message, no codec involved');
+      expect(queued[0].codec).toBeUndefined();
+      expect(queued[0].codecEnvelope).toBeUndefined();
+    });
+  });
 });
